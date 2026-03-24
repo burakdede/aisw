@@ -1,5 +1,4 @@
-/// The three AI CLI tools aisw manages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum Tool {
     Claude,
     Codex,
