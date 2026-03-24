@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Load cargo env if not already on PATH
+if ! command -v cargo &>/dev/null; then
+  source "$HOME/.cargo/env"
+fi
+
+echo "--- test ---"
+cargo test
+echo "--- release build ---"
+cargo build --release
+
+echo "pre-push: ok"
