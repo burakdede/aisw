@@ -29,8 +29,13 @@ function aisw
       return $status
     end
     for line in $_aisw_env
-      set -l parts (string replace 'export ' '' -- $line | string split '=' -m1)
-      set -gx $parts[1] $parts[2]
+      if string match -q 'unset *' -- $line
+        set -l var (string replace 'unset ' '' -- $line)
+        set -e $var
+      else
+        set -l parts (string replace 'export ' '' -- $line | string split '=' -m1)
+        set -gx $parts[1] $parts[2]
+      end
     end
     command aisw $argv
   else
@@ -104,5 +109,7 @@ mod tests {
     fn fish_hook_parses_env_lines() {
         assert!(FISH_HOOK.contains("string replace"));
         assert!(FISH_HOOK.contains("string split"));
+        assert!(FISH_HOOK.contains("unset "));
+        assert!(FISH_HOOK.contains("set -e"));
     }
 }

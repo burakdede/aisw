@@ -139,6 +139,55 @@ fn use_gemini_api_key_rewrites_gemini_env() {
 }
 
 #[test]
+fn use_gemini_api_key_emit_env_prints_gemini_key() {
+    let env = TestEnv::new();
+    add_gemini_profile(&env, "work");
+
+    env.cmd()
+        .args(["use", "gemini", "work", "--emit-env"])
+        .assert()
+        .success()
+        .stdout(contains("export GEMINI_API_KEY="));
+}
+
+#[test]
+fn use_gemini_oauth_emit_env_unsets_gemini_key() {
+    let env = TestEnv::new();
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+
+    let profile_dir = env.aisw_home.join("profiles").join("gemini").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(profile_dir.join("oauth_creds.json"), r#"{"token":"tok"}"#).unwrap();
+    let config_json = serde_json::json!({
+        "version": 1,
+        "active": {"claude": null, "codex": null, "gemini": null},
+        "profiles": {
+            "claude": {},
+            "codex": {},
+            "gemini": {
+                "work": {
+                    "added_at": "2026-03-25T00:00:00Z",
+                    "auth_method": "o_auth",
+                    "label": null
+                }
+            }
+        },
+        "settings": {"backup_on_switch": true, "max_backups": 10}
+    });
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["use", "gemini", "work", "--emit-env"])
+        .assert()
+        .success()
+        .stdout(contains("unset GEMINI_API_KEY"));
+}
+
+#[test]
 fn use_without_emit_env_prints_switched_message() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");

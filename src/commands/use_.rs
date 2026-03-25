@@ -93,18 +93,27 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 .with_context(|| format!("could not create {}", gemini_dir.display()))?;
             match profile_meta.auth_method {
                 AuthMethod::ApiKey => {
-                    auth::gemini::apply_env_file(
-                        &profile_store,
-                        &args.profile_name,
-                        &gemini_dir.join(".env"),
-                    )?;
+                    if args.emit_env {
+                        let key = auth::gemini::read_api_key(&profile_store, &args.profile_name)?;
+                        println!("export GEMINI_API_KEY={}", key);
+                    } else {
+                        auth::gemini::apply_env_file(
+                            &profile_store,
+                            &args.profile_name,
+                            &gemini_dir.join(".env"),
+                        )?;
+                    }
                 }
                 AuthMethod::OAuth => {
-                    auth::gemini::apply_token_cache(
-                        &profile_store,
-                        &args.profile_name,
-                        &gemini_dir,
-                    )?;
+                    if args.emit_env {
+                        println!("unset GEMINI_API_KEY");
+                    } else {
+                        auth::gemini::apply_token_cache(
+                            &profile_store,
+                            &args.profile_name,
+                            &gemini_dir,
+                        )?;
+                    }
                 }
             }
         }

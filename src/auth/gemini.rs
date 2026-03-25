@@ -284,6 +284,12 @@ pub fn apply_token_cache(
             .with_context(|| format!("could not copy {} to {}", src.display(), dst.display()))?;
         set_permissions_600(&dst)?;
     }
+
+    let env_file = gemini_dir.join(ENV_FILE);
+    if env_file.exists() {
+        std::fs::remove_file(&env_file)
+            .with_context(|| format!("could not remove {}", env_file.display()))?;
+    }
     Ok(())
 }
 
@@ -294,6 +300,9 @@ pub fn live_token_cache_matches(
 ) -> Result<bool> {
     let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
     if !gemini_dir.exists() {
+        return Ok(false);
+    }
+    if gemini_dir.join(ENV_FILE).exists() {
         return Ok(false);
     }
 
@@ -643,5 +652,65 @@ mod tests {
         apply_token_cache(&ps, "default", &dest_dir).unwrap();
 
         assert!(dest_dir.join("oauth_creds.json").exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn apply_token_cache_removes_stale_env_file() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true, false);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let dest_dir = dir.path().join("fake_gemini_home");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        std::fs::write(dest_dir.join(ENV_FILE), b"GEMINI_API_KEY=stale\n").unwrap();
+
+        apply_token_cache(&ps, "default", &dest_dir).unwrap();
+
+        assert!(!dest_dir.join(ENV_FILE).exists());
+        assert!(dest_dir.join("oauth_creds.json").exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn live_token_cache_match_fails_when_stale_env_file_exists() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true, false);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let dest_dir = dir.path().join("fake_gemini_home");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        apply_token_cache(&ps, "default", &dest_dir).unwrap();
+        std::fs::write(dest_dir.join(ENV_FILE), b"GEMINI_API_KEY=stale\n").unwrap();
+
+        assert!(!live_token_cache_matches(&ps, "default", &dest_dir).unwrap());
     }
 }
