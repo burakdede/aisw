@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{ConfigStore, ProfileMeta};
+use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -171,8 +171,9 @@ impl BackupManager {
                     format!("could not create profile dir {}", dest_dir.display())
                 })?;
 
-                let metadata = read_metadata(&profile_path.join(METADATA_FILE))?;
-                config_store.upsert_profile(tool, &profile_name, metadata.profile_meta)?;
+                let profile_meta =
+                    restore_profile_meta(config_store, tool, &profile_name, &profile_path)?;
+                config_store.upsert_profile(tool, &profile_name, profile_meta)?;
 
                 for file_entry in fs::read_dir(&profile_path)? {
                     let file_entry = file_entry?;
@@ -259,6 +260,83 @@ fn read_metadata(path: &Path) -> Result<BackupProfileMetadata> {
         .with_context(|| format!("could not parse backup metadata file {}", path.display()))
 }
 
+fn restore_profile_meta(
+    config_store: &ConfigStore,
+    tool: Tool,
+    profile_name: &str,
+    profile_path: &Path,
+) -> Result<ProfileMeta> {
+    let metadata_path = profile_path.join(METADATA_FILE);
+    if metadata_path.is_file() {
+        return Ok(read_metadata(&metadata_path)?.profile_meta);
+    }
+
+    if let Some(existing) = existing_profile_meta(config_store, tool, profile_name)? {
+        return Ok(existing);
+    }
+
+    Ok(ProfileMeta {
+        added_at: Utc::now(),
+        auth_method: infer_auth_method(tool, profile_path)?,
+        label: None,
+    })
+}
+
+fn existing_profile_meta(
+    config_store: &ConfigStore,
+    tool: Tool,
+    profile_name: &str,
+) -> Result<Option<ProfileMeta>> {
+    let config = config_store.load()?;
+    let existing = match tool {
+        Tool::Claude => config.profiles.claude.get(profile_name),
+        Tool::Codex => config.profiles.codex.get(profile_name),
+        Tool::Gemini => config.profiles.gemini.get(profile_name),
+    };
+    Ok(existing.cloned())
+}
+
+fn infer_auth_method(tool: Tool, profile_path: &Path) -> Result<AuthMethod> {
+    match tool {
+        Tool::Claude => infer_json_field_auth_method(
+            &profile_path.join(".credentials.json"),
+            "apiKey",
+            AuthMethod::ApiKey,
+            AuthMethod::OAuth,
+        ),
+        Tool::Codex => infer_json_field_auth_method(
+            &profile_path.join("auth.json"),
+            "token",
+            AuthMethod::ApiKey,
+            AuthMethod::OAuth,
+        ),
+        Tool::Gemini => {
+            if profile_path.join(".env").is_file() {
+                Ok(AuthMethod::ApiKey)
+            } else {
+                Ok(AuthMethod::OAuth)
+            }
+        }
+    }
+}
+
+fn infer_json_field_auth_method(
+    path: &Path,
+    api_field: &str,
+    api_method: AuthMethod,
+    fallback_method: AuthMethod,
+) -> Result<AuthMethod> {
+    let bytes = fs::read(path)
+        .with_context(|| format!("could not read legacy backup file {}", path.display()))?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("could not parse legacy backup file {}", path.display()))?;
+    Ok(if json.get(api_field).and_then(|v| v.as_str()).is_some() {
+        api_method
+    } else {
+        fallback_method
+    })
+}
+
 #[cfg(unix)]
 fn set_permissions_600(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -302,6 +380,25 @@ mod tests {
             auth_method: crate::config::AuthMethod::ApiKey,
             label: Some("Test".to_owned()),
         }
+    }
+
+    fn write_legacy_backup(
+        dir: &Path,
+        backup_id: &str,
+        tool: Tool,
+        name: &str,
+        files: &[(&str, &[u8])],
+    ) -> PathBuf {
+        let backup_dir = dir
+            .join(BACKUPS_DIR)
+            .join(backup_id)
+            .join(tool.dir_name())
+            .join(name);
+        fs::create_dir_all(&backup_dir).unwrap();
+        for (filename, contents) in files {
+            fs::write(backup_dir.join(filename), contents).unwrap();
+        }
+        backup_dir
     }
 
     #[test]
@@ -555,5 +652,93 @@ mod tests {
         let restored = &config.profiles.claude["work"];
         assert_eq!(restored.auth_method, meta.auth_method);
         assert_eq!(restored.label, meta.label);
+    }
+
+    #[test]
+    fn restore_legacy_claude_backup_infers_api_key_profile() {
+        let dir = tempdir().unwrap();
+        write_legacy_backup(
+            dir.path(),
+            "legacy-claude",
+            Tool::Claude,
+            "work",
+            &[(
+                ".credentials.json",
+                b"{\"apiKey\":\"sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+            )],
+        );
+
+        let m = manager(dir.path());
+        let ps = profile_store(dir.path());
+        let cs = ConfigStore::new(dir.path());
+        m.restore("legacy-claude", &ps, &cs).unwrap();
+
+        let config = cs.load().unwrap();
+        assert_eq!(
+            config.profiles.claude["work"].auth_method,
+            AuthMethod::ApiKey
+        );
+        assert_eq!(
+            ps.read_file(Tool::Claude, "work", ".credentials.json")
+                .unwrap(),
+            b"{\"apiKey\":\"sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}"
+        );
+    }
+
+    #[test]
+    fn restore_legacy_codex_backup_infers_api_key_profile() {
+        let dir = tempdir().unwrap();
+        write_legacy_backup(
+            dir.path(),
+            "legacy-codex",
+            Tool::Codex,
+            "main",
+            &[
+                ("auth.json", b"{\"token\":\"sk-codex-test-key-12345\"}"),
+                ("config.toml", b"cli_auth_credentials_store = \"file\"\n"),
+            ],
+        );
+
+        let m = manager(dir.path());
+        let ps = profile_store(dir.path());
+        let cs = ConfigStore::new(dir.path());
+        m.restore("legacy-codex", &ps, &cs).unwrap();
+
+        let config = cs.load().unwrap();
+        assert_eq!(
+            config.profiles.codex["main"].auth_method,
+            AuthMethod::ApiKey
+        );
+        assert_eq!(
+            ps.read_file(Tool::Codex, "main", "auth.json").unwrap(),
+            b"{\"token\":\"sk-codex-test-key-12345\"}"
+        );
+    }
+
+    #[test]
+    fn restore_legacy_gemini_backup_infers_api_key_profile() {
+        let dir = tempdir().unwrap();
+        write_legacy_backup(
+            dir.path(),
+            "legacy-gemini",
+            Tool::Gemini,
+            "default",
+            &[(".env", b"GEMINI_API_KEY=AIzaLegacy\n")],
+        );
+
+        let m = manager(dir.path());
+        let ps = profile_store(dir.path());
+        let cs = ConfigStore::new(dir.path());
+        m.restore("legacy-gemini", &ps, &cs).unwrap();
+
+        let config = cs.load().unwrap();
+        assert_eq!(
+            config.profiles.gemini["default"].auth_method,
+            AuthMethod::ApiKey
+        );
+        assert_eq!(
+            ps.read_file(Tool::Gemini, "default", ".env").unwrap(),
+            b"GEMINI_API_KEY=AIzaLegacy\n"
+        );
     }
 }
