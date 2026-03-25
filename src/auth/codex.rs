@@ -85,6 +85,7 @@ pub fn add_oauth(
         label,
         codex_bin,
         OAUTH_TIMEOUT,
+        POLL_INTERVAL,
     )
 }
 
@@ -95,6 +96,7 @@ fn add_oauth_with(
     label: Option<String>,
     codex_bin: &Path,
     timeout: Duration,
+    poll_interval: Duration,
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Codex, name)?;
 
@@ -110,9 +112,10 @@ fn add_oauth_with(
             let _ = profile_store.delete(Tool::Codex, name);
         })?;
 
-    let auth_path = run_oauth_flow(codex_bin, &profile_dir, timeout).inspect_err(|_| {
-        let _ = profile_store.delete(Tool::Codex, name);
-    })?;
+    let auth_path =
+        run_oauth_flow(codex_bin, &profile_dir, timeout, poll_interval).inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Codex, name);
+        })?;
 
     set_auth_permissions(&auth_path)?;
 
@@ -129,7 +132,12 @@ fn add_oauth_with(
     Ok(())
 }
 
-fn run_oauth_flow(codex_bin: &Path, profile_dir: &Path, timeout: Duration) -> Result<PathBuf> {
+fn run_oauth_flow(
+    codex_bin: &Path,
+    profile_dir: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<PathBuf> {
     let mut child = Command::new(codex_bin)
         .arg("login")
         .env("CODEX_HOME", profile_dir)
@@ -157,7 +165,7 @@ fn run_oauth_flow(codex_bin: &Path, profile_dir: &Path, timeout: Duration) -> Re
             );
         }
 
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(poll_interval);
     }
 }
 
@@ -299,19 +307,24 @@ mod tests {
 
     // ---- OAuth tests ----
 
+    // Poll interval used in all OAuth tests.
+    const TEST_POLL: Duration = Duration::from_millis(10);
+
+    /// Creates a mock binary that either writes auth.json immediately or exits
+    /// without writing anything (for timeout tests).
+    ///
+    /// No `sleep` is used — `sleep` spawns a child process that becomes an orphan
+    /// when the parent shell is SIGKILL'd, which can cause ETXTBSY on path reuse.
     #[cfg(unix)]
-    fn make_oauth_mock(dir: &std::path::Path, delay_secs: u64, write_auth: bool) -> PathBuf {
+    fn make_oauth_mock(dir: &std::path::Path, write_auth: bool) -> PathBuf {
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
         let bin = dir.join("codex");
         let body = if write_auth {
-            format!(
-                "sleep {}\necho '{{\"token\":\"tok\"}}' > \"$CODEX_HOME/auth.json\"\n",
-                delay_secs
-            )
+            "echo '{\"token\":\"tok\"}' > \"$CODEX_HOME/auth.json\"\n"
         } else {
-            format!("sleep {}\n", delay_secs)
+            "exit 0\n" // exits without writing auth; poll loop times out naturally
         };
         fs::write(&bin, format!("#!/bin/sh\n{}", body)).unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -321,6 +334,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_config_toml_written_before_spawn() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         // Verify config.toml exists in the profile dir when the mock binary runs.
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
@@ -339,7 +353,16 @@ mod tests {
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "main",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         let sentinel = ps
             .profile_dir(Tool::Codex, "main")
@@ -353,13 +376,23 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_flow_succeeds() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, 0, true);
+        let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "main",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         assert!(ps.exists(Tool::Codex, "main"));
         let config = cs.load().unwrap();
@@ -369,13 +402,26 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_flow_times_out_and_cleans_up() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, 60, false);
+        // Mock exits immediately without writing auth.json.  The poll loop checks
+        // for the file (not whether the child is alive), so it keeps retrying until
+        // the deadline — no long-lived orphan processes.
+        let bin = make_oauth_mock(&bin_dir, false);
 
         let (ps, cs) = stores(dir.path());
-        let err = add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(1)).unwrap_err();
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "main",
+            None,
+            &bin,
+            Duration::from_millis(200),
+            TEST_POLL,
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("timed out"));
         assert!(!ps.exists(Tool::Codex, "main"));
@@ -384,15 +430,25 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_auth_json_has_600_permissions() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, 0, true);
+        let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "main",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         let path = ps.profile_dir(Tool::Codex, "main").join(AUTH_FILE);
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();

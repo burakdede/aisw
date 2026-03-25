@@ -79,6 +79,7 @@ pub fn add_oauth(
         label,
         claude_bin,
         OAUTH_TIMEOUT,
+        POLL_INTERVAL,
     )
 }
 
@@ -89,12 +90,14 @@ fn add_oauth_with(
     label: Option<String>,
     claude_bin: &Path,
     timeout: Duration,
+    poll_interval: Duration,
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Claude, name)?;
 
-    let result = run_oauth_flow(claude_bin, &profile_dir, timeout).inspect_err(|_| {
-        let _ = profile_store.delete(Tool::Claude, name);
-    })?;
+    let result =
+        run_oauth_flow(claude_bin, &profile_dir, timeout, poll_interval).inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Claude, name);
+        })?;
 
     set_credentials_permissions(&result)?;
 
@@ -111,7 +114,12 @@ fn add_oauth_with(
     Ok(())
 }
 
-fn run_oauth_flow(claude_bin: &Path, profile_dir: &Path, timeout: Duration) -> Result<PathBuf> {
+fn run_oauth_flow(
+    claude_bin: &Path,
+    profile_dir: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<PathBuf> {
     let mut child = Command::new(claude_bin)
         .env("CLAUDE_CONFIG_DIR", profile_dir)
         .spawn()
@@ -138,7 +146,7 @@ fn run_oauth_flow(claude_bin: &Path, profile_dir: &Path, timeout: Duration) -> R
             );
         }
 
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(poll_interval);
     }
 }
 
@@ -278,21 +286,27 @@ mod tests {
 
     // ---- OAuth tests ----
 
+    // Poll interval used in all OAuth tests: fast enough to complete quickly without
+    // being sensitive to OS scheduling jitter.
+    const TEST_POLL: Duration = Duration::from_millis(10);
+
+    /// Creates a mock binary that either writes credentials immediately or exits
+    /// without writing anything (for timeout tests).
+    ///
+    /// No `sleep` is used — `sleep` spawns a child process that becomes an orphan
+    /// when the parent shell is SIGKILL'd, which can cause ETXTBSY on path reuse.
     #[cfg(unix)]
-    fn make_oauth_mock(dir: &std::path::Path, delay_secs: u64, write_creds: bool) -> PathBuf {
+    fn make_oauth_mock(dir: &std::path::Path, write_creds: bool) -> PathBuf {
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
         let bin = dir.join("claude");
-        let creds_write = if write_creds {
-            format!(
-                "sleep {}\necho '{{\"oauthToken\":\"tok\"}}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
-                delay_secs
-            )
+        let body = if write_creds {
+            "echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n"
         } else {
-            format!("sleep {}\n", delay_secs)
+            "exit 0\n" // exits without writing credentials; poll loop times out naturally
         };
-        fs::write(&bin, format!("#!/bin/sh\n{}", creds_write)).unwrap();
+        fs::write(&bin, format!("#!/bin/sh\n{}", body)).unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
         bin
     }
@@ -300,13 +314,23 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_flow_succeeds_when_credentials_appear() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, 0, true);
+        let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         assert!(ps.exists(Tool::Claude, "work"));
         let config = cs.load().unwrap();
@@ -319,13 +343,26 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_flow_times_out_when_no_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, 60, false);
+        // Mock exits immediately without writing credentials.  The poll loop
+        // checks for the file (not whether the child is running), so it keeps
+        // polling until the timeout fires — no long-lived child processes.
+        let bin = make_oauth_mock(&bin_dir, false);
 
         let (ps, cs) = stores(dir.path());
-        let err = add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(1)).unwrap_err();
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            Duration::from_millis(200),
+            TEST_POLL,
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("timed out"));
         // Profile dir cleaned up after timeout.
@@ -335,15 +372,25 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_credentials_file_has_600_permissions() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, 0, true);
+        let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         let path = ps.profile_dir(Tool::Claude, "work").join(CREDENTIALS_FILE);
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
@@ -353,6 +400,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_sets_claude_config_dir_env() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
@@ -372,7 +420,16 @@ mod tests {
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         let sentinel = ps.profile_dir(Tool::Claude, "work").join("env_was_set");
         assert!(

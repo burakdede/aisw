@@ -102,6 +102,7 @@ pub fn add_oauth(
         label,
         gemini_bin,
         OAUTH_TIMEOUT,
+        Duration::from_millis(500),
     )
 }
 
@@ -112,12 +113,14 @@ fn add_oauth_with(
     label: Option<String>,
     gemini_bin: &Path,
     timeout: Duration,
+    poll_interval: Duration,
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Gemini, name)?;
 
-    let result = run_oauth_flow(gemini_bin, &profile_dir, timeout).inspect_err(|_| {
-        let _ = profile_store.delete(Tool::Gemini, name);
-    })?;
+    let result =
+        run_oauth_flow(gemini_bin, &profile_dir, timeout, poll_interval).inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Gemini, name);
+        })?;
 
     if result == 0 {
         let _ = profile_store.delete(Tool::Gemini, name);
@@ -143,7 +146,12 @@ fn add_oauth_with(
 /// Spawn `gemini` with an overridden HOME, wait for it to exit, then copy
 /// the resulting `$scratch/.gemini/` files into `profile_dir`.
 /// Returns the number of files captured.
-fn run_oauth_flow(gemini_bin: &Path, profile_dir: &Path, timeout: Duration) -> Result<usize> {
+fn run_oauth_flow(
+    gemini_bin: &Path,
+    profile_dir: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<usize> {
     let scratch = create_scratch_dir()?;
 
     let result = (|| {
@@ -152,7 +160,7 @@ fn run_oauth_flow(gemini_bin: &Path, profile_dir: &Path, timeout: Duration) -> R
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
 
-        let status = wait_with_timeout(&mut child, timeout)?;
+        let status = wait_with_timeout(&mut child, timeout, poll_interval)?;
         if !status.success() {
             bail!(
                 "gemini exited with status {}. Check for errors above.",
@@ -169,13 +177,14 @@ fn run_oauth_flow(gemini_bin: &Path, profile_dir: &Path, timeout: Duration) -> R
 }
 
 fn create_scratch_dir() -> Result<std::path::PathBuf> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let dir = std::env::temp_dir().join(format!("aisw-gemini-{}-{}", std::process::id(), nanos));
-    std::fs::create_dir_all(&dir)
+    use std::sync::atomic::{AtomicU64, Ordering};
+    // Use an atomic counter (not a timestamp) to guarantee uniqueness across
+    // concurrent calls within the same process — timestamps can collide when two
+    // threads call this function in the same nanosecond.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("aisw-gemini-{}-{}", std::process::id(), id));
+    std::fs::create_dir(&dir)
         .with_context(|| format!("could not create scratch dir {}", dir.display()))?;
     Ok(dir)
 }
@@ -183,6 +192,7 @@ fn create_scratch_dir() -> Result<std::path::PathBuf> {
 fn wait_with_timeout(
     child: &mut std::process::Child,
     timeout: Duration,
+    poll_interval: Duration,
 ) -> Result<std::process::ExitStatus> {
     use std::time::Instant;
     let deadline = Instant::now() + timeout;
@@ -195,7 +205,7 @@ fn wait_with_timeout(
             let _ = child.wait();
             bail!("Gemini login timed out after {}s.", timeout.as_secs());
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(poll_interval);
     }
 }
 
@@ -394,16 +404,32 @@ mod tests {
 
     // ---- OAuth tests ----
 
+    // Poll interval used in all OAuth tests.
+    const TEST_POLL: Duration = Duration::from_millis(10);
+
+    /// Creates a mock gemini binary.
+    ///
+    /// `write_creds=true`  → writes oauth_creds.json to $HOME/.gemini/ and exits 0
+    /// `write_creds=false, long_running=false` → exits 0 immediately, no files
+    /// `write_creds=false, long_running=true`  → sleeps briefly so wait_with_timeout
+    ///     can fire; sleep duration (0.5s) is long enough to outlast the short test
+    ///     timeout (200ms) but short enough that any orphaned process exits quickly.
     #[cfg(unix)]
-    fn make_oauth_mock(dir: &std::path::Path, write_creds: bool, exit_ok: bool) -> PathBuf {
+    fn make_oauth_mock(dir: &std::path::Path, write_creds: bool, long_running: bool) -> PathBuf {
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
         let bin = dir.join("gemini");
-        let body = match (write_creds, exit_ok) {
-            (true, _) => "mkdir -p \"$HOME/.gemini\"\necho '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\nexit 0\n",
-            (false, true) => "exit 0\n",
-            (false, false) => "sleep 60\n",
+        let body = match (write_creds, long_running) {
+            (true, _) => {
+                "mkdir -p \"$HOME/.gemini\"\n\
+                 echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                 exit 0\n"
+            }
+            (false, false) => "exit 0\n",
+            // Sleep briefly — long enough to outlast a 200ms test timeout, short
+            // enough that any orphaned `sleep` process cleans itself up quickly.
+            (false, true) => "sleep 0.5\n",
         };
         fs::write(&bin, format!("#!/bin/sh\n{}", body)).unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -413,13 +439,23 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_flow_captures_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, true, true);
+        let bin = make_oauth_mock(&bin_dir, true, false);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "default", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         assert!(ps.exists(Tool::Gemini, "default"));
         let config = cs.load().unwrap();
@@ -436,14 +472,23 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_flow_errors_when_no_files_written() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, false, true);
+        let bin = make_oauth_mock(&bin_dir, false, false);
 
         let (ps, cs) = stores(dir.path());
-        let err =
-            add_oauth_with(&ps, &cs, "default", None, &bin, Duration::from_secs(5)).unwrap_err();
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("no credential files"));
         assert!(!ps.exists(Tool::Gemini, "default"));
@@ -452,14 +497,26 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_flow_times_out_and_cleans_up() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, false, false);
+        // Mock sleeps 0.5s — longer than the 200ms test timeout so the timeout
+        // fires while the mock is still running.  The orphaned `sleep 0.5`
+        // subprocess exits on its own within half a second.
+        let bin = make_oauth_mock(&bin_dir, false, true);
 
         let (ps, cs) = stores(dir.path());
-        let err =
-            add_oauth_with(&ps, &cs, "default", None, &bin, Duration::from_secs(1)).unwrap_err();
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_millis(200),
+            TEST_POLL,
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("timed out"));
         assert!(!ps.exists(Tool::Gemini, "default"));
@@ -468,15 +525,25 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn oauth_credentials_have_600_permissions() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, true, true);
+        let bin = make_oauth_mock(&bin_dir, true, false);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "default", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         let creds = ps
             .profile_dir(Tool::Gemini, "default")
@@ -488,13 +555,23 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn apply_token_cache_copies_non_env_files() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        let bin = make_oauth_mock(&bin_dir, true, true);
+        let bin = make_oauth_mock(&bin_dir, true, false);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(&ps, &cs, "default", None, &bin, Duration::from_secs(10)).unwrap();
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
 
         let dest_dir = dir.path().join("fake_gemini_home");
         std::fs::create_dir_all(&dest_dir).unwrap();
