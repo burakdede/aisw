@@ -1,5 +1,9 @@
 # aisw
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw.png" alt="aisw logo" width="160" />
+</p>
+
 Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI.
 
 ## The problem
@@ -66,7 +70,7 @@ When `init` marks an imported profile active, it also applies that profile to th
 | `aisw init` | First-run setup wizard |
 | `aisw shell-hook <shell>` | Print the shell integration snippet |
 
-See [docs/commands.md](docs/commands.md) for full flag reference and examples.
+See the command reference at <https://burakdede.github.io/aisw/commands/> for full flag reference and examples.
 
 Successful `init`, `add`, `use`, and `backup restore` commands also print a short next-step hint to help move through the common workflow without adding noise to inventory or status commands.
 
@@ -100,7 +104,7 @@ aisw shell-hook fish | source
 
 Or run `aisw init` — it adds the line automatically.
 
-See [docs/shell-integration.md](docs/shell-integration.md) for details.
+See <https://burakdede.github.io/aisw/shell-integration/> for details.
 
 ## Supported tools
 
@@ -110,10 +114,6 @@ See [docs/shell-integration.md](docs/shell-integration.md) for details.
 | Codex CLI | `codex` | OAuth (ChatGPT), API key |
 | Gemini CLI | `gemini` | OAuth (Google), API key |
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT.

@@ -8,6 +8,7 @@ import starlight from '@astrojs/starlight';
 const siteOrigin = 'https://burakdede.github.io';
 const siteBasePath = '/aisw';
 const siteUrl = `${siteOrigin}${siteBasePath}/`;
+const logoPath = `${siteBasePath}/aisw.png`;
 const cargoToml = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'Cargo.toml'), 'utf8');
 const currentVersion = cargoToml.match(/^version = "([^"]+)"$/m)?.[1] ?? '0.0.0';
 const siteSchema = {
@@ -19,9 +20,14 @@ const siteSchema = {
 			url: siteUrl,
 			description:
 				'Documentation for aisw, the AI CLI account switcher for Claude, Codex, and Gemini.',
+			image: `${siteOrigin}${logoPath}`,
 			publisher: {
-				'@type': 'Person',
-				name: 'Burak DEDE',
+				'@type': 'Organization',
+				name: 'aisw',
+				logo: {
+					'@type': 'ImageObject',
+					url: `${siteOrigin}${logoPath}`,
+				},
 			},
 		},
 		{
@@ -33,6 +39,7 @@ const siteSchema = {
 			description:
 				'CLI utility for switching between Claude Code, Codex CLI, and Gemini CLI accounts.',
 			url: 'https://github.com/burakdede/aisw',
+			image: `${siteOrigin}${logoPath}`,
 		},
 	],
 };
@@ -46,6 +53,11 @@ export default defineConfig({
 		starlight({
 			title: 'aisw',
 			description: 'Documentation for aisw, the AI CLI account switcher for Claude, Codex, and Gemini.',
+			logo: {
+				src: './public/aisw.png',
+				alt: 'aisw logo',
+			},
+			favicon: '/aisw.png',
 			head: [
 				{
 					tag: 'meta',
@@ -66,6 +78,27 @@ export default defineConfig({
 					attrs: {
 						name: 'theme-color',
 						content: '#0b1020',
+					},
+				},
+				{
+					tag: 'meta',
+					attrs: {
+						property: 'og:image',
+						content: `${siteOrigin}${logoPath}`,
+					},
+				},
+				{
+					tag: 'meta',
+					attrs: {
+						name: 'twitter:card',
+						content: 'summary_large_image',
+					},
+				},
+				{
+					tag: 'meta',
+					attrs: {
+						name: 'twitter:image',
+						content: `${siteOrigin}${logoPath}`,
 					},
 				},
 				{

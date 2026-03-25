@@ -10,6 +10,7 @@ const publicRoot = path.join(websiteRoot, 'public');
 const siteOrigin = 'https://burakdede.github.io';
 const siteBasePath = '/aisw';
 const siteUrl = `${siteOrigin}${siteBasePath}`;
+const logoUrl = `${siteOrigin}${siteBasePath}/aisw.png`;
 const cargoTomlPath = path.join(repoRoot, 'Cargo.toml');
 const docsKeywords = [
   'aisw',
@@ -266,9 +267,9 @@ function buildWebManifest() {
       theme_color: '#0b1020',
       icons: [
         {
-          src: `${siteBasePath}/favicon.svg`,
-          sizes: 'any',
-          type: 'image/svg+xml',
+          src: `${siteBasePath}/aisw.png`,
+          sizes: '512x512',
+          type: 'image/png',
           purpose: 'any',
         },
       ],
@@ -306,6 +307,7 @@ function buildDocSchema(doc, route, currentVersion) {
       url,
       inLanguage: 'en',
       keywords: [...docsKeywords, ...(doc.queries ?? [])].join(', '),
+      image: logoUrl,
       isPartOf: {
         '@type': 'WebSite',
         name: 'aisw Documentation',
@@ -318,6 +320,7 @@ function buildDocSchema(doc, route, currentVersion) {
         operatingSystem: 'macOS, Linux, Windows',
         softwareVersion: currentVersion,
         url: 'https://github.com/burakdede/aisw',
+        image: logoUrl,
       },
     },
     {

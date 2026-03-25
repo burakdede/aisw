@@ -12,13 +12,10 @@ mod cli {
 }
 
 fn main() {
-    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let man_dir = manifest_dir.join("man");
-    let completions_dir = manifest_dir.join("completions");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let man_dir = out_dir.join("man");
     let out_completions_dir = out_dir.join("completions");
-    std::fs::create_dir_all(&man_dir).expect("could not create man/ directory");
-    std::fs::create_dir_all(&completions_dir).expect("could not create completions/ directory");
+    std::fs::create_dir_all(&man_dir).expect("could not create OUT_DIR man directory");
     std::fs::create_dir_all(&out_completions_dir)
         .expect("could not create OUT_DIR completions directory");
 
@@ -29,7 +26,6 @@ fn main() {
     man.render(&mut buffer).expect("could not render man page");
     std::fs::write(man_dir.join("aisw.1"), &buffer).expect("could not write man/aisw.1");
 
-    generate_completions(&completions_dir);
     generate_completions(&out_completions_dir);
 
     println!("cargo:rerun-if-changed=src/cli.rs");

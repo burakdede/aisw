@@ -6,8 +6,19 @@ rust-version = "1.80"
 description = "Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI"
 license = "MIT"
 repository = "https://github.com/burakdede/aisw"
+homepage = "https://burakdede.github.io/aisw/"
+documentation = "https://burakdede.github.io/aisw/"
+readme = "README.md"
 keywords = ["cli", "claude", "codex", "gemini", "account-switcher"]
 categories = ["command-line-utilities"]
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE",
+    "/build.rs",
+    "/src/**",
+]
 
 [[bin]]
 name = "aisw"
