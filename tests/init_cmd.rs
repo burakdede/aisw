@@ -22,7 +22,12 @@ fn init_creates_config_json() {
 #[test]
 fn init_prints_setup_complete() {
     let env = TestEnv::new();
-    run_init(&env).success().stdout(contains("Setup complete."));
+    run_init(&env)
+        .success()
+        .stdout(contains("Setup complete."))
+        .stdout(contains(
+            "Next: run 'aisw list' to review profiles, then 'aisw use <tool> <name>' to switch.",
+        ));
 }
 
 #[test]

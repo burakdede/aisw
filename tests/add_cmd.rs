@@ -20,7 +20,8 @@ fn add_claude_api_key_succeeds() {
         .assert()
         .success()
         .stdout(contains("Added"))
-        .stdout(contains("work"));
+        .stdout(contains("work"))
+        .stdout(contains("Next: run 'aisw use claude work' to activate it."));
 }
 
 #[test]
@@ -123,7 +124,8 @@ fn add_codex_api_key_succeeds() {
         .assert()
         .success()
         .stdout(contains("Added"))
-        .stdout(contains("work"));
+        .stdout(contains("work"))
+        .stdout(contains("Next: run 'aisw use codex work' to activate it."));
 }
 
 #[test]
@@ -148,7 +150,8 @@ fn add_gemini_api_key_succeeds() {
         .assert()
         .success()
         .stdout(contains("Added"))
-        .stdout(contains("work"));
+        .stdout(contains("work"))
+        .stdout(contains("Next: run 'aisw use gemini work' to activate it."));
 }
 
 #[test]

@@ -7,6 +7,7 @@ use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
 use crate::config::{AuthMethod, ConfigStore};
+use crate::next_steps;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -108,6 +109,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         match activation {
             SessionActivation::Effective | SessionActivation::NotApplicable => {
                 println!("Switched {} to profile '{}'.", args.tool, args.profile_name);
+                println!("{}", next_steps::after_use());
             }
             SessionActivation::CurrentShellNotUsingProfile => {
                 println!(

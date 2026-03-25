@@ -7,6 +7,7 @@ use chrono::Utc;
 
 use crate::auth;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::next_steps;
 use crate::profile::{validate_profile_name, ProfileStore};
 use crate::types::Tool;
 
@@ -52,7 +53,8 @@ pub(crate) fn run_inner(
     // Credential import.
     import_credentials(aisw_home, user_home, confirmed)?;
 
-    println!("\nSetup complete. Run 'aisw add <tool> <name>' to add more accounts.");
+    println!("\nSetup complete.");
+    println!("{}", next_steps::after_init());
     Ok(())
 }
 

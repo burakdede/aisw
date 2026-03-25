@@ -6,6 +6,7 @@ use anyhow::Result;
 use crate::auth;
 use crate::cli::AddArgs;
 use crate::config::ConfigStore;
+use crate::next_steps;
 use crate::profile::ProfileStore;
 use crate::tool_detection;
 use crate::types::Tool;
@@ -76,6 +77,10 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
     }
 
     println!("Added {} profile '{}'.", args.tool, args.profile_name);
+    println!(
+        "{}",
+        next_steps::after_add(args.tool, &args.profile_name, args.set_active)
+    );
 
     Ok(())
 }

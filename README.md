@@ -67,6 +67,8 @@ It detects installed tools, installs the shell hook, and offers to import your e
 
 See [docs/commands.md](docs/commands.md) for full flag reference and examples.
 
+Successful `init`, `add`, `use`, and `backup restore` commands also print a short next-step hint to help move through the common workflow without adding noise to inventory or status commands.
+
 ## How it works
 
 - aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.

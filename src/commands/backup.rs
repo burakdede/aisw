@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use crate::backup::BackupManager;
 use crate::cli::BackupCommand;
 use crate::config::ConfigStore;
+use crate::next_steps;
 use crate::profile::ProfileStore;
 
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
@@ -95,7 +96,7 @@ pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
             "Restored. The \"{}\" profile now has credentials from that backup.",
             e.profile
         );
-        println!("Run 'aisw use {} {}' to switch to it.", e.tool, e.profile);
+        println!("{}", next_steps::after_restore(e.tool, &e.profile));
     }
     Ok(())
 }

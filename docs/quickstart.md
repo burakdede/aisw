@@ -35,6 +35,8 @@ The wizard will:
 Running `aisw init` a second time is safe — the shell hook will not be duplicated, and
 existing profiles will not be overwritten.
 
+Successful setup also prints a short next-step hint so you can move directly into `list` or `use`.
+
 ### Shell hook
 
 The shell hook is required for `aisw use` to apply environment variables to your current

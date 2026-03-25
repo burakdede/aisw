@@ -21,6 +21,8 @@ aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active]
 
 Without `--api-key`, aisw presents an interactive menu to choose between browser OAuth login and API key entry.
 
+On success, `aisw add` prints a short next-step hint for activating or verifying the new profile.
+
 Examples:
 
 ```
@@ -42,6 +44,8 @@ aisw use <tool> <profile_name>
 For Claude and Codex, the switch requires shell integration to take effect in the current session. If the current shell is not using the hook yet, `aisw` records the selected profile as active and prints a warning telling you to restart or source your shell config before launching the upstream CLI.
 
 For Gemini, the switch rewrites `~/.gemini/.env` directly — no shell hook required.
+
+When the switch is fully effective, `aisw use` prints a short next-step hint to verify the current state. When the current shell is not using the selected Claude/Codex profile yet, the warning remains the primary output instead.
 
 Examples:
 
@@ -149,6 +153,8 @@ aisw init
 
 Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
 
+On success, `aisw init` prints a short next-step hint for reviewing or switching profiles.
+
 ---
 
 ## aisw shell-hook
@@ -188,3 +194,5 @@ aisw backup restore <backup_id>
 ```
 
 Restores credential files from a backup into the corresponding profile directory. Does not switch the active profile — run `aisw use` after restoring to apply the credentials.
+
+On success, `aisw backup restore` prints a short next-step hint showing the exact `aisw use` command for the restored profile.

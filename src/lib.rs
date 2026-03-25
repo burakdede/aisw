@@ -4,6 +4,7 @@ pub mod backup;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod next_steps;
 pub mod profile;
 pub mod tool_detection;
 pub mod types;

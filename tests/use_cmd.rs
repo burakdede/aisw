@@ -164,5 +164,8 @@ fn use_prints_switched_when_current_shell_matches_profile() {
         )
         .assert()
         .success()
-        .stdout(contains("Switched claude to profile 'work'."));
+        .stdout(contains("Switched claude to profile 'work'."))
+        .stdout(contains(
+            "Next: run 'aisw status' to confirm the current state.",
+        ));
 }

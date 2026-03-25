@@ -143,3 +143,33 @@ fn backup_restore_prints_use_hint() {
         .success()
         .stdout(contains("aisw use"));
 }
+
+#[test]
+fn backup_restore_prints_next_step_hint() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    let key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", key])
+        .assert()
+        .success();
+
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
+    let list_str = String::from_utf8_lossy(&list_out);
+    let backup_id = list_str
+        .lines()
+        .nth(1)
+        .and_then(|l| l.split_whitespace().next())
+        .expect("expected at least one backup entry");
+
+    env.cmd()
+        .args(["backup", "restore", "--yes", backup_id])
+        .assert()
+        .success()
+        .stdout(contains(
+            "Next: run 'aisw use claude work' to switch to it.",
+        ));
+}
