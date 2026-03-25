@@ -62,7 +62,10 @@ pub fn add_api_key(
 
 pub fn validate_api_key(key: &str) -> Result<()> {
     if key.trim().is_empty() {
-        bail!("Codex API key must not be empty");
+        bail!(
+            "Codex API key must not be empty.\n  \
+             Get your API key at platform.openai.com → API Keys."
+        );
     }
     Ok(())
 }
@@ -185,12 +188,27 @@ fn set_auth_permissions(_path: &Path) -> Result<()> {
 /// Read the stored API token from a profile's auth file.
 pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> {
     let bytes = profile_store.read_file(Tool::Codex, name, AUTH_FILE)?;
-    let json: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|e| anyhow::anyhow!("could not parse auth file: {}", e))?;
-    json["token"]
-        .as_str()
-        .map(|s| s.to_owned())
-        .ok_or_else(|| anyhow::anyhow!("auth file missing 'token' field"))
+    let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
+        anyhow::anyhow!(
+            "could not parse auth file for profile '{}'.\n  \
+             The profile may be corrupted. Run 'aisw remove codex {}' \
+             then 'aisw add codex {}' to reconfigure.\n  \
+             ({})",
+            name,
+            name,
+            name,
+            e
+        )
+    })?;
+    json["token"].as_str().map(|s| s.to_owned()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "auth file for profile '{}' is missing the 'token' field.\n  \
+                 Run 'aisw remove codex {}' then 'aisw add codex {}' to reconfigure.",
+            name,
+            name,
+            name
+        )
+    })
 }
 
 #[cfg(test)]
@@ -218,6 +236,12 @@ mod tests {
     fn validate_rejects_empty_key() {
         assert!(validate_api_key("").is_err());
         assert!(validate_api_key("   ").is_err());
+    }
+
+    #[test]
+    fn validate_empty_key_error_mentions_platform() {
+        let err = validate_api_key("").unwrap_err();
+        assert!(err.to_string().contains("platform.openai.com"));
     }
 
     #[test]

@@ -30,7 +30,13 @@ impl ProfileStore {
         validate_profile_name(name)?;
         let dir = self.profile_dir(tool, name);
         if dir.exists() {
-            bail!("profile '{}' already exists for {}.", name, tool);
+            bail!(
+                "profile '{}' already exists for {}.\n  \
+                 Run 'aisw list {}' to see existing profiles, or choose a different name.",
+                name,
+                tool,
+                tool
+            );
         }
         fs::create_dir_all(&dir)
             .with_context(|| format!("could not create profile directory {}", dir.display()))?;
@@ -40,7 +46,13 @@ impl ProfileStore {
     pub fn delete(&self, tool: Tool, name: &str) -> Result<()> {
         let dir = self.profile_dir(tool, name);
         if !dir.is_dir() {
-            bail!("profile '{}' not found for {}.", name, tool);
+            bail!(
+                "profile '{}' not found for {}.\n  \
+                 Run 'aisw list {}' to see available profiles.",
+                name,
+                tool,
+                tool
+            );
         }
         fs::remove_dir_all(&dir)
             .with_context(|| format!("could not delete profile directory {}", dir.display()))
@@ -250,6 +262,16 @@ mod tests {
         s.create(Tool::Claude, "work").unwrap();
         let err = s.create(Tool::Claude, "work").unwrap_err();
         assert!(err.to_string().contains("already exists"));
+        assert!(err.to_string().contains("aisw list"));
+    }
+
+    #[test]
+    fn delete_nonexistent_error_mentions_list() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        let err = s.delete(Tool::Claude, "ghost").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+        assert!(err.to_string().contains("aisw list"));
     }
 
     #[test]

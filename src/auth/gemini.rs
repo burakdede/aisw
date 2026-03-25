@@ -53,7 +53,10 @@ pub fn add_api_key(
 
 pub fn validate_api_key(key: &str) -> Result<()> {
     if key.trim().is_empty() {
-        bail!("Gemini API key must not be empty");
+        bail!(
+            "Gemini API key must not be empty.\n  \
+             Get your API key at aistudio.google.com → Get API Key."
+        );
     }
     Ok(())
 }
@@ -68,7 +71,14 @@ pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> 
             return Ok(val.to_owned());
         }
     }
-    anyhow::bail!(".env file missing '{}' entry", KEY_VAR)
+    anyhow::bail!(
+        ".env file for profile '{}' is missing the '{}' entry.\n  \
+         Run 'aisw remove gemini {}' then 'aisw add gemini {}' to reconfigure.",
+        name,
+        KEY_VAR,
+        name,
+        name
+    )
 }
 
 /// Apply a profile's .env file to `dest` (typically `~/.gemini/.env`).
@@ -125,8 +135,11 @@ fn add_oauth_with(
     if result == 0 {
         let _ = profile_store.delete(Tool::Gemini, name);
         bail!(
-            "Gemini login completed but no credential files were found in the token cache. \
-             The OAuth flow may have failed silently."
+            "Gemini login completed but no credential files were found in the token cache.\n  \
+             The OAuth flow may have failed silently. Try running 'aisw add gemini {}' again,\n  \
+             or use an API key instead: 'aisw add gemini {} --api-key <key>'.",
+            name,
+            name
         );
     }
 
@@ -304,6 +317,12 @@ mod tests {
     fn validate_rejects_empty() {
         assert!(validate_api_key("").is_err());
         assert!(validate_api_key("  ").is_err());
+    }
+
+    #[test]
+    fn validate_empty_key_error_mentions_aistudio() {
+        let err = validate_api_key("").unwrap_err();
+        assert!(err.to_string().contains("aistudio.google.com"));
     }
 
     #[test]

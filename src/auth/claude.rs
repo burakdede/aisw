@@ -49,11 +49,16 @@ pub fn add_api_key(
 
 pub fn validate_api_key(key: &str) -> Result<()> {
     if !key.starts_with(KEY_PREFIX) {
-        bail!("invalid Claude API key: must start with '{}'", KEY_PREFIX);
+        bail!(
+            "invalid Claude API key: must start with '{}'.\n  \
+             Get your API key at console.anthropic.com → API Keys.",
+            KEY_PREFIX
+        );
     }
     if key.len() < KEY_MIN_LEN {
         bail!(
-            "invalid Claude API key: too short (minimum {} characters)",
+            "invalid Claude API key: too short (minimum {} characters).\n  \
+             Get your API key at console.anthropic.com → API Keys.",
             KEY_MIN_LEN
         );
     }
@@ -166,12 +171,30 @@ fn set_credentials_permissions(_path: &Path) -> Result<()> {
 /// Read the stored API key from a profile's credentials file.
 pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> {
     let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
-    let json: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|e| anyhow::anyhow!("could not parse credentials file: {}", e))?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
+        anyhow::anyhow!(
+            "could not parse credentials file for profile '{}'.\n  \
+             The profile may be corrupted. Run 'aisw remove claude {}' \
+             then 'aisw add claude {}' to reconfigure.\n  \
+             ({})",
+            name,
+            name,
+            name,
+            e
+        )
+    })?;
     json["apiKey"]
         .as_str()
         .map(|s| s.to_owned())
-        .ok_or_else(|| anyhow::anyhow!("credentials file missing 'apiKey' field"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "credentials file for profile '{}' is missing the 'apiKey' field.\n  \
+                 Run 'aisw remove claude {}' then 'aisw add claude {}' to reconfigure.",
+                name,
+                name,
+                name
+            )
+        })
 }
 
 #[cfg(test)]
@@ -199,12 +222,43 @@ mod tests {
     fn validate_rejects_wrong_prefix() {
         let err = validate_api_key("sk-openai-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap_err();
         assert!(err.to_string().contains("sk-ant-"));
+        assert!(err.to_string().contains("console.anthropic.com"));
     }
 
     #[test]
     fn validate_rejects_too_short() {
         let err = validate_api_key("sk-ant-short").unwrap_err();
         assert!(err.to_string().contains("too short"));
+        assert!(err.to_string().contains("console.anthropic.com"));
+    }
+
+    #[test]
+    fn read_api_key_corrupted_json_error_mentions_reconfigure() {
+        let dir = tempdir().unwrap();
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(Tool::Claude, "work", CREDENTIALS_FILE, b"not json")
+            .unwrap();
+        let err = read_api_key(&ps, "work").unwrap_err();
+        assert!(err.to_string().contains("aisw remove claude work"));
+        assert!(err.to_string().contains("aisw add claude work"));
+    }
+
+    #[test]
+    fn read_api_key_missing_field_error_mentions_reconfigure() {
+        let dir = tempdir().unwrap();
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            CREDENTIALS_FILE,
+            b"{\"other\":\"val\"}",
+        )
+        .unwrap();
+        let err = read_api_key(&ps, "work").unwrap_err();
+        assert!(err.to_string().contains("aisw remove claude work"));
+        assert!(err.to_string().contains("aisw add claude work"));
     }
 
     #[test]
