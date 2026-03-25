@@ -7,7 +7,8 @@ if ! command -v cargo &>/dev/null; then
 fi
 
 echo "--- fmt ---"
-cargo fmt --check
+cargo fmt
+git add -u
 echo "--- clippy ---"
 cargo clippy --all-targets -- -D warnings
 
