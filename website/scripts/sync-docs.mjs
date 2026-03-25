@@ -377,7 +377,7 @@ function buildHeroFrontmatter(doc, currentVersion) {
   if (doc.source !== 'index.md') {
     return '';
   }
-  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "Switch between Claude Code, Codex CLI, and Gemini CLI accounts with one local CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Releases\n      link: ${withBasePath('/releases/')}\n      variant: secondary\n    - text: GitHub\n      link: https://github.com/burakdede/aisw\n      variant: minimal\n`;
+  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "Switch between Claude Code, Codex CLI, and Gemini CLI accounts with one local CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: secondary\n    - text: GitHub\n      link: https://github.com/burakdede/aisw\n      variant: minimal\n`;
 }
 
 function injectVersionContext(doc, body, currentVersion) {

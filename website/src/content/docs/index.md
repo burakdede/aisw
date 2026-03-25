@@ -11,7 +11,7 @@ hero:
       link: /aisw/quickstart/
       variant: primary
     - text: Releases
-      link: /aisw/releases/
+      link: https://github.com/burakdede/aisw/releases
       variant: secondary
     - text: GitHub
       link: https://github.com/burakdede/aisw
