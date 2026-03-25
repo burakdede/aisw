@@ -1,35 +1,114 @@
 # aisw
 
-Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI. Switch between accounts instantly when you hit a usage quota.
-
-> Work in progress. Not yet ready for production use.
+Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI.
 
 ## The problem
 
-AI coding CLI tools have daily or weekly usage quotas. When a quota runs out, work stops. If you have multiple accounts, switching today means manually editing credential files or re-running OAuth flows. There is no unified tool for this.
-
-## What aisw does
-
-aisw stores named credential profiles for each tool and switches between them with a single command. It does not proxy requests, intercept traffic, or make network calls. It manages credential files only.
+AI coding CLI tools have daily and weekly usage quotas. When a quota runs out, work stops. There is no unified tool for switching between accounts across Claude Code, Codex CLI, and Gemini CLI.
 
 ## Install
 
-Coming in v1.0.0. See the [releases page](https://github.com/burakdede/aisw/releases) when available.
+**curl (Linux, macOS):**
 
-To build from source:
+```sh
+curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
+```
 
+**Homebrew (macOS):**
+
+```sh
+brew install burakdede/aisw/aisw
 ```
-cargo install --git https://github.com/burakdede/aisw
+
+**Cargo:**
+
+```sh
+cargo install aisw
 ```
+
+## Quickstart
+
+You hit your Claude Code quota mid-session. You have a second account. Switch in seconds:
+
+```sh
+# Add the second account (opens browser for OAuth, or paste an API key with --api-key).
+aisw add claude personal
+
+# Switch to it.
+aisw use claude personal
+
+# Claude Code now reads credentials from the personal profile.
+# Switch back any time.
+aisw use claude work
+```
+
+First time? Run the setup wizard:
+
+```sh
+aisw init
+```
+
+It detects installed tools, installs the shell hook, and offers to import your existing credentials as a `default` profile.
+
+## Command reference
+
+| Command | Description |
+|---|---|
+| `aisw add <tool> <name>` | Add a new account profile |
+| `aisw use <tool> <name>` | Switch to a profile |
+| `aisw list [tool]` | List all stored profiles |
+| `aisw remove <tool> <name>` | Delete a profile |
+| `aisw status` | Show active profiles and credential health |
+| `aisw backup list` | List credential backups |
+| `aisw backup restore <timestamp>` | Restore credentials from a backup |
+| `aisw init` | First-run setup wizard |
+| `aisw shell-hook <shell>` | Print the shell integration snippet |
+
+See [docs/commands.md](docs/commands.md) for full flag reference and examples.
+
+## How it works
+
+- aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.
+- `aisw use` points each tool at the selected profile by setting environment variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) or rewriting the tool's config file (`~/.gemini/.env`).
+- No proxy, no traffic interception, no network calls. aisw touches only credential files on disk.
+
+## Security
+
+- All credential files are stored with `0600` permissions (owner read/write only).
+- `aisw status` checks and reports if any credential file has permissions broader than `0600`.
+- aisw never prints credential values to stdout or stderr.
+- No credentials are sent over the network by aisw itself.
+
+## Shell integration
+
+`aisw use` sets environment variables. For these to take effect in your current shell session, the shell hook must be active. Without it, the variables are set in a subprocess and discarded.
+
+Add to your shell config:
+
+```sh
+# Bash (~/.bashrc) or Zsh (~/.zshrc)
+eval "$(aisw shell-hook bash)"
+
+# Fish (~/.config/fish/config.fish)
+aisw shell-hook fish | source
+```
+
+Or run `aisw init` — it adds the line automatically.
+
+See [docs/shell-integration.md](docs/shell-integration.md) for details.
 
 ## Supported tools
 
 | Tool | Binary | Auth methods |
-|------|--------|--------------|
-| Claude Code | `claude` | OAuth (browser), API key |
+|---|---|---|
+| Claude Code | `claude` | OAuth (browser), API key (`sk-ant-...`) |
 | Codex CLI | `codex` | OAuth (ChatGPT), API key |
 | Gemini CLI | `gemini` | OAuth (Google), API key |
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
