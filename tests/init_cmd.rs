@@ -122,11 +122,14 @@ fn init_imports_claude_credentials() {
     );
     assert_eq!(config["profiles"]["claude"]["default"]["label"], "imported");
     assert_eq!(config["active"]["claude"], "default");
+    let live = fs::read(env.fake_home.join(".claude").join(".credentials.json")).unwrap();
+    assert_eq!(live, b"{\"token\":\"oauth\"}");
 }
 
 #[test]
 fn init_imports_codex_credentials() {
     let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
     let codex_dir = env.fake_home.join(".codex");
     fs::create_dir_all(&codex_dir).unwrap();
     fs::write(codex_dir.join("auth.json"), b"{\"token\":\"tok\"}").unwrap();
@@ -149,6 +152,17 @@ fn init_imports_codex_credentials() {
     );
     assert_eq!(config["profiles"]["codex"]["default"]["label"], "imported");
     assert_eq!(config["active"]["codex"], "default");
+
+    let live_config = fs::read_to_string(env.fake_home.join(".codex").join("config.toml")).unwrap();
+    assert!(live_config.contains("cli_auth_credentials_store = \"file\""));
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains(
+        "Codex CLI         default (oauth)           credentials present (validity not checked)",
+    ));
 }
 
 #[test]
@@ -170,6 +184,8 @@ fn init_imports_gemini_env_credentials() {
     );
     assert_eq!(config["profiles"]["gemini"]["default"]["label"], "imported");
     assert_eq!(config["active"]["gemini"], "default");
+    let live_env = fs::read_to_string(env.fake_home.join(".gemini").join(".env")).unwrap();
+    assert!(live_env.contains("GEMINI_API_KEY=abc"));
 }
 
 #[test]

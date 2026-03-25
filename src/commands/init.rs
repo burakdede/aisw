@@ -187,6 +187,44 @@ fn should_mark_import_active(config_store: &ConfigStore, tool: Tool) -> Result<b
     Ok(config_store.get_active(&config, tool).is_none())
 }
 
+fn activate_imported_profile(
+    tool: Tool,
+    auth_method: AuthMethod,
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    profile_name: &str,
+    user_home: &Path,
+) -> Result<()> {
+    match tool {
+        Tool::Claude => {
+            auth::claude::apply_live_credentials(profile_store, profile_name, user_home)?;
+        }
+        Tool::Codex => {
+            auth::codex::apply_live_files(profile_store, profile_name, user_home)?;
+        }
+        Tool::Gemini => {
+            let gemini_dir = user_home.join(".gemini");
+            fs::create_dir_all(&gemini_dir)
+                .with_context(|| format!("could not create {}", gemini_dir.display()))?;
+            match auth_method {
+                AuthMethod::ApiKey => {
+                    auth::gemini::apply_env_file(
+                        profile_store,
+                        profile_name,
+                        &gemini_dir.join(".env"),
+                    )?;
+                }
+                AuthMethod::OAuth => {
+                    auth::gemini::apply_token_cache(profile_store, profile_name, &gemini_dir)?;
+                }
+            }
+        }
+    }
+
+    config_store.set_active(tool, profile_name)?;
+    Ok(())
+}
+
 fn import_credentials(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
     println!("\nImport existing credentials as profiles?");
     import_claude(aisw_home, user_home, confirmed)?;
@@ -236,7 +274,14 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
         },
     )?;
     if mark_active {
-        config_store.set_active(Tool::Claude, &profile_name)?;
+        activate_imported_profile(
+            Tool::Claude,
+            AuthMethod::OAuth,
+            &profile_store,
+            &config_store,
+            &profile_name,
+            user_home,
+        )?;
         println!(
             "  Imported Claude Code credentials as profile '{}' and marked it active.",
             profile_name
@@ -286,7 +331,14 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
         },
     )?;
     if mark_active {
-        config_store.set_active(Tool::Codex, &profile_name)?;
+        activate_imported_profile(
+            Tool::Codex,
+            AuthMethod::OAuth,
+            &profile_store,
+            &config_store,
+            &profile_name,
+            user_home,
+        )?;
         println!(
             "  Imported Codex CLI credentials as profile '{}' and marked it active.",
             profile_name
@@ -342,7 +394,14 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
         },
     )?;
     if mark_active {
-        config_store.set_active(Tool::Gemini, &profile_name)?;
+        activate_imported_profile(
+            Tool::Gemini,
+            method,
+            &profile_store,
+            &config_store,
+            &profile_name,
+            user_home,
+        )?;
         println!(
             "  Imported Gemini CLI credentials as profile '{}' and marked it active.",
             profile_name
