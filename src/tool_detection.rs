@@ -37,7 +37,18 @@ pub fn require(tool: Tool) -> Result<DetectedTool> {
     }
 }
 
-fn detect_in(tool: Tool, path: OsString) -> Option<DetectedTool> {
+pub(crate) fn require_in(tool: Tool, path: OsString) -> Result<DetectedTool> {
+    match detect_in(tool, path) {
+        Some(d) => Ok(d),
+        None => bail!(
+            "{} is not installed or not found on PATH.\n  \
+             Install it and make sure the binary is on your PATH.",
+            tool.binary_name()
+        ),
+    }
+}
+
+pub(crate) fn detect_in(tool: Tool, path: OsString) -> Option<DetectedTool> {
     let binary_path = which::which_in(tool.binary_name(), Some(&path), ".").ok()?;
     let version = capture_version(&binary_path);
     Some(DetectedTool {
