@@ -1,11 +1,11 @@
 ---
-title: aisw Documentation
-description: Install, configure, and use aisw to switch between Claude, Codex, and Gemini CLI accounts.
+title: aisw AI Switcher Documentation
+description: Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/index.md
 template: splash
 hero:
   title: "aisw"
-  tagline: "Switch between Claude Code, Codex CLI, and Gemini CLI accounts with one local CLI. Current release: v0.1.0."
+  tagline: "AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts. Current release: v0.1.0."
   actions:
     - text: Quickstart
       link: /aisw/quickstart/
@@ -24,7 +24,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, aisw Documentation, overview, AI CLI account switcher, Claude Code account switcher, Codex CLI account switcher, Gemini CLI account switcher, manage multiple AI CLI accounts
+      content: aisw, AI Switcher, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, aisw AI Switcher Documentation, overview, AI Switcher, aisw AI Switcher, AI CLI account switcher, Claude Code account switcher, Codex CLI account switcher, Gemini CLI account switcher, manage multiple AI CLI accounts
   - tag: meta
     attrs:
       property: article:section
@@ -33,12 +33,12 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"WebPage","name":"aisw Documentation","headline":"aisw Documentation","description":"Install, configure, and use aisw to switch between Claude, Codex, and Gemini CLI accounts.","url":"https://burakdede.github.io/aisw/","inLanguage":"en","keywords":"aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, AI CLI account switcher, Claude Code account switcher, Codex CLI account switcher, Gemini CLI account switcher, manage multiple AI CLI accounts","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"}]},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Can aisw switch between multiple Claude Code accounts?","acceptedAnswer":{"@type":"Answer","text":"Yes. aisw can store and switch multiple Claude Code profiles, including API key and OAuth-based profiles."}},{"@type":"Question","name":"Can aisw manage both Codex CLI and Gemini CLI accounts too?","acceptedAnswer":{"@type":"Answer","text":"Yes. aisw supports Claude Code, Codex CLI, and Gemini CLI in one local profile manager."}},{"@type":"Question","name":"Does aisw proxy requests or inspect prompts?","acceptedAnswer":{"@type":"Answer","text":"No. aisw is a local credential and profile switcher. It does not proxy traffic, inspect prompts, or run a gateway service."}}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"WebPage","name":"aisw AI Switcher Documentation","headline":"aisw AI Switcher Documentation","description":"Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.","url":"https://burakdede.github.io/aisw/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, AI Switcher, aisw AI Switcher, AI CLI account switcher, Claude Code account switcher, Codex CLI account switcher, Gemini CLI account switcher, manage multiple AI CLI accounts","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"}]},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What does aisw actually change when I switch accounts?","acceptedAnswer":{"@type":"Answer","text":"aisw use applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files."}},{"@type":"Question","name":"Does aisw send credentials or prompts over the network?","acceptedAnswer":{"@type":"Answer","text":"No. aisw itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher."}},{"@type":"Question","name":"Where are profiles stored, and how are they protected?","acceptedAnswer":{"@type":"Answer","text":"Stored profiles live under ~/.aisw/profiles/<tool>/<name>/. Credential files are written with 0600 permissions so only your user can read or write them, and aisw status reports files that are broader than that."}}]}]}
 ---
 
 > Current documented CLI release: `v0.1.0`. Use [Quickstart](/aisw/quickstart/) to install and start switching profiles.
 
-`aisw` is a multi-account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI. It helps you switch AI CLI accounts without manually copying credential files, editing config directories, or re-running login flows every time you hit a usage limit.
+`aisw` stands for AI Switcher. It is a multi-account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI, built to help you switch AI CLI accounts without manually copying credential files, editing config directories, or re-running login flows every time you hit a usage limit.
 
 Use this documentation to install the tool, set up profiles, understand how switching works, and operate the release workflow.
 
@@ -73,18 +73,18 @@ If you were searching for an AI CLI account switcher, a multi-account CLI manage
 
 ## Common questions
 
-### Can aisw switch between multiple Claude Code accounts?
+### What does aisw actually change when I switch accounts?
 
-Yes. `aisw` can store and switch multiple Claude Code profiles, including API key and OAuth-based profiles.
+`aisw use` applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files.
 
-### Can aisw manage both Codex CLI and Gemini CLI accounts too?
+### Does aisw send credentials or prompts over the network?
 
-Yes. `aisw` supports Claude Code, Codex CLI, and Gemini CLI in one local profile manager.
+No. `aisw` itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher.
 
-### Does aisw proxy requests or inspect prompts?
+### Where are profiles stored, and how are they protected?
 
-No. `aisw` is a local credential and profile switcher. It does not proxy traffic, inspect prompts, or run a gateway service.
+Stored profiles live under `~/.aisw/profiles/<tool>/<name>/`. Credential files are written with `0600` permissions so only your user can read or write them, and `aisw status` reports files that are broader than that.
 
-### Is this useful for work and personal accounts?
+### Can I use this for work, personal, and backup accounts across different tools?
 
-Yes. A common use case is keeping separate work, personal, client, or backup AI CLI accounts and switching between them quickly.
+Yes. A common setup is separate work, personal, client, or backup profiles for Claude Code, Codex CLI, and Gemini CLI so you can switch in seconds when a quota runs out or you need a different subscription.

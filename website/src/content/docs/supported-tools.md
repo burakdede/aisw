@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Supported Tools, reference, does aisw support Claude Code, does aisw support Codex CLI, does aisw support Gemini CLI
+      content: aisw, AI Switcher, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Supported Tools, reference, does aisw support Claude Code, does aisw support Codex CLI, does aisw support Gemini CLI
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"See which tools aisw supports and how authentication works for each one.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, does aisw support Claude Code, does aisw support Codex CLI, does aisw support Gemini CLI","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"See which tools aisw supports and how authentication works for each one.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, does aisw support Claude Code, does aisw support Codex CLI, does aisw support Gemini CLI","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
 ---
 
 `aisw` supports the main AI coding CLI tools people usually want to manage across multiple accounts: Claude Code, Codex CLI, and Gemini CLI.

@@ -4,14 +4,14 @@
 
 Current version: 0.1.0
 
-## aisw Documentation
+## aisw AI Switcher Documentation
 
 URL: https://burakdede.github.io/aisw/
 Section: overview
-Summary: Install, configure, and use aisw to switch between Claude, Codex, and Gemini CLI accounts.
+Summary: Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.
 Source: https://github.com/burakdede/aisw/blob/main/docs/index.md
-Headings: What aisw helps with | Start here | Setup and operation | Common questions | Can aisw switch between multiple Claude Code accounts? | Can aisw manage both Codex CLI and Gemini CLI accounts too? | Does aisw proxy requests or inspect prompts? | Is this useful for work and personal accounts?
-Common queries: AI CLI account switcher | Claude Code account switcher | Codex CLI account switcher | Gemini CLI account switcher | manage multiple AI CLI accounts
+Headings: What aisw helps with | Start here | Setup and operation | Common questions | What does aisw actually change when I switch accounts? | Does aisw send credentials or prompts over the network? | Where are profiles stored, and how are they protected? | Can I use this for work, personal, and backup accounts across different tools?
+Common queries: AI Switcher | aisw AI Switcher | AI CLI account switcher | Claude Code account switcher | Codex CLI account switcher | Gemini CLI account switcher | manage multiple AI CLI accounts
 
 ## Quickstart
 

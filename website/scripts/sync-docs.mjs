@@ -14,6 +14,7 @@ const logoUrl = `${siteOrigin}${siteBasePath}/aisw-512.png`;
 const cargoTomlPath = path.join(repoRoot, 'Cargo.toml');
 const docsKeywords = [
   'aisw',
+  'AI Switcher',
   'AI CLI account switcher',
   'Claude Code',
   'Codex CLI',
@@ -26,10 +27,12 @@ const DOCS = [
   {
     source: 'index.md',
     output: 'index.md',
-    title: 'aisw Documentation',
-    description: 'Install, configure, and use aisw to switch between Claude, Codex, and Gemini CLI accounts.',
+    title: 'aisw AI Switcher Documentation',
+    description: 'Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.',
     section: 'overview',
     queries: [
+      'AI Switcher',
+      'aisw AI Switcher',
       'AI CLI account switcher',
       'Claude Code account switcher',
       'Codex CLI account switcher',
@@ -322,6 +325,7 @@ function buildDocSchema(doc, route, currentVersion) {
       about: {
         '@type': 'SoftwareApplication',
         name: 'aisw',
+        alternateName: 'AI Switcher',
         applicationCategory: 'DeveloperApplication',
         operatingSystem: 'macOS, Linux, Windows',
         softwareVersion: currentVersion,
@@ -341,26 +345,26 @@ function buildDocSchema(doc, route, currentVersion) {
       mainEntity: [
         {
           '@type': 'Question',
-          name: 'Can aisw switch between multiple Claude Code accounts?',
+          name: 'What does aisw actually change when I switch accounts?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Yes. aisw can store and switch multiple Claude Code profiles, including API key and OAuth-based profiles.',
+            text: 'aisw use applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files.',
           },
         },
         {
           '@type': 'Question',
-          name: 'Can aisw manage both Codex CLI and Gemini CLI accounts too?',
+          name: 'Does aisw send credentials or prompts over the network?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Yes. aisw supports Claude Code, Codex CLI, and Gemini CLI in one local profile manager.',
+            text: 'No. aisw itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher.',
           },
         },
         {
           '@type': 'Question',
-          name: 'Does aisw proxy requests or inspect prompts?',
+          name: 'Where are profiles stored, and how are they protected?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'No. aisw is a local credential and profile switcher. It does not proxy traffic, inspect prompts, or run a gateway service.',
+            text: 'Stored profiles live under ~/.aisw/profiles/<tool>/<name>/. Credential files are written with 0600 permissions so only your user can read or write them, and aisw status reports files that are broader than that.',
           },
         },
       ],
@@ -377,7 +381,7 @@ function buildHeroFrontmatter(doc, currentVersion) {
   if (doc.source !== 'index.md') {
     return '';
   }
-  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "Switch between Claude Code, Codex CLI, and Gemini CLI accounts with one local CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: secondary\n    - text: GitHub\n      link: https://github.com/burakdede/aisw\n      variant: minimal\n`;
+  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: secondary\n    - text: GitHub\n      link: https://github.com/burakdede/aisw\n      variant: minimal\n`;
 }
 
 function injectVersionContext(doc, body, currentVersion) {
