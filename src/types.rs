@@ -14,6 +14,14 @@ impl Tool {
         }
     }
 
+    pub fn dir_name(&self) -> &'static str {
+        match self {
+            Tool::Claude => "claude",
+            Tool::Codex => "codex",
+            Tool::Gemini => "gemini",
+        }
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Tool::Claude => "Claude Code",
