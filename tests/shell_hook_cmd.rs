@@ -18,6 +18,22 @@ fn hook_output(shell: &str) -> Vec<u8> {
         .clone()
 }
 
+fn try_syntax_check(binary: &str, source: &[u8]) -> Option<bool> {
+    let mut child = Command::new(binary)
+        .arg(if binary == "fish" {
+            "--no-execute"
+        } else {
+            "-n"
+        })
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take().unwrap().write_all(source).unwrap();
+    Some(child.wait().unwrap().success())
+}
+
 #[test]
 fn shell_hook_bash_exits_zero_with_expected_content() {
     TestEnv::new()
@@ -62,38 +78,46 @@ fn shell_hook_sentinel_is_exported() {
 #[test]
 fn shell_hook_bash_is_valid_syntax() {
     let output = hook_output("bash");
-    let mut child = Command::new("bash")
-        .arg("-n")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("bash not found");
-    child.stdin.take().unwrap().write_all(&output).unwrap();
-    let status = child.wait().unwrap();
-    assert!(
-        status.success(),
-        "bash -n reported syntax errors in the hook"
-    );
+    if let Some(ok) = try_syntax_check("bash", &output) {
+        assert!(ok, "bash -n reported syntax errors in the hook");
+    }
 }
 
 #[test]
 fn shell_hook_zsh_is_valid_syntax() {
-    // zsh -n may not be available everywhere; skip gracefully if not found.
-    let Ok(mut child) = Command::new("zsh")
-        .arg("-n")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return; // zsh not installed, skip
-    };
     let output = hook_output("zsh");
-    child.stdin.take().unwrap().write_all(&output).unwrap();
-    let status = child.wait().unwrap();
-    assert!(
-        status.success(),
-        "zsh -n reported syntax errors in the hook"
-    );
+    if let Some(ok) = try_syntax_check("zsh", &output) {
+        assert!(ok, "zsh -n reported syntax errors in the hook");
+    }
+}
+
+#[test]
+fn shell_hook_fish_exits_zero_with_expected_content() {
+    TestEnv::new()
+        .cmd()
+        .args(["shell-hook", "fish"])
+        .assert()
+        .success()
+        .stdout(contains("AISW_SHELL_HOOK"))
+        .stdout(contains("function aisw"))
+        .stdout(contains("--emit-env"))
+        .stdout(contains("set -gx"));
+}
+
+#[test]
+fn shell_hook_fish_sentinel_is_exported() {
+    TestEnv::new()
+        .cmd()
+        .args(["shell-hook", "fish"])
+        .assert()
+        .success()
+        .stdout(contains("set -gx AISW_SHELL_HOOK 1"));
+}
+
+#[test]
+fn shell_hook_fish_is_valid_syntax() {
+    let output = hook_output("fish");
+    if let Some(ok) = try_syntax_check("fish", &output) {
+        assert!(ok, "fish --no-execute reported syntax errors in the hook");
+    }
 }
