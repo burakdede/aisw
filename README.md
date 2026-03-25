@@ -60,7 +60,7 @@ It detects installed tools, installs the shell hook, and offers to import your e
 | `aisw remove <tool> <name>` | Delete a profile |
 | `aisw status` | Show active profiles and credential health |
 | `aisw backup list` | List credential backups |
-| `aisw backup restore <timestamp>` | Restore credentials from a backup |
+| `aisw backup restore <backup_id>` | Restore credentials from a backup |
 | `aisw init` | First-run setup wizard |
 | `aisw shell-hook <shell>` | Print the shell integration snippet |
 

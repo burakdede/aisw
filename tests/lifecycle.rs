@@ -476,7 +476,7 @@ fn backup_restore_then_use_completes_successfully() {
     // use creates a backup.
     env.cmd().args(["use", "claude", "work"]).assert().success();
 
-    // Get timestamp from backup list.
+    // Get backup id from backup list.
     let list_out = env
         .cmd()
         .args(["backup", "list"])
@@ -486,7 +486,7 @@ fn backup_restore_then_use_completes_successfully() {
         .stdout
         .clone();
     let list_str = String::from_utf8_lossy(&list_out);
-    let timestamp = list_str
+    let backup_id = list_str
         .lines()
         .nth(1)
         .and_then(|l| l.split_whitespace().next())
@@ -494,7 +494,7 @@ fn backup_restore_then_use_completes_successfully() {
 
     // Restore the backup.
     env.cmd()
-        .args(["backup", "restore", "--yes", timestamp])
+        .args(["backup", "restore", "--yes", backup_id])
         .assert()
         .success()
         .stdout(contains("Restored"));
@@ -532,19 +532,14 @@ fn backup_list_grows_with_each_switch() {
         .stdout
         .clone();
     let list_str = String::from_utf8_lossy(&list_out);
-    // Count non-header, non-empty lines.  Rapid test execution can fit multiple
-    // switches within the same wall-clock second, so timestamp-bucketed backups
-    // may merge; assert at least 2 rather than exactly 3.
+    // Count non-header, non-empty lines. Backup ids are unique, so three
+    // switches should produce three distinct backup entries.
     let backup_count = list_str
         .lines()
         .skip(1)
         .filter(|l| !l.trim().is_empty())
         .count();
-    assert!(
-        backup_count >= 2,
-        "expected at least 2 backups, got {}",
-        backup_count
-    );
+    assert_eq!(backup_count, 3, "expected 3 backups, got {}", backup_count);
 }
 
 // ---------------------------------------------------------------------------

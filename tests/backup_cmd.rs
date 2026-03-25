@@ -26,7 +26,7 @@ fn backup_list_help_exits_zero() {
 }
 
 #[test]
-fn backup_restore_requires_timestamp_arg() {
+fn backup_restore_requires_id_arg() {
     TestEnv::new()
         .cmd()
         .args(["backup", "restore"])
@@ -66,7 +66,7 @@ fn backup_list_shows_entry_after_use() {
         .args(["backup", "list"])
         .assert()
         .success()
-        .stdout(contains("TIMESTAMP"))
+        .stdout(contains("BACKUP ID"))
         .stdout(contains("claude"))
         .stdout(contains("work"));
 }
@@ -74,7 +74,7 @@ fn backup_list_shows_entry_after_use() {
 // ── backup restore ────────────────────────────────────────────────────────────
 
 #[test]
-fn backup_restore_unknown_timestamp_exits_nonzero() {
+fn backup_restore_unknown_id_exits_nonzero() {
     TestEnv::new()
         .cmd()
         .args(["backup", "restore", "--yes", "9999-99-99T00-00-00Z"])
@@ -97,19 +97,19 @@ fn backup_restore_yes_restores_credentials() {
 
     env.cmd().args(["use", "claude", "work"]).assert().success();
 
-    // Capture the backup timestamp.
+    // Capture the backup id.
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    // First non-header line has the timestamp in the first column.
-    let timestamp = list_str
+    // First non-header line has the backup id in the first column.
+    let backup_id = list_str
         .lines()
-        .nth(1) // skip the TIMESTAMP header
+        .nth(1) // skip the BACKUP ID header
         .and_then(|l| l.split_whitespace().next())
         .expect("expected at least one backup entry");
 
     // Restore using --yes skips confirmation.
     env.cmd()
-        .args(["backup", "restore", "--yes", timestamp])
+        .args(["backup", "restore", "--yes", backup_id])
         .assert()
         .success()
         .stdout(contains("Restored"))
@@ -131,14 +131,14 @@ fn backup_restore_prints_use_hint() {
 
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    let timestamp = list_str
+    let backup_id = list_str
         .lines()
         .nth(1)
         .and_then(|l| l.split_whitespace().next())
         .expect("expected at least one backup entry");
 
     env.cmd()
-        .args(["backup", "restore", "--yes", timestamp])
+        .args(["backup", "restore", "--yes", backup_id])
         .assert()
         .success()
         .stdout(contains("aisw use"));

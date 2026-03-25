@@ -132,7 +132,7 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 '-V[Print version]' \
 '--version[Print version]' \
-':timestamp -- Timestamp of the backup to restore (from '\''aisw backup list'\''):_default' \
+':backup_id -- Backup id to restore (from '\''aisw backup list'\''):_default' \
 && ret=0
 ;;
 (help)
@@ -268,7 +268,7 @@ _aisw__add_commands() {
 _aisw__backup_commands() {
     local commands; commands=(
 'list:List all credential backups' \
-'restore:Restore a backup by timestamp' \
+'restore:Restore a backup by id' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'aisw backup commands' commands "$@"
@@ -277,7 +277,7 @@ _aisw__backup_commands() {
 _aisw__backup__help_commands() {
     local commands; commands=(
 'list:List all credential backups' \
-'restore:Restore a backup by timestamp' \
+'restore:Restore a backup by id' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'aisw backup help commands' commands "$@"
@@ -331,7 +331,7 @@ _aisw__help__add_commands() {
 _aisw__help__backup_commands() {
     local commands; commands=(
 'list:List all credential backups' \
-'restore:Restore a backup by timestamp' \
+'restore:Restore a backup by id' \
     )
     _describe -t commands 'aisw help backup commands' commands "$@"
 }

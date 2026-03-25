@@ -144,10 +144,10 @@ pub enum BackupCommand {
     /// List all credential backups
     List,
 
-    /// Restore a backup by timestamp
+    /// Restore a backup by id
     Restore {
-        /// Timestamp of the backup to restore (from 'aisw backup list')
-        timestamp: String,
+        /// Backup id to restore (from 'aisw backup list')
+        backup_id: String,
 
         /// Skip the confirmation prompt
         #[arg(long)]
@@ -295,14 +295,14 @@ mod tests {
 
     #[test]
     fn backup_restore() {
-        let cli = parse(&["backup", "restore", "2026-03-25T10-00-00Z"]).unwrap();
+        let cli = parse(&["backup", "restore", "2026-03-25T10-00-00.123Z-0001"]).unwrap();
         let Command::Backup(args) = cli.command else {
             panic!("wrong command")
         };
-        let BackupCommand::Restore { timestamp, .. } = args.command else {
+        let BackupCommand::Restore { backup_id, .. } = args.command else {
             panic!("wrong subcommand")
         };
-        assert_eq!(timestamp, "2026-03-25T10-00-00Z");
+        assert_eq!(backup_id, "2026-03-25T10-00-00.123Z-0001");
     }
 
     #[test]

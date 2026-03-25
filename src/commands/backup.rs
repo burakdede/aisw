@@ -9,7 +9,7 @@ use crate::profile::ProfileStore;
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
     match command {
         BackupCommand::List => run_list(home),
-        BackupCommand::Restore { timestamp, yes } => run_restore(&timestamp, yes, home),
+        BackupCommand::Restore { backup_id, yes } => run_restore(&backup_id, yes, home),
     }
 }
 
@@ -19,25 +19,25 @@ fn run_list(home: &Path) -> Result<()> {
         println!("No backups found. Backups are created automatically before each switch.");
         return Ok(());
     }
-    println!("{:<26} {:<8} PROFILE", "TIMESTAMP", "TOOL");
+    println!("{:<31} {:<8} PROFILE", "BACKUP ID", "TOOL");
     for e in &entries {
-        println!("{:<26} {:<8} {}", e.timestamp, e.tool, e.profile);
+        println!("{:<31} {:<8} {}", e.backup_id, e.tool, e.profile);
     }
     Ok(())
 }
 
-fn run_restore(timestamp: &str, yes: bool, home: &Path) -> Result<()> {
+fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
     let manager = BackupManager::new(home);
     let entries = manager.list()?;
     let matching: Vec<_> = entries
         .iter()
-        .filter(|e| e.timestamp == timestamp)
+        .filter(|e| e.backup_id == backup_id)
         .collect();
     if matching.is_empty() {
         bail!(
-            "no backup found with timestamp '{}'.\n  \
+            "no backup found with id '{}'.\n  \
              Run 'aisw backup list' to see available backups.",
-            timestamp
+            backup_id
         );
     }
 
@@ -49,7 +49,7 @@ fn run_restore(timestamp: &str, yes: bool, home: &Path) -> Result<()> {
         eprint!(
             "Restore {} from {}? This will overwrite the current profile files. [y/N] ",
             names.join(", "),
-            timestamp
+            backup_id
         );
         let mut line = String::new();
         std::io::stdin()
@@ -61,33 +61,33 @@ fn run_restore(timestamp: &str, yes: bool, home: &Path) -> Result<()> {
         }
     }
 
-    run_restore_inner(timestamp, home)
+    run_restore_inner(backup_id, home)
 }
 
-pub(crate) fn run_restore_inner(timestamp: &str, home: &Path) -> Result<()> {
+pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
     let manager = BackupManager::new(home);
     let profile_store = ProfileStore::new(home);
 
     let entries = manager.list()?;
     let matching: Vec<_> = entries
         .iter()
-        .filter(|e| e.timestamp == timestamp)
+        .filter(|e| e.backup_id == backup_id)
         .collect();
     if matching.is_empty() {
         bail!(
-            "no backup found with timestamp '{}'.\n  \
+            "no backup found with id '{}'.\n  \
              Run 'aisw backup list' to see available backups.",
-            timestamp
+            backup_id
         );
     }
 
     for e in &matching {
         println!(
             "Restoring {}/{} from backup {}...",
-            e.tool, e.profile, timestamp
+            e.tool, e.profile, backup_id
         );
     }
-    manager.restore(timestamp, &profile_store)?;
+    manager.restore(backup_id, &profile_store)?;
     for e in &matching {
         println!(
             "Restored. The \"{}\" profile now has credentials from that backup.",
@@ -119,7 +119,7 @@ mod tests {
         let profile_dir = ps.profile_dir(tool, name);
         let m = BackupManager::new(home);
         m.snapshot(tool, name, &profile_dir).unwrap();
-        m.list().unwrap()[0].timestamp.clone()
+        m.list().unwrap()[0].backup_id.clone()
     }
 
     #[test]

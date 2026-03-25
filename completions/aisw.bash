@@ -221,7 +221,7 @@ _aisw() {
             return 0
             ;;
         aisw__backup__restore)
-            opts="-h -V --yes --help --version <TIMESTAMP>"
+            opts="-h -V --yes --help --version <BACKUP_ID>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

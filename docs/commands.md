@@ -160,12 +160,12 @@ Manage credential backups. Backups are created automatically before every profil
 aisw backup list
 ```
 
-Lists all backups with their timestamp, tool, and profile name. Sorted newest-first.
+Lists all backups with their unique backup id, tool, and profile name. Sorted newest-first.
 
 ### aisw backup restore
 
 ```
-aisw backup restore <timestamp>
+aisw backup restore <backup_id>
 ```
 
 Restores credential files from a backup into the corresponding profile directory. Does not switch the active profile — run `aisw use` after restoring to apply the credentials.
