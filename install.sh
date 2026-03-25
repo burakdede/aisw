@@ -140,6 +140,84 @@ verify_checksum() {
 }
 
 # ---------------------------------------------------------------------------
+# Shell completions
+# ---------------------------------------------------------------------------
+
+install_with_optional_sudo() {
+    src="$1"
+    dest="$2"
+
+    dest_dir=$(dirname "$dest")
+    if [ ! -d "$dest_dir" ]; then
+        if mkdir -p "$dest_dir" 2>/dev/null; then
+            :
+        elif command -v sudo > /dev/null 2>&1; then
+            sudo mkdir -p "$dest_dir"
+        else
+            return 1
+        fi
+    fi
+
+    if [ -w "$dest_dir" ] || [ "$(id -u)" -eq 0 ]; then
+        cp "$src" "$dest"
+        chmod 0644 "$dest"
+    elif command -v sudo > /dev/null 2>&1; then
+        sudo cp "$src" "$dest"
+        sudo chmod 0644 "$dest"
+    else
+        return 1
+    fi
+}
+
+resolve_bash_completion_path() {
+    if [ -w /etc/bash_completion.d ] || [ "$(id -u)" -eq 0 ]; then
+        printf '%s\n' "/etc/bash_completion.d/aisw"
+    else
+        printf '%s\n' "$HOME/.local/share/bash-completion/completions/aisw"
+    fi
+}
+
+resolve_zsh_completion_path() {
+    if command -v zsh > /dev/null 2>&1; then
+        for dir in $(zsh -fc 'print -rl -- $fpath' 2>/dev/null); do
+            if [ -d "$dir" ] && [ -w "$dir" ]; then
+                printf '%s\n' "$dir/_aisw"
+                return
+            fi
+            if mkdir -p "$dir" 2>/dev/null; then
+                printf '%s\n' "$dir/_aisw"
+                return
+            fi
+        done
+    fi
+    printf '%s\n' "$HOME/.zsh/completions/_aisw"
+}
+
+download_and_install_completion() {
+    name="$1"
+    dest="$2"
+    src="$TMP_DIR/$name"
+    url="${BASE_URL}/${name}"
+
+    if curl -fsSL "$url" -o "$src"; then
+        if install_with_optional_sudo "$src" "$dest"; then
+            info "Installed ${name} completion to ${dest}"
+        else
+            echo "Warning: could not install ${name} completion to ${dest}" >&2
+        fi
+    else
+        echo "Warning: completion asset not found: $url" >&2
+    fi
+}
+
+install_completions() {
+    info "Installing shell completions..."
+    download_and_install_completion "aisw.bash" "$(resolve_bash_completion_path)"
+    download_and_install_completion "_aisw" "$(resolve_zsh_completion_path)"
+    download_and_install_completion "aisw.fish" "$HOME/.config/fish/completions/aisw.fish"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -200,6 +278,8 @@ main() {
 
     echo ""
     echo "aisw ${VERSION_LABEL} installed to $INSTALL_PATH"
+
+    install_completions
 
     if [ "${NEEDS_PATH_NOTE:-0}" -eq 1 ]; then
         echo ""

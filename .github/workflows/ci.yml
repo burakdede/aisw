@@ -49,6 +49,10 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Completion smoke test
+        if: matrix.os == 'ubuntu-latest'
+        run: bash tests/completions_smoke.sh
+
       - name: Test
         run: cargo test
 

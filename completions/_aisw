@@ -1,0 +1,418 @@
+#compdef aisw
+
+autoload -U is-at-least
+
+_aisw() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+":: :_aisw_commands" \
+"*::: :->aisw" \
+&& ret=0
+    case $state in
+    (aisw)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:aisw-command-$line[1]:"
+        case $line[1] in
+            (add)
+_arguments "${_arguments_options[@]}" : \
+'--api-key=[API key — skips the interactive auth method prompt]:KEY:_default' \
+'--label=[Human-readable label for this profile]:TEXT:_default' \
+'--set-active[Switch to this profile immediately after adding]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+':tool -- Tool to add a profile for:(claude codex gemini)' \
+':profile_name -- Name for this profile (alphanumeric, hyphens, underscores, max 32 chars):_default' \
+&& ret=0
+;;
+(use)
+_arguments "${_arguments_options[@]}" : \
+'--emit-env[Print shell export statements to stdout instead of applying them directly. Used internally by the shell hook — not intended for direct use]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+':tool -- Tool to switch:(claude codex gemini)' \
+':profile_name -- Profile to activate:_default' \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" : \
+'--json[Output as JSON]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+'::tool -- Filter output to a specific tool:(claude codex gemini)' \
+&& ret=0
+;;
+(remove)
+_arguments "${_arguments_options[@]}" : \
+'--yes[Skip the confirmation prompt]' \
+'--force[Allow removing the currently active profile]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+':tool -- Tool the profile belongs to:(claude codex gemini)' \
+':profile_name -- Profile to remove:_default' \
+&& ret=0
+;;
+(status)
+_arguments "${_arguments_options[@]}" : \
+'--json[Output as JSON]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+;;
+(init)
+_arguments "${_arguments_options[@]}" : \
+'--yes[Answer yes to all confirmation prompts]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+;;
+(shell-hook)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+':shell -- Shell to generate the hook for:(bash zsh fish)' \
+&& ret=0
+;;
+(backup)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+":: :_aisw__backup_commands" \
+"*::: :->backup" \
+&& ret=0
+
+    case $state in
+    (backup)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:aisw-backup-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+;;
+(restore)
+_arguments "${_arguments_options[@]}" : \
+'--yes[Skip the confirmation prompt]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+':timestamp -- Timestamp of the backup to restore (from '\''aisw backup list'\''):_default' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_aisw__backup__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:aisw-backup-help-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(restore)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_aisw__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:aisw-help-command-$line[1]:"
+        case $line[1] in
+            (add)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(use)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(remove)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(status)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(init)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(shell-hook)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(backup)
+_arguments "${_arguments_options[@]}" : \
+":: :_aisw__help__backup_commands" \
+"*::: :->backup" \
+&& ret=0
+
+    case $state in
+    (backup)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:aisw-help-backup-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(restore)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_aisw_commands] )) ||
+_aisw_commands() {
+    local commands; commands=(
+'add:Add a new account profile for a tool' \
+'use:Switch the active account for a tool' \
+'list:Show all profiles, optionally filtered by tool' \
+'remove:Remove a stored profile' \
+'status:Show current active profiles and credential status' \
+'init:First-run setup\: shell integration and credential import' \
+'shell-hook:Print the shell integration hook for the given shell' \
+'backup:Manage credential backups' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'aisw commands' commands "$@"
+}
+(( $+functions[_aisw__add_commands] )) ||
+_aisw__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw add commands' commands "$@"
+}
+(( $+functions[_aisw__backup_commands] )) ||
+_aisw__backup_commands() {
+    local commands; commands=(
+'list:List all credential backups' \
+'restore:Restore a backup by timestamp' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'aisw backup commands' commands "$@"
+}
+(( $+functions[_aisw__backup__help_commands] )) ||
+_aisw__backup__help_commands() {
+    local commands; commands=(
+'list:List all credential backups' \
+'restore:Restore a backup by timestamp' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'aisw backup help commands' commands "$@"
+}
+(( $+functions[_aisw__backup__help__help_commands] )) ||
+_aisw__backup__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw backup help help commands' commands "$@"
+}
+(( $+functions[_aisw__backup__help__list_commands] )) ||
+_aisw__backup__help__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw backup help list commands' commands "$@"
+}
+(( $+functions[_aisw__backup__help__restore_commands] )) ||
+_aisw__backup__help__restore_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw backup help restore commands' commands "$@"
+}
+(( $+functions[_aisw__backup__list_commands] )) ||
+_aisw__backup__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw backup list commands' commands "$@"
+}
+(( $+functions[_aisw__backup__restore_commands] )) ||
+_aisw__backup__restore_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw backup restore commands' commands "$@"
+}
+(( $+functions[_aisw__help_commands] )) ||
+_aisw__help_commands() {
+    local commands; commands=(
+'add:Add a new account profile for a tool' \
+'use:Switch the active account for a tool' \
+'list:Show all profiles, optionally filtered by tool' \
+'remove:Remove a stored profile' \
+'status:Show current active profiles and credential status' \
+'init:First-run setup\: shell integration and credential import' \
+'shell-hook:Print the shell integration hook for the given shell' \
+'backup:Manage credential backups' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'aisw help commands' commands "$@"
+}
+(( $+functions[_aisw__help__add_commands] )) ||
+_aisw__help__add_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help add commands' commands "$@"
+}
+(( $+functions[_aisw__help__backup_commands] )) ||
+_aisw__help__backup_commands() {
+    local commands; commands=(
+'list:List all credential backups' \
+'restore:Restore a backup by timestamp' \
+    )
+    _describe -t commands 'aisw help backup commands' commands "$@"
+}
+(( $+functions[_aisw__help__backup__list_commands] )) ||
+_aisw__help__backup__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help backup list commands' commands "$@"
+}
+(( $+functions[_aisw__help__backup__restore_commands] )) ||
+_aisw__help__backup__restore_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help backup restore commands' commands "$@"
+}
+(( $+functions[_aisw__help__help_commands] )) ||
+_aisw__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help help commands' commands "$@"
+}
+(( $+functions[_aisw__help__init_commands] )) ||
+_aisw__help__init_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help init commands' commands "$@"
+}
+(( $+functions[_aisw__help__list_commands] )) ||
+_aisw__help__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help list commands' commands "$@"
+}
+(( $+functions[_aisw__help__remove_commands] )) ||
+_aisw__help__remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help remove commands' commands "$@"
+}
+(( $+functions[_aisw__help__shell-hook_commands] )) ||
+_aisw__help__shell-hook_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help shell-hook commands' commands "$@"
+}
+(( $+functions[_aisw__help__status_commands] )) ||
+_aisw__help__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help status commands' commands "$@"
+}
+(( $+functions[_aisw__help__use_commands] )) ||
+_aisw__help__use_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help use commands' commands "$@"
+}
+(( $+functions[_aisw__init_commands] )) ||
+_aisw__init_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw init commands' commands "$@"
+}
+(( $+functions[_aisw__list_commands] )) ||
+_aisw__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw list commands' commands "$@"
+}
+(( $+functions[_aisw__remove_commands] )) ||
+_aisw__remove_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw remove commands' commands "$@"
+}
+(( $+functions[_aisw__shell-hook_commands] )) ||
+_aisw__shell-hook_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw shell-hook commands' commands "$@"
+}
+(( $+functions[_aisw__status_commands] )) ||
+_aisw__status_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw status commands' commands "$@"
+}
+(( $+functions[_aisw__use_commands] )) ||
+_aisw__use_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw use commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_aisw" ]; then
+    _aisw "$@"
+else
+    compdef _aisw aisw
+fi

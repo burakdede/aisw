@@ -10,10 +10,10 @@ const TEST_SHA256: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 struct InstallerEnv {
     _dir: TempDir,
     install_dir: PathBuf,
+    home_dir: PathBuf,
     curl_log: PathBuf,
     path: String,
-    binary_src: PathBuf,
-    checksum_src: PathBuf,
+    assets_dir: PathBuf,
 }
 
 impl InstallerEnv {
@@ -21,27 +21,40 @@ impl InstallerEnv {
         let dir = TempDir::new().expect("failed to create temp dir");
         let stub_dir = dir.path().join("bin");
         let install_dir = dir.path().join("install");
+        let home_dir = dir.path().join("home");
         let assets_dir = dir.path().join("assets");
         let curl_log = dir.path().join("curl.log");
 
         fs::create_dir_all(&stub_dir).unwrap();
         fs::create_dir_all(&install_dir).unwrap();
+        fs::create_dir_all(&home_dir).unwrap();
         fs::create_dir_all(&assets_dir).unwrap();
         fs::write(&curl_log, "").unwrap();
 
-        let binary_src = assets_dir.join("aisw-x86_64-unknown-linux-gnu");
-        fs::write(&binary_src, "#!/bin/sh\necho fake aisw\n").unwrap();
-
-        let checksum_src = assets_dir.join("aisw-x86_64-unknown-linux-gnu.sha256");
-        fs::write(&checksum_src, format!("{TEST_SHA256}\n")).unwrap();
+        fs::write(
+            assets_dir.join("aisw-x86_64-unknown-linux-gnu"),
+            "#!/bin/sh\necho fake aisw\n",
+        )
+        .unwrap();
+        fs::write(
+            assets_dir.join("aisw-x86_64-unknown-linux-gnu.sha256"),
+            format!("{TEST_SHA256}\n"),
+        )
+        .unwrap();
+        fs::write(
+            assets_dir.join("aisw.bash"),
+            "# bash completion\nclaude codex gemini\n",
+        )
+        .unwrap();
+        fs::write(assets_dir.join("_aisw"), "#compdef aisw\n").unwrap();
+        fs::write(assets_dir.join("aisw.fish"), "# fish completion\n").unwrap();
 
         write_executable(
             &stub_dir.join("curl"),
             r#"#!/bin/sh
 set -eu
 log_file="${AISW_TEST_CURL_LOG:?}"
-binary_src="${AISW_TEST_BINARY_SRC:?}"
-checksum_src="${AISW_TEST_CHECKSUM_SRC:?}"
+assets_dir="${AISW_TEST_ASSETS_DIR:?}"
 out=""
 url=""
 while [ "$#" -gt 0 ]; do
@@ -57,10 +70,8 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 printf '%s\n' "$url" >> "$log_file"
-case "$url" in
-    *.sha256) cp "$checksum_src" "$out" ;;
-    *) cp "$binary_src" "$out" ;;
-esac
+asset_name=$(basename "$url")
+cp "$assets_dir/$asset_name" "$out"
 "#,
         );
         write_executable(
@@ -78,6 +89,13 @@ esac
             &stub_dir.join("sha256sum"),
             format!("#!/bin/sh\nset -eu\nprintf '%s  %s\\n' \"{TEST_SHA256}\" \"$1\"\n").as_str(),
         );
+        write_executable(
+            &stub_dir.join("zsh"),
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$HOME/.zfunc"
+"#,
+        );
 
         let base_path = std::env::var("PATH").unwrap_or_default();
         let path = if base_path.is_empty() {
@@ -89,10 +107,10 @@ esac
         Self {
             _dir: dir,
             install_dir,
+            home_dir,
             curl_log,
             path,
-            binary_src,
-            checksum_src,
+            assets_dir,
         }
     }
 
@@ -100,10 +118,10 @@ esac
         let mut cmd = Command::new("sh");
         cmd.arg(manifest_path("install.sh"))
             .env("PATH", &self.path)
+            .env("HOME", &self.home_dir)
             .env("AISW_INSTALL_DIR", &self.install_dir)
             .env("AISW_TEST_CURL_LOG", &self.curl_log)
-            .env("AISW_TEST_BINARY_SRC", &self.binary_src)
-            .env("AISW_TEST_CHECKSUM_SRC", &self.checksum_src);
+            .env("AISW_TEST_ASSETS_DIR", &self.assets_dir);
 
         if let Some(version) = version {
             cmd.env("AISW_VERSION", version);
@@ -143,7 +161,7 @@ fn install_script_uses_latest_download_endpoint_by_default() {
     );
 
     let urls = env.curl_urls();
-    assert_eq!(urls.len(), 2);
+    assert_eq!(urls.len(), 5);
     assert_eq!(
         urls[0],
         "https://github.com/burakdede/aisw/releases/latest/download/aisw-x86_64-unknown-linux-gnu"
@@ -152,7 +170,28 @@ fn install_script_uses_latest_download_endpoint_by_default() {
         urls[1],
         "https://github.com/burakdede/aisw/releases/latest/download/aisw-x86_64-unknown-linux-gnu.sha256"
     );
+    assert_eq!(
+        urls[2],
+        "https://github.com/burakdede/aisw/releases/latest/download/aisw.bash"
+    );
+    assert_eq!(
+        urls[3],
+        "https://github.com/burakdede/aisw/releases/latest/download/_aisw"
+    );
+    assert_eq!(
+        urls[4],
+        "https://github.com/burakdede/aisw/releases/latest/download/aisw.fish"
+    );
     assert!(env.install_dir.join("aisw").exists());
+    assert!(env
+        .home_dir
+        .join(".local/share/bash-completion/completions/aisw")
+        .exists());
+    assert!(env.home_dir.join(".zfunc/_aisw").exists());
+    assert!(env
+        .home_dir
+        .join(".config/fish/completions/aisw.fish")
+        .exists());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Installing aisw latest"));
@@ -172,7 +211,7 @@ fn install_script_uses_pinned_version_when_aisw_version_is_set() {
     );
 
     let urls = env.curl_urls();
-    assert_eq!(urls.len(), 2);
+    assert_eq!(urls.len(), 5);
     assert_eq!(
         urls[0],
         "https://github.com/burakdede/aisw/releases/download/v1.2.3/aisw-x86_64-unknown-linux-gnu"
@@ -180,6 +219,18 @@ fn install_script_uses_pinned_version_when_aisw_version_is_set() {
     assert_eq!(
         urls[1],
         "https://github.com/burakdede/aisw/releases/download/v1.2.3/aisw-x86_64-unknown-linux-gnu.sha256"
+    );
+    assert_eq!(
+        urls[2],
+        "https://github.com/burakdede/aisw/releases/download/v1.2.3/aisw.bash"
+    );
+    assert_eq!(
+        urls[3],
+        "https://github.com/burakdede/aisw/releases/download/v1.2.3/_aisw"
+    );
+    assert_eq!(
+        urls[4],
+        "https://github.com/burakdede/aisw/releases/download/v1.2.3/aisw.fish"
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
