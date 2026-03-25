@@ -1,5 +1,32 @@
 # Command Reference
 
+## Common workflows
+
+### Add and activate a profile
+
+Use this when you want to store a new account and switch to it immediately.
+
+```
+aisw add claude work --api-key sk-abc123 --label "Work account" --set-active
+```
+
+### List profiles as JSON
+
+Use this when you want to inspect profiles from a script or another tool.
+
+```
+aisw list codex --json
+```
+
+### Restore a backup and re-apply it
+
+Restoring a backup puts files back into the stored profile directory. Run `aisw use` after restore to apply that profile to the live tool config again.
+
+```
+aisw backup restore 20260325T114502Z-claude-work
+aisw use claude work
+```
+
 ## aisw add
 
 Add a new account profile for a tool.
@@ -31,6 +58,9 @@ Examples:
 aisw add claude work
 aisw add codex personal --api-key sk-abc123
 aisw add gemini team --label "Shared team key" --set-active
+aisw add claude client-a --label "Client A OAuth account"
+aisw add codex work --api-key sk-abc123 --label "OpenAI work key" --set-active
+aisw add gemini backup --api-key AIza... --label "Backup quota account"
 ```
 
 ---
@@ -56,6 +86,8 @@ Examples:
 aisw use claude work
 aisw use codex personal
 aisw use gemini default
+aisw use claude backup
+aisw use codex team-shared
 ```
 
 ---
@@ -82,6 +114,7 @@ Examples:
 aisw list
 aisw list claude
 aisw list codex --json
+aisw list gemini --json
 ```
 
 ---
@@ -107,6 +140,7 @@ Examples:
 aisw remove codex backup
 aisw remove claude old-work --yes
 aisw remove gemini default --force
+aisw remove codex team-shared --yes --force
 ```
 
 ---
@@ -126,6 +160,7 @@ Examples:
 ```
 aisw rename claude default work
 aisw rename codex personal oss
+aisw rename gemini team backup
 ```
 
 ---
@@ -144,6 +179,13 @@ Reports for each tool: whether the binary is installed, which profile is active,
 |---|---|
 | `--json` | Output as JSON |
 
+Examples:
+
+```
+aisw status
+aisw status --json
+```
+
 ---
 
 ## aisw init
@@ -159,6 +201,13 @@ Detects installed tools, installs the shell hook into your rc file, creates `~/.
 When imported credentials are OAuth-based and aisw can resolve the authenticated account identity, it blocks importing a duplicate alias for an already stored account. If identity cannot be resolved, the import continues with a warning.
 
 On success, `aisw init` prints a short next-step hint for reviewing or switching profiles.
+
+Examples:
+
+```
+aisw init
+aisw init --yes
+```
 
 ---
 
@@ -176,6 +225,8 @@ Used internally by `aisw init`. Available separately if you prefer to manage you
 
 ```
 aisw shell-hook zsh >> ~/.zshrc
+aisw shell-hook bash >> ~/.bashrc
+aisw shell-hook fish >> ~/.config/fish/conf.d/aisw.fish
 ```
 
 ---
@@ -192,6 +243,12 @@ aisw backup list
 
 Lists all backups with their unique backup id, tool, and profile name. Sorted newest-first.
 
+Examples:
+
+```
+aisw backup list
+```
+
 ### aisw backup restore
 
 ```
@@ -201,3 +258,10 @@ aisw backup restore <backup_id>
 Restores credential files from a backup into the corresponding profile directory. Does not switch the active profile — run `aisw use` after restoring to apply the credentials.
 
 On success, `aisw backup restore` prints a short next-step hint showing the exact `aisw use` command for the restored profile.
+
+Examples:
+
+```
+aisw backup restore 20260325T114502Z-claude-work
+aisw backup restore 20260325T114502Z-codex-personal
+```

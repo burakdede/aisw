@@ -28,7 +28,7 @@ URL: https://burakdede.github.io/aisw/commands/
 Section: reference
 Summary: Full command reference for aisw commands, flags, and usage patterns.
 Source: https://github.com/burakdede/aisw/blob/main/docs/commands.md
-Headings: aisw add | aisw use | aisw list | aisw remove | aisw rename | aisw status | aisw init | aisw shell-hook | aisw backup | aisw backup list | aisw backup restore
+Headings: Common workflows | Add and activate a profile | List profiles as JSON | Restore a backup and re-apply it | aisw add | aisw use | aisw list | aisw remove | aisw rename | aisw status | aisw init | aisw shell-hook | aisw backup | aisw backup list | aisw backup restore
 Common queries: aisw command reference | aisw add use list status
 
 ## Shell Integration
