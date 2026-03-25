@@ -34,7 +34,7 @@ function aisw
         set -e $var
       else
         set -l parts (string replace 'export ' '' -- $line | string split '=' -m1)
-        set -gx $parts[1] $parts[2]
+        set -gx $parts[1] (string unescape --style=script -- $parts[2])
       end
     end
     command aisw $argv
@@ -109,6 +109,7 @@ mod tests {
     fn fish_hook_parses_env_lines() {
         assert!(FISH_HOOK.contains("string replace"));
         assert!(FISH_HOOK.contains("string split"));
+        assert!(FISH_HOOK.contains("string unescape --style=script"));
         assert!(FISH_HOOK.contains("unset "));
         assert!(FISH_HOOK.contains("set -e"));
     }

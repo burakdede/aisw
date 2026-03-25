@@ -10,6 +10,15 @@ use crate::next_steps;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
+fn shell_single_quote(value: &str) -> String {
+    let escaped = value.replace('\'', "'\"'\"'");
+    format!("'{}'", escaped)
+}
+
+fn emit_export(name: &str, value: &str) {
+    println!("export {}={}", name, shell_single_quote(value));
+}
+
 pub fn run(args: UseArgs, home: &Path) -> Result<()> {
     let user_home = dirs::home_dir().context("could not determine home directory")?;
     run_in(args, home, &user_home)
@@ -47,7 +56,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             AuthMethod::OAuth => {
                 if args.emit_env {
                     let profile_dir = profile_store.profile_dir(Tool::Claude, &args.profile_name);
-                    println!("export CLAUDE_CONFIG_DIR={}", profile_dir.display());
+                    emit_export("CLAUDE_CONFIG_DIR", &profile_dir.display().to_string());
                 } else {
                     auth::claude::apply_live_credentials(
                         &profile_store,
@@ -59,7 +68,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             AuthMethod::ApiKey => {
                 if args.emit_env {
                     let key = auth::claude::read_api_key(&profile_store, &args.profile_name)?;
-                    println!("export ANTHROPIC_API_KEY={}", key);
+                    emit_export("ANTHROPIC_API_KEY", &key);
                 } else {
                     auth::claude::apply_live_credentials(
                         &profile_store,
@@ -73,7 +82,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             AuthMethod::OAuth => {
                 if args.emit_env {
                     let profile_dir = profile_store.profile_dir(Tool::Codex, &args.profile_name);
-                    println!("export CODEX_HOME={}", profile_dir.display());
+                    emit_export("CODEX_HOME", &profile_dir.display().to_string());
                 } else {
                     auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
                 }
@@ -81,7 +90,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             AuthMethod::ApiKey => {
                 if args.emit_env {
                     let key = auth::codex::read_api_key(&profile_store, &args.profile_name)?;
-                    println!("export OPENAI_API_KEY={}", key);
+                    emit_export("OPENAI_API_KEY", &key);
                 } else {
                     auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
                 }
@@ -95,7 +104,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 AuthMethod::ApiKey => {
                     if args.emit_env {
                         let key = auth::gemini::read_api_key(&profile_store, &args.profile_name)?;
-                        println!("export GEMINI_API_KEY={}", key);
+                        emit_export("GEMINI_API_KEY", &key);
                     } else {
                         auth::gemini::apply_env_file(
                             &profile_store,
@@ -255,5 +264,11 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(config.active.codex.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn shell_single_quote_escapes_single_quotes() {
+        assert_eq!(shell_single_quote("abc"), "'abc'");
+        assert_eq!(shell_single_quote("a'b"), "'a'\"'\"'b'");
     }
 }

@@ -60,7 +60,7 @@ fn use_claude_oauth_emit_env_prints_claude_config_dir() {
         .args(["use", "claude", "work", "--emit-env"])
         .assert()
         .success()
-        .stdout(contains("export CLAUDE_CONFIG_DIR="));
+        .stdout(contains("export CLAUDE_CONFIG_DIR='"));
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn use_claude_emit_env_anthropic_api_key_for_api_key_profile() {
         .args(["use", "claude", "work", "--emit-env"])
         .assert()
         .success()
-        .stdout(contains("export ANTHROPIC_API_KEY="));
+        .stdout(contains("export ANTHROPIC_API_KEY='"));
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn use_gemini_api_key_emit_env_prints_gemini_key() {
         .args(["use", "gemini", "work", "--emit-env"])
         .assert()
         .success()
-        .stdout(contains("export GEMINI_API_KEY="));
+        .stdout(contains("export GEMINI_API_KEY='"));
 }
 
 #[test]
@@ -185,6 +185,49 @@ fn use_gemini_oauth_emit_env_unsets_gemini_key() {
         .assert()
         .success()
         .stdout(contains("unset GEMINI_API_KEY"));
+}
+
+#[test]
+fn use_codex_oauth_emit_env_quotes_path_with_shell_chars() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(profile_dir.join("auth.json"), r#"{"token":"tok"}"#).unwrap();
+    std::fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = \"file\"\n",
+    )
+    .unwrap();
+    let config_json = serde_json::json!({
+        "version": 1,
+        "active": {"claude": null, "codex": null, "gemini": null},
+        "profiles": {
+            "claude": {},
+            "codex": {
+                "work": {
+                    "added_at": "2026-03-25T00:00:00Z",
+                    "auth_method": "o_auth",
+                    "label": null
+                }
+            },
+            "gemini": {}
+        },
+        "settings": {"backup_on_switch": true, "max_backups": 10}
+    });
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["use", "codex", "work", "--emit-env"])
+        .assert()
+        .success()
+        .stdout(contains("export CODEX_HOME='"))
+        .stdout(contains("/profiles/codex/work'"));
 }
 
 #[test]
