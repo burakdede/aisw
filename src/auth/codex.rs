@@ -18,6 +18,18 @@ const CONFIG_TOML_CONTENTS: &str = "cli_auth_credentials_store = \"file\"\n";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
+fn live_dir(user_home: &Path) -> PathBuf {
+    user_home.join(".codex")
+}
+
+fn live_auth_path(user_home: &Path) -> PathBuf {
+    live_dir(user_home).join(AUTH_FILE)
+}
+
+fn live_config_path(user_home: &Path) -> PathBuf {
+    live_dir(user_home).join(CONFIG_FILE)
+}
+
 pub(crate) fn write_file_store_config(profile_store: &ProfileStore, name: &str) -> Result<()> {
     profile_store.write_file(
         Tool::Codex,
@@ -206,6 +218,88 @@ pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> 
     })
 }
 
+pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Path) -> Result<()> {
+    let live_dir = live_dir(user_home);
+    std::fs::create_dir_all(&live_dir)
+        .with_context(|| format!("could not create {}", live_dir.display()))?;
+
+    let auth_bytes = profile_store.read_file(Tool::Codex, name, AUTH_FILE)?;
+    let auth_dest = live_auth_path(user_home);
+    std::fs::write(&auth_dest, &auth_bytes)
+        .with_context(|| format!("could not write {}", auth_dest.display()))?;
+    set_auth_permissions(&auth_dest)?;
+
+    ensure_live_file_store_config(user_home)
+}
+
+pub fn live_files_match(
+    profile_store: &ProfileStore,
+    name: &str,
+    user_home: &Path,
+) -> Result<bool> {
+    let auth_dest = live_auth_path(user_home);
+    if !auth_dest.exists() {
+        return Ok(false);
+    }
+    let live_auth = std::fs::read(&auth_dest)
+        .with_context(|| format!("could not read {}", auth_dest.display()))?;
+    let stored_auth = profile_store.read_file(Tool::Codex, name, AUTH_FILE)?;
+    if live_auth != stored_auth {
+        return Ok(false);
+    }
+
+    let config_dest = live_config_path(user_home);
+    if !config_dest.exists() {
+        return Ok(false);
+    }
+    let config = std::fs::read_to_string(&config_dest)
+        .with_context(|| format!("could not read {}", config_dest.display()))?;
+    Ok(config_uses_file_store(&config))
+}
+
+fn ensure_live_file_store_config(user_home: &Path) -> Result<()> {
+    let config_dest = live_config_path(user_home);
+    let updated = if config_dest.exists() {
+        let current = std::fs::read_to_string(&config_dest)
+            .with_context(|| format!("could not read {}", config_dest.display()))?;
+        merge_file_store_config(&current)
+    } else {
+        CONFIG_TOML_CONTENTS.to_owned()
+    };
+
+    std::fs::write(&config_dest, updated.as_bytes())
+        .with_context(|| format!("could not write {}", config_dest.display()))?;
+    set_auth_permissions(&config_dest)
+}
+
+fn merge_file_store_config(current: &str) -> String {
+    let mut replaced = false;
+    let mut lines = Vec::new();
+    for line in current.lines() {
+        if line.trim_start().starts_with("cli_auth_credentials_store") {
+            lines.push(CONFIG_TOML_CONTENTS.trim_end().to_owned());
+            replaced = true;
+        } else {
+            lines.push(line.to_owned());
+        }
+    }
+    if !replaced {
+        if !current.is_empty() && !current.ends_with('\n') {
+            lines.push(String::new());
+        }
+        lines.push(CONFIG_TOML_CONTENTS.trim_end().to_owned());
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
+fn config_uses_file_store(contents: &str) -> bool {
+    contents
+        .lines()
+        .any(|line| line.trim() == "cli_auth_credentials_store = \"file\"")
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
@@ -263,6 +357,29 @@ mod tests {
         let toml_str = std::str::from_utf8(&contents).unwrap();
         assert!(toml_str.contains("cli_auth_credentials_store"));
         assert!(toml_str.contains("file"));
+    }
+
+    #[test]
+    fn apply_live_files_preserves_existing_config_settings() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        std::fs::write(
+            user_home.join(".codex").join(CONFIG_FILE),
+            "model = \"gpt-5.4\"\n[features]\nunified_exec = true\n",
+        )
+        .unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+
+        apply_live_files(&ps, "main", &user_home).unwrap();
+
+        let contents = std::fs::read_to_string(user_home.join(".codex").join(CONFIG_FILE)).unwrap();
+        assert!(contents.contains("model = \"gpt-5.4\""));
+        assert!(contents.contains("[features]"));
+        assert!(contents.contains("unified_exec = true"));
+        assert!(contents.contains("cli_auth_credentials_store = \"file\""));
     }
 
     #[test]

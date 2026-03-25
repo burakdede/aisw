@@ -93,6 +93,16 @@ pub fn apply_env_file(
     set_permissions_600(dest)
 }
 
+pub fn live_env_matches(profile_store: &ProfileStore, name: &str, dest: &Path) -> Result<bool> {
+    if !dest.exists() {
+        return Ok(false);
+    }
+    let live = std::fs::read(dest)
+        .map_err(|e| anyhow::anyhow!("could not read {}: {}", dest.display(), e))?;
+    let stored = profile_store.read_file(Tool::Gemini, name, ENV_FILE)?;
+    Ok(live == stored)
+}
+
 /// Start the Gemini OAuth flow using the installed `gemini` binary.
 ///
 /// Overrides `HOME` so Gemini writes its token cache to a scratch directory
@@ -275,6 +285,42 @@ pub fn apply_token_cache(
         set_permissions_600(&dst)?;
     }
     Ok(())
+}
+
+pub fn live_token_cache_matches(
+    profile_store: &ProfileStore,
+    name: &str,
+    gemini_dir: &Path,
+) -> Result<bool> {
+    let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
+    if !gemini_dir.exists() {
+        return Ok(false);
+    }
+
+    let mut saw_file = false;
+    for entry in std::fs::read_dir(&profile_dir)
+        .with_context(|| format!("could not read {}", profile_dir.display()))?
+    {
+        let entry = entry?;
+        let src = entry.path();
+        if src.is_symlink() || !src.is_file() {
+            continue;
+        }
+        saw_file = true;
+        let live = gemini_dir.join(entry.file_name());
+        if !live.exists() {
+            return Ok(false);
+        }
+        let src_bytes =
+            std::fs::read(&src).with_context(|| format!("could not read {}", src.display()))?;
+        let live_bytes =
+            std::fs::read(&live).with_context(|| format!("could not read {}", live.display()))?;
+        if src_bytes != live_bytes {
+            return Ok(false);
+        }
+    }
+
+    Ok(saw_file)
 }
 
 #[cfg(unix)]

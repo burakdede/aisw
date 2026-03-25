@@ -147,25 +147,56 @@ fn use_without_emit_env_prints_switched_message() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Configured claude profile 'work' as active"))
-        .stdout(contains("this shell is not using it yet"));
+        .stdout(contains("Switched claude to profile 'work'."))
+        .stdout(contains(
+            "Next: run 'aisw status' to confirm the current state.",
+        ));
+
+    let live = env.fake_home.join(".claude").join(".credentials.json");
+    assert!(live.exists(), "live Claude credentials should be written");
 }
 
 #[test]
-fn use_prints_switched_when_current_shell_matches_profile() {
+fn use_prints_switched_without_shell_env_matching() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");
 
     env.cmd()
         .args(["use", "claude", "work"])
-        .env(
-            "ANTHROPIC_API_KEY",
-            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        )
         .assert()
         .success()
         .stdout(contains("Switched claude to profile 'work'."))
         .stdout(contains(
             "Next: run 'aisw status' to confirm the current state.",
         ));
+}
+
+#[test]
+fn use_codex_writes_live_auth_files() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    std::fs::create_dir_all(env.fake_home.join(".codex")).unwrap();
+    std::fs::write(
+        env.fake_home.join(".codex").join("config.toml"),
+        "model = \"gpt-5.4\"\n",
+    )
+    .unwrap();
+
+    env.cmd()
+        .args([
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            "sk-codex-test-key-12345",
+        ])
+        .assert()
+        .success();
+
+    env.cmd().args(["use", "codex", "work"]).assert().success();
+
+    assert!(env.fake_home.join(".codex").join("auth.json").exists());
+    let config = std::fs::read_to_string(env.fake_home.join(".codex").join("config.toml")).unwrap();
+    assert!(config.contains("model = \"gpt-5.4\""));
+    assert!(config.contains("cli_auth_credentials_store = \"file\""));
 }

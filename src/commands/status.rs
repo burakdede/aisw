@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::activation::{self, SessionActivation};
+use crate::activation::{self, LiveActivation};
 use crate::cli::StatusArgs;
 use crate::config::{AuthMethod, ConfigStore};
 use crate::profile::ProfileStore;
@@ -16,17 +16,28 @@ pub(crate) struct ToolStatus {
     pub stored_profiles: usize,
     pub active_profile: Option<String>,
     pub auth_method: Option<String>,
-    pub effective_in_current_session: Option<bool>,
+    pub active_profile_applied: Option<bool>,
     pub credentials_present: bool,
     pub permissions_ok: bool,
 }
 
 pub fn run(args: StatusArgs, home: &Path) -> Result<()> {
-    run_in(args, home, std::env::var_os("PATH").unwrap_or_default())
+    let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
+    run_in(
+        args,
+        home,
+        &user_home,
+        std::env::var_os("PATH").unwrap_or_default(),
+    )
 }
 
-pub(crate) fn run_in(args: StatusArgs, home: &Path, tool_path: OsString) -> Result<()> {
-    let statuses = collect_status(home, &tool_path)?;
+pub(crate) fn run_in(
+    args: StatusArgs,
+    home: &Path,
+    user_home: &Path,
+    tool_path: OsString,
+) -> Result<()> {
+    let statuses = collect_status(home, user_home, &tool_path)?;
     if args.json {
         print_json(&statuses)?;
     } else {
@@ -35,7 +46,11 @@ pub(crate) fn run_in(args: StatusArgs, home: &Path, tool_path: OsString) -> Resu
     Ok(())
 }
 
-pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<ToolStatus>> {
+pub(crate) fn collect_status(
+    home: &Path,
+    user_home: &Path,
+    tool_path: &OsString,
+) -> Result<Vec<ToolStatus>> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
     let profile_store = ProfileStore::new(home);
@@ -58,7 +73,7 @@ pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<To
         let (
             active_profile,
             auth_method,
-            effective_in_current_session,
+            active_profile_applied,
             credentials_present,
             permissions_ok,
         ) = if let Some(name) = active_name {
@@ -70,20 +85,25 @@ pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<To
             let auth = profiles
                 .get(name)
                 .map(|m| auth_label(m.auth_method).to_owned());
-            let effective = profiles
+            let applied = profiles
                 .get(name)
                 .map(|m| {
-                    activation::assess_current_session(tool, m.auth_method, &profile_store, name)
+                    activation::assess_live_state(
+                        tool,
+                        m.auth_method,
+                        &profile_store,
+                        name,
+                        user_home,
+                    )
                 })
                 .transpose()?
-                .and_then(|state| match state {
-                    SessionActivation::Effective => Some(true),
-                    SessionActivation::CurrentShellNotUsingProfile => Some(false),
-                    SessionActivation::NotApplicable => None,
+                .map(|state| match state {
+                    LiveActivation::Applied => true,
+                    LiveActivation::NotApplied => false,
                 });
             let profile_dir = profile_store.profile_dir(tool, name);
             let (creds, perms) = check_profile_dir(&profile_dir);
-            (Some(name.to_owned()), auth, effective, creds, perms)
+            (Some(name.to_owned()), auth, applied, creds, perms)
         } else {
             (None, None, None, false, true)
         };
@@ -94,7 +114,7 @@ pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<To
             stored_profiles,
             active_profile,
             auth_method,
-            effective_in_current_session,
+            active_profile_applied,
             credentials_present,
             permissions_ok,
         });
@@ -156,8 +176,8 @@ fn status_message(s: &ToolStatus) -> &'static str {
     if !s.permissions_ok {
         return "credentials present \u{2014} permissions too broad!";
     }
-    if s.effective_in_current_session == Some(false) {
-        return "credentials present, but current shell is not using this profile";
+    if s.active_profile_applied == Some(false) {
+        return "credentials present, but live tool config does not match the active profile";
     }
     "credentials present (validity not checked)"
 }
@@ -187,7 +207,7 @@ fn print_json(statuses: &[ToolStatus]) -> Result<()> {
                 "stored_profiles":      s.stored_profiles,
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
-                "effective_in_current_session": s.effective_in_current_session,
+                "active_profile_applied": s.active_profile_applied,
                 "credentials_present":  s.credentials_present,
                 "permissions_ok":       s.permissions_ok,
             })
@@ -230,7 +250,7 @@ mod tests {
     #[test]
     fn empty_config_no_path_all_not_found() {
         let tmp = tempdir().unwrap();
-        let statuses = collect_status(tmp.path(), &empty_path()).unwrap();
+        let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
         assert_eq!(statuses.len(), 3);
         assert!(statuses.iter().all(|s| !s.binary_found));
         assert!(statuses.iter().all(|s| s.active_profile.is_none()));
@@ -243,7 +263,8 @@ mod tests {
         fs::create_dir_all(&bin_dir).unwrap();
         make_fake_binary(&bin_dir, "claude");
 
-        let statuses = collect_status(tmp.path(), &bin_dir.as_os_str().to_owned()).unwrap();
+        let statuses =
+            collect_status(tmp.path(), tmp.path(), &bin_dir.as_os_str().to_owned()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
         assert!(claude.binary_found);
     }
@@ -263,25 +284,30 @@ mod tests {
         .unwrap();
         cs.set_active(Tool::Claude, "work").unwrap();
 
-        let statuses = collect_status(tmp.path(), &empty_path()).unwrap();
+        auth::claude::apply_live_credentials(&ps, "work", tmp.path()).unwrap();
+
+        let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
         assert_eq!(claude.active_profile.as_deref(), Some("work"));
-        assert_eq!(claude.effective_in_current_session, Some(false));
+        assert_eq!(claude.active_profile_applied, Some(true));
         assert!(claude.credentials_present);
         assert!(claude.permissions_ok);
     }
 
     #[test]
-    fn gemini_effective_state_is_not_applicable() {
+    fn gemini_active_profile_applied_reflects_live_state() {
         let tmp = tempdir().unwrap();
         let ps = ProfileStore::new(tmp.path());
         let cs = ConfigStore::new(tmp.path());
         auth::gemini::add_api_key(&ps, &cs, "work", "AIzatest1234567890ABCDEF", None).unwrap();
         cs.set_active(Tool::Gemini, "work").unwrap();
+        std::fs::create_dir_all(tmp.path().join(".gemini")).unwrap();
+        auth::gemini::apply_env_file(&ps, "work", &tmp.path().join(".gemini").join(".env"))
+            .unwrap();
 
-        let statuses = collect_status(tmp.path(), &empty_path()).unwrap();
+        let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
         let gemini = statuses.iter().find(|s| s.tool == Tool::Gemini).unwrap();
-        assert_eq!(gemini.effective_in_current_session, None);
+        assert_eq!(gemini.active_profile_applied, Some(true));
     }
 
     #[test]
@@ -305,7 +331,7 @@ mod tests {
             .join(".credentials.json");
         fs::set_permissions(&cred, fs::Permissions::from_mode(0o644)).unwrap();
 
-        let statuses = collect_status(tmp.path(), &empty_path()).unwrap();
+        let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
         assert!(claude.credentials_present);
         assert!(!claude.permissions_ok);
@@ -314,6 +340,6 @@ mod tests {
     #[test]
     fn run_in_exits_ok_with_no_config() {
         let tmp = tempdir().unwrap();
-        run_in(status_args(false), tmp.path(), empty_path()).unwrap();
+        run_in(status_args(false), tmp.path(), tmp.path(), empty_path()).unwrap();
     }
 }

@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::activation::{self, SessionActivation};
 use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
@@ -44,36 +43,50 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     }
 
     match args.tool {
-        Tool::Claude => {
-            if args.emit_env {
-                match profile_meta.auth_method {
-                    AuthMethod::OAuth => {
-                        let profile_dir =
-                            profile_store.profile_dir(Tool::Claude, &args.profile_name);
-                        println!("export CLAUDE_CONFIG_DIR={}", profile_dir.display());
-                    }
-                    AuthMethod::ApiKey => {
-                        let key = auth::claude::read_api_key(&profile_store, &args.profile_name)?;
-                        println!("export ANTHROPIC_API_KEY={}", key);
-                    }
+        Tool::Claude => match profile_meta.auth_method {
+            AuthMethod::OAuth => {
+                if args.emit_env {
+                    let profile_dir = profile_store.profile_dir(Tool::Claude, &args.profile_name);
+                    println!("export CLAUDE_CONFIG_DIR={}", profile_dir.display());
+                } else {
+                    auth::claude::apply_live_credentials(
+                        &profile_store,
+                        &args.profile_name,
+                        user_home,
+                    )?;
                 }
             }
-        }
-        Tool::Codex => {
-            if args.emit_env {
-                match profile_meta.auth_method {
-                    AuthMethod::OAuth => {
-                        let profile_dir =
-                            profile_store.profile_dir(Tool::Codex, &args.profile_name);
-                        println!("export CODEX_HOME={}", profile_dir.display());
-                    }
-                    AuthMethod::ApiKey => {
-                        let key = auth::codex::read_api_key(&profile_store, &args.profile_name)?;
-                        println!("export OPENAI_API_KEY={}", key);
-                    }
+            AuthMethod::ApiKey => {
+                if args.emit_env {
+                    let key = auth::claude::read_api_key(&profile_store, &args.profile_name)?;
+                    println!("export ANTHROPIC_API_KEY={}", key);
+                } else {
+                    auth::claude::apply_live_credentials(
+                        &profile_store,
+                        &args.profile_name,
+                        user_home,
+                    )?;
                 }
             }
-        }
+        },
+        Tool::Codex => match profile_meta.auth_method {
+            AuthMethod::OAuth => {
+                if args.emit_env {
+                    let profile_dir = profile_store.profile_dir(Tool::Codex, &args.profile_name);
+                    println!("export CODEX_HOME={}", profile_dir.display());
+                } else {
+                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+                }
+            }
+            AuthMethod::ApiKey => {
+                if args.emit_env {
+                    let key = auth::codex::read_api_key(&profile_store, &args.profile_name)?;
+                    println!("export OPENAI_API_KEY={}", key);
+                } else {
+                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+                }
+            }
+        },
         Tool::Gemini => {
             let gemini_dir = user_home.join(".gemini");
             std::fs::create_dir_all(&gemini_dir)
@@ -100,28 +113,8 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     config_store.set_active(args.tool, &args.profile_name)?;
 
     if !args.emit_env {
-        let activation = activation::assess_current_session(
-            args.tool,
-            profile_meta.auth_method,
-            &profile_store,
-            &args.profile_name,
-        )?;
-        match activation {
-            SessionActivation::Effective | SessionActivation::NotApplicable => {
-                println!("Switched {} to profile '{}'.", args.tool, args.profile_name);
-                println!("{}", next_steps::after_use());
-            }
-            SessionActivation::CurrentShellNotUsingProfile => {
-                println!(
-                    "Configured {} profile '{}' as active, but this shell is not using it yet.",
-                    args.tool, args.profile_name
-                );
-                println!(
-                    "Enable the aisw shell hook, then restart or source your shell config before launching {}.",
-                    args.tool.binary_name()
-                );
-            }
-        }
+        println!("Switched {} to profile '{}'.", args.tool, args.profile_name);
+        println!("{}", next_steps::after_use());
     }
 
     Ok(())

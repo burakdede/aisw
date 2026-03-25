@@ -15,6 +15,20 @@ const KEY_MIN_LEN: usize = 40;
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
+fn live_credentials_path(user_home: &Path) -> PathBuf {
+    let primary = user_home.join(".claude").join(CREDENTIALS_FILE);
+    let secondary = user_home
+        .join(".config")
+        .join("claude")
+        .join(CREDENTIALS_FILE);
+
+    if secondary.exists() && !primary.exists() {
+        secondary
+    } else {
+        primary
+    }
+}
+
 pub fn add_api_key(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
@@ -195,6 +209,36 @@ pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> 
                 name
             )
         })
+}
+
+pub fn apply_live_credentials(
+    profile_store: &ProfileStore,
+    name: &str,
+    user_home: &Path,
+) -> Result<()> {
+    let dest = live_credentials_path(user_home);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("could not create {}", parent.display()))?;
+    }
+    let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
+    std::fs::write(&dest, &bytes).with_context(|| format!("could not write {}", dest.display()))?;
+    set_credentials_permissions(&dest)
+}
+
+pub fn live_credentials_match(
+    profile_store: &ProfileStore,
+    name: &str,
+    user_home: &Path,
+) -> Result<bool> {
+    let dest = live_credentials_path(user_home);
+    if !dest.exists() {
+        return Ok(false);
+    }
+    let live =
+        std::fs::read(&dest).with_context(|| format!("could not read {}", dest.display()))?;
+    let stored = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
+    Ok(live == stored)
 }
 
 #[cfg(test)]

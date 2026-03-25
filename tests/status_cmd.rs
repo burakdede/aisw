@@ -7,6 +7,7 @@ use common::TestEnv;
 use predicates::str::contains;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 
 fn add_and_activate_claude(env: &TestEnv, name: &str) {
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -15,6 +16,15 @@ fn add_and_activate_claude(env: &TestEnv, name: &str) {
         .assert()
         .success();
     env.cmd().args(["use", "claude", name]).assert().success();
+}
+
+fn add_and_activate_codex(env: &TestEnv, name: &str) {
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd()
+        .args(["add", "codex", name, "--api-key", VALID_CODEX_KEY])
+        .assert()
+        .success();
+    env.cmd().args(["use", "codex", name]).assert().success();
 }
 
 #[test]
@@ -64,7 +74,7 @@ fn status_json_has_expected_keys() {
     assert_eq!(claude["binary_found"], true);
     assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
-    assert_eq!(claude["effective_in_current_session"], false);
+    assert_eq!(claude["active_profile_applied"], true);
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
 }
@@ -91,31 +101,35 @@ fn status_warns_on_broad_permissions() {
 }
 
 #[test]
-fn status_reports_shell_mismatch_for_active_claude_profile() {
+fn status_reports_live_tool_config_mismatch_for_active_claude_profile() {
     let env = TestEnv::new();
     add_and_activate_claude(&env, "work");
+
+    std::fs::remove_file(env.fake_home.join(".claude").join(".credentials.json")).unwrap();
 
     env.cmd()
         .args(["status"])
         .assert()
         .success()
-        .stdout(contains("current shell is not using this profile"));
+        .stdout(contains(
+            "live tool config does not match the active profile",
+        ));
 }
 
 #[test]
-fn status_reports_credentials_present_when_current_shell_matches() {
+fn status_reports_live_tool_config_mismatch_for_active_codex_profile() {
     let env = TestEnv::new();
-    add_and_activate_claude(&env, "work");
+    add_and_activate_codex(&env, "work");
+
+    std::fs::remove_file(env.fake_home.join(".codex").join("auth.json")).unwrap();
 
     env.cmd()
         .args(["status"])
-        .env(
-            "ANTHROPIC_API_KEY",
-            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        )
         .assert()
         .success()
-        .stdout(contains("credentials present (validity not checked)"));
+        .stdout(contains(
+            "live tool config does not match the active profile",
+        ));
 }
 
 #[test]

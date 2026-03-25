@@ -41,11 +41,12 @@ Switch the active account for a tool.
 aisw use <tool> <profile_name>
 ```
 
-For Claude and Codex, the switch requires shell integration to take effect in the current session. If the current shell is not using the hook yet, `aisw` records the selected profile as active and prints a warning telling you to restart or source your shell config before launching the upstream CLI.
+`aisw use` applies the selected profile into the live config location each tool reads:
+- Claude: live credentials file
+- Codex: live `auth.json` plus file-store config in `~/.codex/config.toml`
+- Gemini: live `~/.gemini/.env` or token cache
 
-For Gemini, the switch rewrites `~/.gemini/.env` directly — no shell hook required.
-
-When the switch is fully effective, `aisw use` prints a short next-step hint to verify the current state. When the current shell is not using the selected Claude/Codex profile yet, the warning remains the primary output instead.
+Normal switching does not require shell integration.
 
 Examples:
 
@@ -135,7 +136,7 @@ Show the current state across all tools.
 aisw status [--json]
 ```
 
-Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and, for Claude/Codex, whether the current shell is actually using the active profile. Token validity is not checked — aisw only verifies that files exist and whether the local session matches the configured profile.
+Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and whether the live tool config matches the configured active profile. Token validity is not checked — aisw only verifies that files exist and that the local live state matches the selected profile.
 
 | Flag | Description |
 |---|---|

@@ -72,7 +72,7 @@ Successful `init`, `add`, `use`, and `backup restore` commands also print a shor
 ## How it works
 
 - aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.
-- `aisw use` points each tool at the selected profile by setting environment variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) or rewriting the tool's config file (`~/.gemini/.env`).
+- `aisw use` applies the selected profile into the live config location each tool actually reads.
 - No proxy, no traffic interception, no network calls. aisw touches only credential files on disk.
 
 ## Security
@@ -84,7 +84,7 @@ Successful `init`, `add`, `use`, and `backup restore` commands also print a shor
 
 ## Shell integration
 
-`aisw use` sets environment variables. For these to take effect in your current shell session, the shell hook must be active. Without it, `aisw` records the selected profile as active but warns that the current shell is not using it yet.
+`aisw use` now applies the selected profile directly to the live tool config locations, so normal switching does not depend on shell hooks. The shell hook remains available as an optional integration for manual or advanced shell workflows.
 
 Add to your shell config:
 

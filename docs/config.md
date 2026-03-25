@@ -78,7 +78,7 @@ This is useful for testing or for running multiple isolated aisw environments.
                 └── .credentials.json
 ```
 
-Profile directories act as drop-in replacements for each tool's home directory (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). aisw treats the files inside them as opaque blobs — it copies them in and out but never parses their contents.
+Profile directories store the per-profile credential state that `aisw` copies into each tool's live config location on `use`. aisw treats most credential files as opaque blobs — it copies them in and out but does not validate token contents.
 
 ## Version mismatch
 

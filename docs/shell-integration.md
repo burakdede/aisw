@@ -1,8 +1,6 @@
 # Shell Integration
 
-`aisw` provides a shell hook that wraps the `aisw use` command so that environment
-variables (API keys, config directory paths) are applied to your **current shell session**
-rather than a child process.
+`aisw` provides an optional shell hook for manual or advanced shell workflows.
 
 ## How it works
 
@@ -10,8 +8,7 @@ The hook intercepts `aisw use <tool> <profile>`, runs the real binary with `--em
 and applies the emitted `export KEY=VALUE` lines to the shell environment. All other
 subcommands are passed through unchanged.
 
-Without the hook, `aisw use` still updates aisw's configured active profile, but it warns
-that the current shell is not using that profile yet.
+Normal `aisw use` behavior no longer depends on this hook. The hook is optional.
 
 ---
 

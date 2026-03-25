@@ -6,7 +6,7 @@
 aisw add claude <name> --api-key sk-ant-...
 ```
 
-Stores `{"apiKey": "<key>"}` in `~/.aisw/profiles/claude/<name>/.credentials.json` with `0600` permissions. When you switch to this profile, aisw emits `export ANTHROPIC_API_KEY=<key>` for the shell hook to eval.
+Stores `{"apiKey": "<key>"}` in `~/.aisw/profiles/claude/<name>/.credentials.json` with `0600` permissions. When you switch to this profile, aisw copies that credentials file into Claude's live config location.
 
 API key format: must start with `sk-ant-`, minimum 40 characters.
 
@@ -37,7 +37,7 @@ Writes two files into the profile directory:
 - `config.toml` — sets `cli_auth_credentials_store = "file"` so Codex reads from a file instead of the OS keyring
 - `auth.json` — stores `{"token": "<key>"}`
 
-Both files are written with `0600` permissions. When you switch to this profile, aisw sets `CODEX_HOME` to the profile directory.
+Both files are written with `0600` permissions. When you switch to this profile, aisw copies `auth.json` into `~/.codex/` and ensures Codex is configured to read credentials from a file without overwriting unrelated settings in `config.toml`.
 
 ## Codex CLI — OAuth
 
