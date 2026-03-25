@@ -136,7 +136,7 @@ Show the current state across all tools.
 aisw status [--json]
 ```
 
-Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and whether the live tool config matches the configured active profile. Token validity is not checked — aisw only verifies that files exist and that the local live state matches the selected profile.
+Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and whether the live tool config matches the configured active profile. Token validity, quota, and subscription state are not checked — aisw only verifies local file presence and that the local live state matches the selected profile.
 
 | Flag | Description |
 |---|---|
@@ -152,7 +152,7 @@ First-run setup.
 aisw init
 ```
 
-Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
+Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool, and `aisw init` applies that active profile to the live tool config immediately. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
 
 On success, `aisw init` prints a short next-step hint for reviewing or switching profiles.
 

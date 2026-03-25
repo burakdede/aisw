@@ -49,6 +49,7 @@ aisw init
 ```
 
 It detects installed tools, installs the shell hook, and offers to import your existing credentials with sensible defaults: profile name `default` and label `imported`. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool.
+When `init` marks an imported profile active, it also applies that profile to the live tool config right away.
 
 ## Command reference
 
@@ -73,6 +74,7 @@ Successful `init`, `add`, `use`, and `backup restore` commands also print a shor
 
 - aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.
 - `aisw use` applies the selected profile into the live config location each tool actually reads.
+- `aisw init` imports detected live credentials as profiles and applies them immediately when it marks them active.
 - No proxy, no traffic interception, no network calls. aisw touches only credential files on disk.
 
 ## Security

@@ -8,7 +8,7 @@ The hook intercepts `aisw use <tool> <profile>`, runs the real binary with `--em
 and applies the emitted `export KEY=VALUE` lines to the shell environment. All other
 subcommands are passed through unchanged.
 
-Normal `aisw use` behavior no longer depends on this hook. The hook is optional.
+Normal `aisw use` behavior no longer depends on this hook. `aisw init` and `aisw use` apply the selected profile directly to the live Claude/Codex/Gemini config locations, so standalone tool invocations pick up the active profile without extra shell steps. The hook is optional.
 
 ---
 

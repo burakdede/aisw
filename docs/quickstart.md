@@ -30,7 +30,8 @@ The wizard will:
 3. Scan for existing credentials for Claude Code, Codex CLI, and Gemini CLI, and offer
    to import each one with defaults of profile name `default` and label `imported`. You can
    override both during interactive onboarding. Imported live credentials become active by
-   default unless aisw is already managing an active profile for that tool.
+   default unless aisw is already managing an active profile for that tool. When an import is
+   marked active, `aisw` also applies it to the live tool config immediately.
 
 Running `aisw init` a second time is safe — the shell hook will not be duplicated, and
 existing profiles will not be overwritten.
@@ -39,8 +40,12 @@ Successful setup also prints a short next-step hint so you can move directly int
 
 ### Shell hook
 
-The shell hook is required for `aisw use` to apply environment variables to your current
-shell session. Accept the prompt during `init`, or install it manually:
+The shell hook is optional. Normal `aisw use` behavior updates the live config locations that
+Claude, Codex, and Gemini actually read, so standalone `claude`, `codex`, and `gemini` commands
+pick up the selected profile without extra shell steps.
+
+Accept the prompt during `init`, or install the hook manually if you want shell-level
+environment exports for advanced or manual workflows:
 
 | Shell | Command |
 |-------|---------|
@@ -98,8 +103,8 @@ aisw status
 
 Shows which profile is active for each tool, whether the binary is installed, and the
 state of credential files and whether the live tool config matches the configured active
-profile. If profiles are stored for a tool but none is active, `status` reports that
-explicitly.
+profile. Token validity, quota, and subscription state are not checked. If profiles are stored
+for a tool but none is active, `status` reports that explicitly.
 
 ---
 
