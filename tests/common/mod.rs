@@ -16,6 +16,9 @@ pub struct TestEnv {
     pub dir: TempDir,
     pub aisw_home: PathBuf,
     pub bin_dir: PathBuf,
+    /// Fake HOME dir — set as HOME env var so tools that use dirs::home_dir()
+    /// (e.g. Gemini .env rewrite) write to a sandboxed location.
+    pub fake_home: PathBuf,
 }
 
 impl TestEnv {
@@ -23,12 +26,15 @@ impl TestEnv {
         let dir = TempDir::new().expect("failed to create temp dir");
         let aisw_home = dir.path().join("aisw_home");
         let bin_dir = dir.path().join("bin");
+        let fake_home = dir.path().join("home");
         fs::create_dir_all(&aisw_home).unwrap();
         fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&fake_home).unwrap();
         Self {
             dir,
             aisw_home,
             bin_dir,
+            fake_home,
         }
     }
 
@@ -52,7 +58,8 @@ impl TestEnv {
     pub fn cmd(&self) -> Command {
         let mut cmd = Command::cargo_bin("aisw").expect("aisw binary not found");
         cmd.env("AISW_HOME", &self.aisw_home)
-            .env("PATH", &self.bin_dir);
+            .env("PATH", &self.bin_dir)
+            .env("HOME", &self.fake_home);
         cmd
     }
 
