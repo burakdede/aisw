@@ -113,7 +113,7 @@ See <https://burakdede.github.io/aisw/shell-integration/> for details.
 
 | Tool | Binary | Auth methods |
 |---|---|---|
-| Claude Code | `claude` | OAuth (browser), API key (`sk-ant-...`) |
+| Claude Code | `claude` | OAuth (browser), API key |
 | Codex CLI | `codex` | OAuth (ChatGPT), API key |
 | Gemini CLI | `gemini` | OAuth (Google), API key |
 

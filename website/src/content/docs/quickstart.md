@@ -37,13 +37,19 @@ It is the fastest path if you want to:
 
 ## 1. Install aisw
 
-Build from source:
+Install from crates.io:
+
+```sh
+cargo install aisw
+```
+
+For local development, build from the checked out repository:
 
 ```sh
 cargo install --path .
 ```
 
-Or download a pre-built binary from the releases page and place it somewhere on your PATH.
+Or download a pre-built binary from the GitHub Releases page and place it somewhere on your PATH.
 
 ---
 
