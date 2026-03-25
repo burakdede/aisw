@@ -13,12 +13,19 @@ Use it if you want to:
 ## Claude Code — API key
 
 ```
-aisw add claude <name> --api-key sk-ant-...
+aisw add claude <name> --api-key <key>
 ```
 
 Stores `{"apiKey": "<key>"}` in `~/.aisw/profiles/claude/<name>/.credentials.json` with `0600` permissions. When you switch to this profile, aisw copies that credentials file into Claude's live config location.
 
-API key format: must start with `sk-ant-`, minimum 40 characters.
+Anthropic's official docs show API key hints beginning with `sk-ant-api03-...`, but do not appear to publish a strict public format specification for Claude Code API keys.
+
+`aisw` does not currently enforce a Claude-specific prefix or minimum length. It only validates that the key is not empty. The `sk-ant-...` examples in this repo are illustrative, not a claimed official format rule.
+
+Official references:
+
+- https://docs.anthropic.com/en/api/admin-api/apikeys/get-api-key
+- https://docs.anthropic.com/en/api/admin-api/apikeys/update-api-key
 
 ## Claude Code — OAuth (browser login)
 
@@ -51,6 +58,13 @@ Writes two files into the profile directory:
 
 Both files are written with `0600` permissions. When you switch to this profile, aisw copies `auth.json` into `~/.codex/` and ensures Codex is configured to read credentials from a file without overwriting unrelated settings in `config.toml`.
 
+OpenAI's official docs document API key authentication and management, but `aisw` does not currently enforce a Codex key prefix or minimum length. It only validates that the key is not empty. The `sk-...` examples in this repo are illustrative, not a claimed official format rule.
+
+Official references:
+
+- https://platform.openai.com/docs/api-reference/
+- https://platform.openai.com/docs/api-reference/project-api-keys
+
 ## Codex CLI — OAuth
 
 ```
@@ -68,6 +82,13 @@ aisw add gemini <name> --api-key AIza...
 ```
 
 Writes `GEMINI_API_KEY=<key>` to `.env` in the profile directory with `0600` permissions. When you switch to this profile, aisw copies this file to `~/.gemini/.env` — no shell eval needed.
+
+Google's official docs document using a Gemini API key via the `GEMINI_API_KEY` environment variable, but `aisw` does not currently enforce a Gemini key prefix or minimum length. It only validates that the key is not empty. The `AIza...` example in this repo is illustrative, not a claimed official format rule.
+
+Official references:
+
+- https://ai.google.dev/gemini-api/docs/quickstart
+- https://ai.google.dev/gemini-api/docs/api-key
 
 ## Gemini CLI — OAuth
 

@@ -11,8 +11,6 @@ use crate::profile::ProfileStore;
 use crate::types::Tool;
 
 const CREDENTIALS_FILE: &str = ".credentials.json";
-const KEY_PREFIX: &str = "sk-ant-";
-const KEY_MIN_LEN: usize = 40;
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -63,18 +61,10 @@ pub fn add_api_key(
 }
 
 pub fn validate_api_key(key: &str) -> Result<()> {
-    if !key.starts_with(KEY_PREFIX) {
+    if key.trim().is_empty() {
         bail!(
-            "invalid Claude API key: must start with '{}'.\n  \
+            "Claude API key must not be empty.\n  \
              Get your API key at console.anthropic.com → API Keys.",
-            KEY_PREFIX
-        );
-    }
-    if key.len() < KEY_MIN_LEN {
-        bail!(
-            "invalid Claude API key: too short (minimum {} characters).\n  \
-             Get your API key at console.anthropic.com → API Keys.",
-            KEY_MIN_LEN
         );
     }
     Ok(())
@@ -268,16 +258,16 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_wrong_prefix() {
-        let err = validate_api_key("sk-openai-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap_err();
-        assert!(err.to_string().contains("sk-ant-"));
+    fn validate_rejects_empty_key() {
+        let err = validate_api_key("").unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
         assert!(err.to_string().contains("console.anthropic.com"));
     }
 
     #[test]
-    fn validate_rejects_too_short() {
-        let err = validate_api_key("sk-ant-short").unwrap_err();
-        assert!(err.to_string().contains("too short"));
+    fn validate_rejects_whitespace_only_key() {
+        let err = validate_api_key("   ").unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
         assert!(err.to_string().contains("console.anthropic.com"));
     }
 
@@ -377,11 +367,11 @@ mod tests {
     }
 
     #[test]
-    fn invalid_key_format_errors_before_creating_profile() {
+    fn empty_key_errors_before_creating_profile() {
         let dir = tempdir().unwrap();
         let (ps, cs) = stores(dir.path());
 
-        add_api_key(&ps, &cs, "work", "bad-key", None).unwrap_err();
+        add_api_key(&ps, &cs, "work", "   ", None).unwrap_err();
 
         // Profile dir must NOT have been created.
         assert!(!ps.exists(Tool::Claude, "work"));
