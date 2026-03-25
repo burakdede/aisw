@@ -1,0 +1,20 @@
+# aisw
+
+> Documentation for aisw, a CLI for switching between Claude Code, Codex CLI, and Gemini CLI accounts.
+
+Current version: 0.1.0
+
+## Docs
+
+- [aisw Documentation](https://burakdede.github.io/aisw/): Install, configure, and use aisw to switch between Claude, Codex, and Gemini CLI accounts.
+- [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, run first-time setup, add profiles, and switch accounts quickly.
+- [Commands](https://burakdede.github.io/aisw/commands/): Full command reference for aisw commands, flags, and usage patterns.
+- [Shell Integration](https://burakdede.github.io/aisw/shell-integration/): Set up shell hooks, completions, and shell-specific integration for aisw.
+- [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/): Understand OAuth and API key profile flows for each supported tool.
+- [Supported Tools](https://burakdede.github.io/aisw/supported-tools/): See which tools aisw supports and how authentication works for each one.
+- [Configuration](https://burakdede.github.io/aisw/configuration/): Reference the aisw config file, active profile state, and stored settings.
+
+## Project
+
+- [GitHub Repository](https://github.com/burakdede/aisw): Source code, releases, and issue tracking.
+- [README](https://github.com/burakdede/aisw/blob/main/README.md): Project overview and install guidance.

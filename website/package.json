@@ -1,0 +1,22 @@
+{
+  "name": "aisw-docs-site",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "sync-docs": "node ./scripts/sync-docs.mjs",
+    "predev": "npm run sync-docs",
+    "prebuild": "npm run sync-docs",
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "check:seo": "node ./scripts/check-seo.mjs",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.1",
+    "@astrojs/starlight": "^0.38.2",
+    "astro": "^6.0.1",
+    "sharp": "^0.34.2"
+  }
+}

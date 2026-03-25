@@ -1,0 +1,68 @@
+# aisw
+
+> Structured documentation index for language models and retrieval systems.
+
+Current version: 0.1.0
+
+## aisw Documentation
+
+URL: https://burakdede.github.io/aisw/
+Section: overview
+Summary: Install, configure, and use aisw to switch between Claude, Codex, and Gemini CLI accounts.
+Source: https://github.com/burakdede/aisw/blob/main/docs/index.md
+Headings: What aisw helps with | Start here | Setup and operation | Common questions | Can aisw switch between multiple Claude Code accounts? | Can aisw manage both Codex CLI and Gemini CLI accounts too? | Does aisw proxy requests or inspect prompts? | Is this useful for work and personal accounts?
+Common queries: AI CLI account switcher | Claude Code account switcher | Codex CLI account switcher | Gemini CLI account switcher | manage multiple AI CLI accounts
+
+## Quickstart
+
+URL: https://burakdede.github.io/aisw/quickstart/
+Section: getting-started
+Summary: Install aisw, run first-time setup, add profiles, and switch accounts quickly.
+Source: https://github.com/burakdede/aisw/blob/main/docs/quickstart.md
+Headings: 1. Install aisw | 2. Run the first-run wizard | Shell hook | 3. Add a profile | 4. Switch profiles | 5. Check status | 6. List profiles | 7. Remove a profile | 8. Rename a profile
+Common queries: install aisw | quickstart for Claude Code account switching | quickstart for Codex CLI account switching | quickstart for Gemini CLI account switching
+
+## Commands
+
+URL: https://burakdede.github.io/aisw/commands/
+Section: reference
+Summary: Full command reference for aisw commands, flags, and usage patterns.
+Source: https://github.com/burakdede/aisw/blob/main/docs/commands.md
+Headings: aisw add | aisw use | aisw list | aisw remove | aisw rename | aisw status | aisw init | aisw shell-hook | aisw backup | aisw backup list | aisw backup restore
+Common queries: aisw command reference | aisw add use list status
+
+## Shell Integration
+
+URL: https://burakdede.github.io/aisw/shell-integration/
+Section: reference
+Summary: Set up shell hooks, completions, and shell-specific integration for aisw.
+Source: https://github.com/burakdede/aisw/blob/main/docs/shell-integration.md
+Headings: How it works | Bash | Zsh | Fish | Tab completion | Verifying the hook is active | Disabling the hook
+Common queries: aisw shell hook | aisw zsh completion | aisw bash completion | aisw fish completion
+
+## Adding Profiles
+
+URL: https://burakdede.github.io/aisw/adding-profiles/
+Section: reference
+Summary: Understand OAuth and API key profile flows for each supported tool.
+Source: https://github.com/burakdede/aisw/blob/main/docs/adding-profiles.md
+Headings: Claude Code — API key | Claude Code — OAuth (browser login) | Codex CLI — API key | Codex CLI — OAuth | Gemini CLI — API key | Gemini CLI — OAuth
+Common queries: add second Claude Code account | add second Codex CLI account | add second Gemini CLI account | AI CLI OAuth profile manager
+
+## Supported Tools
+
+URL: https://burakdede.github.io/aisw/supported-tools/
+Section: reference
+Summary: See which tools aisw supports and how authentication works for each one.
+Source: https://github.com/burakdede/aisw/blob/main/docs/supported-tools.md
+Headings: Typical search intents this page answers
+Common queries: does aisw support Claude Code | does aisw support Codex CLI | does aisw support Gemini CLI
+
+## Configuration
+
+URL: https://burakdede.github.io/aisw/configuration/
+Section: reference
+Summary: Reference the aisw config file, active profile state, and stored settings.
+Source: https://github.com/burakdede/aisw/blob/main/docs/config.md
+Headings: Location | File permissions | Schema | Fields | Storage layout | Version mismatch
+Common queries: aisw config.json | aisw configuration file

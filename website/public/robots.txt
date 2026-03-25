@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://burakdede.github.io/aisw/sitemap-index.xml

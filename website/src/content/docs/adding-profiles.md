@@ -1,4 +1,26 @@
-# Adding Profiles
+---
+title: Adding Profiles
+description: Understand OAuth and API key profile flows for each supported tool.
+editUrl: https://github.com/burakdede/aisw/edit/main/docs/adding-profiles.md
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1
+  - tag: meta
+    attrs:
+      name: keywords
+      content: aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Adding Profiles, reference, add second Claude Code account, add second Codex CLI account, add second Gemini CLI account, AI CLI OAuth profile manager
+  - tag: meta
+    attrs:
+      property: article:section
+      content: reference
+  - tag: script
+    attrs:
+      type: application/ld+json
+    content: >-
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Adding Profiles","headline":"Adding Profiles","description":"Understand OAuth and API key profile flows for each supported tool.","url":"https://burakdede.github.io/aisw/adding-profiles/","inLanguage":"en","keywords":"aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, add second Claude Code account, add second Codex CLI account, add second Gemini CLI account, AI CLI OAuth profile manager","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Adding Profiles","item":"https://burakdede.github.io/aisw/adding-profiles/"}]}]}
+---
 
 This guide explains how to add and store multiple accounts for Claude Code, Codex CLI, and Gemini CLI.
 

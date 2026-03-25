@@ -1,0 +1,18 @@
+{
+  "name": "aisw Documentation",
+  "short_name": "aisw docs",
+  "description": "Documentation for aisw, the CLI for switching between Claude, Codex, and Gemini accounts.",
+  "start_url": "/aisw/",
+  "scope": "/aisw/",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "icons": [
+    {
+      "src": "/aisw/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

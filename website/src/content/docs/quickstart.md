@@ -1,4 +1,26 @@
-# Quickstart
+---
+title: Quickstart
+description: Install aisw, run first-time setup, add profiles, and switch accounts quickly.
+editUrl: https://github.com/burakdede/aisw/edit/main/docs/quickstart.md
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1
+  - tag: meta
+    attrs:
+      name: keywords
+      content: aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Quickstart, getting-started, install aisw, quickstart for Claude Code account switching, quickstart for Codex CLI account switching, quickstart for Gemini CLI account switching
+  - tag: meta
+    attrs:
+      property: article:section
+      content: getting-started
+  - tag: script
+    attrs:
+      type: application/ld+json
+    content: >-
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Quickstart","headline":"Quickstart","description":"Install aisw, run first-time setup, add profiles, and switch accounts quickly.","url":"https://burakdede.github.io/aisw/quickstart/","inLanguage":"en","keywords":"aisw, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, install aisw, quickstart for Claude Code account switching, quickstart for Codex CLI account switching, quickstart for Gemini CLI account switching","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Quickstart","item":"https://burakdede.github.io/aisw/quickstart/"}]}]}
+---
 
 This guide walks through installing `aisw`, running the first-run wizard, and switching
 between accounts.

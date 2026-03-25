@@ -1,3 +1,8 @@
 /target
 *.pdb
 .DS_Store
+website/.astro
+website/dist
+website/node_modules
+website/.git
+website/.vscode
