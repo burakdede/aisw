@@ -323,3 +323,78 @@ fn init_skips_import_when_no_credentials_found() {
         .success()
         .stdout(contains("no existing credentials found."));
 }
+
+#[test]
+fn init_blocks_import_of_duplicate_oauth_identity() {
+    let env = TestEnv::new();
+
+    fs::create_dir_all(&env.aisw_home).unwrap();
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "active": { "claude": null, "codex": null, "gemini": null },
+            "profiles": {
+                "claude": {
+                    "work": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    }
+                },
+                "codex": {},
+                "gemini": {}
+            },
+            "settings": { "backup_on_switch": true, "max_backups": 10 }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let profile_dir = env.aisw_home.join("profiles").join("claude").join("work");
+    fs::create_dir_all(&profile_dir).unwrap();
+    fs::write(
+        profile_dir.join(".credentials.json"),
+        br#"{"account":{"email":"burak@example.com"}}"#,
+    )
+    .unwrap();
+
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"account":{"email":"burak@example.com"}}"#,
+    )
+    .unwrap();
+
+    run_init(&env)
+        .failure()
+        .stderr(contains("already exists as 'work'"));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .exists());
+}
+
+#[test]
+fn init_allows_unresolved_oauth_identity_with_warning() {
+    let env = TestEnv::new();
+    let codex_dir = env.fake_home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(codex_dir.join("auth.json"), br#"{"token":"opaque-token"}"#).unwrap();
+
+    run_init(&env).success().stderr(contains(
+        "could not verify whether codex OAuth profile 'default'",
+    ));
+
+    assert!(env
+        .aisw_home
+        .join("profiles")
+        .join("codex")
+        .join("default")
+        .join("auth.json")
+        .exists());
+}

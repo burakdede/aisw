@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
+use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
@@ -128,6 +129,10 @@ fn add_oauth_with(
         })?;
 
     set_auth_permissions(&auth_path)?;
+    identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Codex, name)
+        .inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Codex, name);
+        })?;
 
     config_store.add_profile(
         Tool::Codex,
@@ -589,5 +594,62 @@ mod tests {
         let path = ps.profile_dir(Tool::Codex, "main").join(AUTH_FILE);
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_duplicate_identity_is_rejected_and_cleaned_up() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let bin = bin_dir.join("codex");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             tmp=\"$CODEX_HOME/auth.json.tmp\"\n\
+             echo '{\"account\":{\"email\":\"burak@example.com\"}}' > \"$tmp\"\n\
+             mv \"$tmp\" \"$CODEX_HOME/auth.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Codex, "work").unwrap();
+        write_file_store_config(&ps, "work").unwrap();
+        ps.write_file(
+            Tool::Codex,
+            "work",
+            AUTH_FILE,
+            br#"{"account":{"email":"burak@example.com"}}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Codex,
+            "work",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "alias",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("already exists as 'work'"));
+        assert!(!ps.exists(Tool::Codex, "alias"));
     }
 }

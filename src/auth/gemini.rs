@@ -5,6 +5,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
+use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
@@ -152,6 +153,11 @@ fn add_oauth_with(
             name
         );
     }
+
+    identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Gemini, name)
+        .inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Gemini, name);
+        })?;
 
     config_store.add_profile(
         Tool::Gemini,

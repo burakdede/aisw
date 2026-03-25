@@ -264,6 +264,15 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
 
     profile_store.create(Tool::Claude, &profile_name)?;
     profile_store.copy_file_into(Tool::Claude, &profile_name, src, ".credentials.json")?;
+    auth::identity::ensure_unique_oauth_identity(
+        &profile_store,
+        &config_store,
+        Tool::Claude,
+        &profile_name,
+    )
+    .inspect_err(|_| {
+        let _ = profile_store.delete(Tool::Claude, &profile_name);
+    })?;
     config_store.add_profile(
         Tool::Claude,
         &profile_name,
@@ -321,6 +330,15 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
     profile_store.create(Tool::Codex, &profile_name)?;
     auth::codex::write_file_store_config(&profile_store, &profile_name)?;
     profile_store.copy_file_into(Tool::Codex, &profile_name, &src, "auth.json")?;
+    auth::identity::ensure_unique_oauth_identity(
+        &profile_store,
+        &config_store,
+        Tool::Codex,
+        &profile_name,
+    )
+    .inspect_err(|_| {
+        let _ = profile_store.delete(Tool::Codex, &profile_name);
+    })?;
     config_store.add_profile(
         Tool::Codex,
         &profile_name,
@@ -384,6 +402,17 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
 
     profile_store.create(Tool::Gemini, &profile_name)?;
     profile_store.copy_file_into(Tool::Gemini, &profile_name, src, filename)?;
+    if method == AuthMethod::OAuth {
+        auth::identity::ensure_unique_oauth_identity(
+            &profile_store,
+            &config_store,
+            Tool::Gemini,
+            &profile_name,
+        )
+        .inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Gemini, &profile_name);
+        })?;
+    }
     config_store.add_profile(
         Tool::Gemini,
         &profile_name,

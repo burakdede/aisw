@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
+use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
@@ -119,6 +120,10 @@ fn add_oauth_with(
         })?;
 
     set_credentials_permissions(&result)?;
+    identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Claude, name)
+        .inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Claude, name);
+        })?;
 
     config_store.add_profile(
         Tool::Claude,
@@ -436,6 +441,60 @@ mod tests {
             config.profiles.claude["work"].auth_method,
             AuthMethod::OAuth
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_duplicate_identity_is_rejected_and_cleaned_up() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             echo '{\"account\":{\"email\":\"burak@example.com\"}}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            CREDENTIALS_FILE,
+            br#"{"account":{"email":"burak@example.com"}}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Claude,
+            "work",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "alias",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("already exists as 'work'"));
+        assert!(!ps.exists(Tool::Claude, "alias"));
     }
 
     #[test]

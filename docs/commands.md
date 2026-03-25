@@ -23,6 +23,8 @@ Without `--api-key`, aisw presents an interactive menu to choose between browser
 
 On success, `aisw add` prints a short next-step hint for activating or verifying the new profile.
 
+For OAuth profiles, aisw prevents duplicate aliases for the same resolved account identity when the stored credentials expose a reliable identifier. If identity cannot be resolved, the add still succeeds with a warning.
+
 Examples:
 
 ```
@@ -153,6 +155,8 @@ aisw init
 ```
 
 Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool, and `aisw init` applies that active profile to the live tool config immediately. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
+
+When imported credentials are OAuth-based and aisw can resolve the authenticated account identity, it blocks importing a duplicate alias for an already stored account. If identity cannot be resolved, the import continues with a warning.
 
 On success, `aisw init` prints a short next-step hint for reviewing or switching profiles.
 
