@@ -187,6 +187,45 @@ impl ConfigStore {
         Ok(config)
     }
 
+    pub fn rename_profile(&self, tool: Tool, old_name: &str, new_name: &str) -> Result<Config> {
+        let mut config = self.load()?;
+        let profiles = tool_profiles_mut(&mut config, tool);
+
+        if old_name == new_name {
+            bail!("profile '{}' is already named '{}'.", old_name, new_name);
+        }
+
+        let meta = profiles.remove(old_name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "profile '{}' not found for {}.\n  \
+                 Run 'aisw list {}' to see available profiles.",
+                old_name,
+                tool,
+                tool
+            )
+        })?;
+
+        if profiles.contains_key(new_name) {
+            profiles.insert(old_name.to_owned(), meta);
+            bail!(
+                "profile '{}' already exists for {}.\n  \
+                 Use 'aisw list {}' to see existing profiles.",
+                new_name,
+                tool,
+                tool
+            );
+        }
+
+        profiles.insert(new_name.to_owned(), meta);
+
+        if tool_active(&config, tool).as_deref() == Some(old_name) {
+            *tool_active_mut(&mut config, tool) = Some(new_name.to_owned());
+        }
+
+        self.save(&config)?;
+        Ok(config)
+    }
+
     pub fn set_active(&self, tool: Tool, name: &str) -> Result<Config> {
         let mut config = self.load()?;
 
@@ -423,6 +462,43 @@ mod tests {
         let config = store.load().unwrap();
         assert_eq!(store.get_active(&config, Tool::Claude), Some("work"));
         assert_eq!(store.get_active(&config, Tool::Codex), None);
+    }
+
+    #[test]
+    fn rename_profile_updates_entry_and_active_reference() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .add_profile(Tool::Claude, "default", meta(AuthMethod::OAuth))
+            .unwrap();
+        store.set_active(Tool::Claude, "default").unwrap();
+        store
+            .rename_profile(Tool::Claude, "default", "work")
+            .unwrap();
+
+        let config = store.load().unwrap();
+        assert!(!config.profiles.claude.contains_key("default"));
+        assert!(config.profiles.claude.contains_key("work"));
+        assert_eq!(store.get_active(&config, Tool::Claude), Some("work"));
+    }
+
+    #[test]
+    fn rename_profile_rejects_duplicate_target() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .add_profile(Tool::Claude, "default", meta(AuthMethod::OAuth))
+            .unwrap();
+        store
+            .add_profile(Tool::Claude, "work", meta(AuthMethod::ApiKey))
+            .unwrap();
+
+        let err = store
+            .rename_profile(Tool::Claude, "default", "work")
+            .unwrap_err();
+        assert!(err.to_string().contains("already exists"));
     }
 
     #[test]

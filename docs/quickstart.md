@@ -119,3 +119,14 @@ aisw remove claude old-work
 
 A backup of the profile is created before deletion. Use `--force` to remove the currently
 active profile, and `--yes` to skip the confirmation prompt.
+
+---
+
+## 8. Rename a profile
+
+```sh
+aisw rename claude default work
+```
+
+Use this when onboarding imported a generic profile name like `default` and you want a
+clearer identifier without deleting and recreating the profile.

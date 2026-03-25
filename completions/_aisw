@@ -74,6 +74,17 @@ _arguments "${_arguments_options[@]}" : \
 ':profile_name -- Profile to remove:_default' \
 && ret=0
 ;;
+(rename)
+_arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+':tool -- Tool the profile belongs to:(claude codex gemini)' \
+':old_name -- Existing profile name:_default' \
+':new_name -- New profile name:_default' \
+&& ret=0
+;;
 (status)
 _arguments "${_arguments_options[@]}" : \
 '--json[Output as JSON]' \
@@ -195,6 +206,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(rename)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (status)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -251,6 +266,7 @@ _aisw_commands() {
 'use:Switch the active account for a tool' \
 'list:Show all profiles, optionally filtered by tool' \
 'remove:Remove a stored profile' \
+'rename:Rename a stored profile' \
 'status:Show current active profiles and credential status' \
 'init:First-run setup\: shell integration and credential import' \
 'shell-hook:Print the shell integration hook for the given shell' \
@@ -314,6 +330,7 @@ _aisw__help_commands() {
 'use:Switch the active account for a tool' \
 'list:Show all profiles, optionally filtered by tool' \
 'remove:Remove a stored profile' \
+'rename:Rename a stored profile' \
 'status:Show current active profiles and credential status' \
 'init:First-run setup\: shell integration and credential import' \
 'shell-hook:Print the shell integration hook for the given shell' \
@@ -365,6 +382,11 @@ _aisw__help__remove_commands() {
     local commands; commands=()
     _describe -t commands 'aisw help remove commands' commands "$@"
 }
+(( $+functions[_aisw__help__rename_commands] )) ||
+_aisw__help__rename_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help rename commands' commands "$@"
+}
 (( $+functions[_aisw__help__shell-hook_commands] )) ||
 _aisw__help__shell-hook_commands() {
     local commands; commands=()
@@ -394,6 +416,11 @@ _aisw__list_commands() {
 _aisw__remove_commands() {
     local commands; commands=()
     _describe -t commands 'aisw remove commands' commands "$@"
+}
+(( $+functions[_aisw__rename_commands] )) ||
+_aisw__rename_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw rename commands' commands "$@"
 }
 (( $+functions[_aisw__shell-hook_commands] )) ||
 _aisw__shell-hook_commands() {

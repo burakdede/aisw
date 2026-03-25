@@ -104,6 +104,25 @@ aisw remove gemini default --force
 
 ---
 
+## aisw rename
+
+Rename a stored profile without recreating it.
+
+```
+aisw rename <tool> <old_name> <new_name>
+```
+
+Profile names must still be unique within a tool. Renaming an active profile preserves its active state under the new name.
+
+Examples:
+
+```
+aisw rename claude default work
+aisw rename codex personal oss
+```
+
+---
+
 ## aisw status
 
 Show the current state across all tools.

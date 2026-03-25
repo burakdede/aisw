@@ -30,6 +30,9 @@ pub enum Command {
     /// Remove a stored profile
     Remove(RemoveArgs),
 
+    /// Rename a stored profile
+    Rename(RenameArgs),
+
     /// Show current active profiles and credential status
     Status(StatusArgs),
 
@@ -104,6 +107,18 @@ pub struct RemoveArgs {
     /// Allow removing the currently active profile
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct RenameArgs {
+    /// Tool the profile belongs to
+    pub tool: Tool,
+
+    /// Existing profile name
+    pub old_name: String,
+
+    /// New profile name
+    pub new_name: String,
 }
 
 #[derive(Args, Debug)]
@@ -252,6 +267,17 @@ mod tests {
             panic!("wrong command")
         };
         assert!(args.json);
+    }
+
+    #[test]
+    fn rename_command() {
+        let cli = parse(&["rename", "codex", "default", "work"]).unwrap();
+        let Command::Rename(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert_eq!(args.tool, Tool::Codex);
+        assert_eq!(args.old_name, "default");
+        assert_eq!(args.new_name, "work");
     }
 
     #[test]

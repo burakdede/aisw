@@ -58,6 +58,42 @@ impl ProfileStore {
             .with_context(|| format!("could not delete profile directory {}", dir.display()))
     }
 
+    pub fn rename(&self, tool: Tool, old_name: &str, new_name: &str) -> Result<()> {
+        validate_profile_name(new_name)?;
+        let old_dir = self.profile_dir(tool, old_name);
+        let new_dir = self.profile_dir(tool, new_name);
+
+        if old_name == new_name {
+            bail!("profile '{}' is already named '{}'.", old_name, new_name);
+        }
+        if !old_dir.is_dir() {
+            bail!(
+                "profile '{}' not found for {}.\n  \
+                 Run 'aisw list {}' to see available profiles.",
+                old_name,
+                tool,
+                tool
+            );
+        }
+        if new_dir.exists() {
+            bail!(
+                "profile '{}' already exists for {}.\n  \
+                 Run 'aisw list {}' to see existing profiles, or choose a different name.",
+                new_name,
+                tool,
+                tool
+            );
+        }
+
+        fs::rename(&old_dir, &new_dir).with_context(|| {
+            format!(
+                "could not rename profile directory from {} to {}",
+                old_dir.display(),
+                new_dir.display()
+            )
+        })
+    }
+
     pub fn list_profiles(&self, tool: Tool) -> Result<Vec<String>> {
         let base = self.home.join("profiles").join(tool.dir_name());
         if !base.exists() {
@@ -263,6 +299,18 @@ mod tests {
         let err = s.create(Tool::Claude, "work").unwrap_err();
         assert!(err.to_string().contains("already exists"));
         assert!(err.to_string().contains("aisw list"));
+    }
+
+    #[test]
+    fn rename_updates_profile_directory() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+
+        s.create(Tool::Claude, "default").unwrap();
+        s.rename(Tool::Claude, "default", "work").unwrap();
+
+        assert!(!s.exists(Tool::Claude, "default"));
+        assert!(s.exists(Tool::Claude, "work"));
     }
 
     #[test]

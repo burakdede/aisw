@@ -57,6 +57,7 @@ It detects installed tools, installs the shell hook, and offers to import your e
 | `aisw add <tool> <name>` | Add a new account profile |
 | `aisw use <tool> <name>` | Switch to a profile |
 | `aisw list [tool]` | List all stored profiles |
+| `aisw rename <tool> <old> <new>` | Rename a stored profile |
 | `aisw remove <tool> <name>` | Delete a profile |
 | `aisw status` | Show active profiles and credential health |
 | `aisw backup list` | List credential backups |

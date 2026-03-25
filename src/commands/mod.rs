@@ -8,6 +8,7 @@ pub mod backup;
 pub mod init;
 pub mod list;
 pub mod remove;
+pub mod rename;
 pub mod shell_hook;
 pub mod status;
 pub mod use_;
@@ -19,6 +20,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Use(args) => use_::run(args, &home)?,
         Command::List(args) => list::run(args, &home)?,
         Command::Remove(args) => remove::run(args, &home)?,
+        Command::Rename(args) => rename::run(args, &home)?,
         Command::Status(args) => status::run(args, &home)?,
         Command::Init(args) => {
             let user_home = dirs::home_dir().context("could not determine home directory")?;
