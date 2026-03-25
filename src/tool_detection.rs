@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 
 use crate::types::Tool;
+
+const VERSION_TIMEOUT: Duration = Duration::from_millis(750);
 
 #[derive(Debug, Clone)]
 pub struct DetectedTool {
@@ -15,7 +19,7 @@ pub struct DetectedTool {
 }
 
 pub fn detect(tool: Tool) -> Option<DetectedTool> {
-    detect_in(tool, std::env::var_os("PATH").unwrap_or_default())
+    detect_with_version_in(tool, std::env::var_os("PATH").unwrap_or_default())
 }
 
 pub fn detect_all() -> HashMap<Tool, Option<DetectedTool>> {
@@ -49,6 +53,15 @@ pub(crate) fn require_in(tool: Tool, path: OsString) -> Result<DetectedTool> {
 }
 
 pub(crate) fn detect_in(tool: Tool, path: OsString) -> Option<DetectedTool> {
+    let binary_path = find_binary_path(tool, &path)?;
+    Some(DetectedTool {
+        tool,
+        binary_path,
+        version: None,
+    })
+}
+
+pub(crate) fn detect_with_version_in(tool: Tool, path: OsString) -> Option<DetectedTool> {
     detect_in_with(tool, path, capture_version)
 }
 
@@ -58,7 +71,7 @@ fn detect_in_with<F>(tool: Tool, path: OsString, version_fn: F) -> Option<Detect
 where
     F: Fn(&std::path::Path) -> Option<String>,
 {
-    let binary_path = which::which_in(tool.binary_name(), Some(&path), ".").ok()?;
+    let binary_path = find_binary_path(tool, &path)?;
     let version = version_fn(&binary_path);
     Some(DetectedTool {
         tool,
@@ -67,14 +80,39 @@ where
     })
 }
 
+fn find_binary_path(tool: Tool, path: &OsString) -> Option<PathBuf> {
+    which::which_in(tool.binary_name(), Some(path), ".").ok()
+}
+
 pub(crate) fn capture_version(binary: &std::path::Path) -> Option<String> {
-    let output = Command::new(binary).arg("--version").output().ok()?;
+    let mut child = Command::new(binary)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    let start = Instant::now();
+    loop {
+        match child.try_wait().ok()? {
+            Some(_) => {
+                let output = child.wait_with_output().ok()?;
+                return parse_version_output(output.stdout, output.stderr);
+            }
+            None if start.elapsed() >= VERSION_TIMEOUT => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            None => thread::sleep(Duration::from_millis(10)),
+        }
+    }
+}
+
+fn parse_version_output(stdout: Vec<u8>, stderr: Vec<u8>) -> Option<String> {
     // Best-effort: try stdout first, fall back to stderr.
-    let raw = if !output.stdout.is_empty() {
-        output.stdout
-    } else {
-        output.stderr
-    };
+    let raw = if !stdout.is_empty() { stdout } else { stderr };
     let s = std::str::from_utf8(&raw).ok()?.trim();
     if s.is_empty() {
         None
@@ -168,7 +206,12 @@ mod tests {
 
     #[test]
     fn detect_all_has_all_three_keys() {
-        let all = detect_all();
+        let dir = tempdir().unwrap();
+        let path = path_of(dir.path());
+        let all: HashMap<Tool, Option<DetectedTool>> = [Tool::Claude, Tool::Codex, Tool::Gemini]
+            .into_iter()
+            .map(|t| (t, detect_in(t, path.clone())))
+            .collect();
         assert!(all.contains_key(&Tool::Claude));
         assert!(all.contains_key(&Tool::Codex));
         assert!(all.contains_key(&Tool::Gemini));
@@ -221,5 +264,18 @@ mod tests {
         // No spawn lock needed — no process is successfully spawned here.
         let dir = tempdir().unwrap();
         assert!(capture_version(&dir.path().join("nonexistent")).is_none());
+    }
+
+    #[test]
+    fn capture_version_times_out_for_hanging_binary() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("claude");
+        fs::write(&path, "#!/bin/sh\nsleep 5\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let start = Instant::now();
+        assert!(capture_version(&path).is_none());
+        assert!(start.elapsed() < Duration::from_secs(2));
     }
 }
