@@ -115,6 +115,7 @@ fn init_imports_claude_credentials() {
         config["profiles"]["claude"]["default"]["auth_method"],
         "o_auth"
     );
+    assert_eq!(config["profiles"]["claude"]["default"]["label"], "imported");
     assert_eq!(config["active"]["claude"], "default");
 }
 
@@ -141,6 +142,7 @@ fn init_imports_codex_credentials() {
         config["profiles"]["codex"]["default"]["auth_method"],
         "o_auth"
     );
+    assert_eq!(config["profiles"]["codex"]["default"]["label"], "imported");
     assert_eq!(config["active"]["codex"], "default");
 }
 
@@ -161,7 +163,79 @@ fn init_imports_gemini_env_credentials() {
         config["profiles"]["gemini"]["default"]["auth_method"],
         "api_key"
     );
+    assert_eq!(config["profiles"]["gemini"]["default"]["label"], "imported");
     assert_eq!(config["active"]["gemini"], "default");
+}
+
+#[test]
+fn init_interactive_import_allows_custom_profile_name_and_label() {
+    let env = TestEnv::new();
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        b"{\"token\":\"oauth\"}",
+    )
+    .unwrap();
+
+    env.cmd()
+        .arg("init")
+        .write_stdin("y\ny\npersonal\nBilling account\n")
+        .assert()
+        .success()
+        .stdout(contains(
+            "Imported Claude Code credentials as profile 'personal' and marked it active.",
+        ));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["personal"]["label"],
+        "Billing account"
+    );
+    assert_eq!(config["active"]["claude"], "personal");
+}
+
+#[test]
+fn init_interactive_import_retries_duplicate_profile_name() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        b"{\"token\":\"oauth\"}",
+    )
+    .unwrap();
+
+    env.cmd()
+        .arg("init")
+        .write_stdin("y\ny\nwork\npersonal\nImported fallback\n")
+        .assert()
+        .success()
+        .stderr(contains("already exists"))
+        .stdout(contains(
+            "Imported Claude Code credentials as profile 'personal' and marked it active.",
+        ));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert!(config["profiles"]["claude"]["work"].is_object());
+    assert_eq!(
+        config["profiles"]["claude"]["personal"]["label"],
+        "Imported fallback"
+    );
 }
 
 #[test]

@@ -147,7 +147,7 @@ First-run setup.
 aisw init
 ```
 
-Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials as a profile named `default`. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool. Safe to run multiple times — will not duplicate the shell hook.
+Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
 
 ---
 

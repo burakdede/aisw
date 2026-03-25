@@ -7,7 +7,7 @@ use chrono::Utc;
 
 use crate::auth;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
-use crate::profile::ProfileStore;
+use crate::profile::{validate_profile_name, ProfileStore};
 use crate::types::Tool;
 
 // Marker written by shell_hook.rs — must match.
@@ -129,6 +129,57 @@ fn prompt_yes_no(prompt: &str) -> bool {
     matches!(line.trim(), "" | "y" | "Y")
 }
 
+fn prompt_line(prompt: &str) -> String {
+    eprint!("{}", prompt);
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line).unwrap_or(0);
+    line.trim().to_owned()
+}
+
+fn import_name_and_label(
+    tool: Tool,
+    profile_store: &ProfileStore,
+    confirmed: bool,
+) -> Result<Option<(String, Option<String>)>> {
+    if confirmed {
+        return Ok(Some(("default".to_owned(), Some("imported".to_owned()))));
+    }
+
+    if !prompt_yes_no("  Import these credentials into aisw? [Y/n] ") {
+        return Ok(None);
+    }
+
+    loop {
+        let profile_name = prompt_line("  Profile name [default]: ");
+        let profile_name = if profile_name.is_empty() {
+            "default".to_owned()
+        } else {
+            profile_name
+        };
+
+        if let Err(err) = validate_profile_name(&profile_name) {
+            eprintln!("  Invalid profile name: {}", err);
+            continue;
+        }
+        if profile_store.exists(tool, &profile_name) {
+            eprintln!(
+                "  Profile '{}' already exists for {}. Choose a different name.",
+                profile_name, tool
+            );
+            continue;
+        }
+
+        let label = prompt_line("  Label [imported]: ");
+        let label = if label.is_empty() {
+            Some("imported".to_owned())
+        } else {
+            Some(label)
+        };
+
+        return Ok(Some((profile_name, label)));
+    }
+}
+
 fn should_mark_import_active(config_store: &ConfigStore, tool: Tool) -> Result<bool> {
     let config = config_store.load()?;
     Ok(config_store.get_active(&config, tool).is_none())
@@ -159,33 +210,40 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
-    if profile_store.exists(Tool::Claude, "default") {
+    if confirmed && profile_store.exists(Tool::Claude, "default") {
         println!("  Claude Code: profile 'default' already exists, skipping.");
         return Ok(());
     }
 
     println!("  Claude Code: found {}", src.display());
-    let should_import = confirmed || prompt_yes_no("  Save as profile \"default\"? [Y/n] ");
-    if !should_import {
+    let Some((profile_name, label)) =
+        import_name_and_label(Tool::Claude, &profile_store, confirmed)?
+    else {
         return Ok(());
-    }
+    };
 
-    profile_store.create(Tool::Claude, "default")?;
-    profile_store.copy_file_into(Tool::Claude, "default", src, ".credentials.json")?;
+    profile_store.create(Tool::Claude, &profile_name)?;
+    profile_store.copy_file_into(Tool::Claude, &profile_name, src, ".credentials.json")?;
     config_store.add_profile(
         Tool::Claude,
-        "default",
+        &profile_name,
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
-            label: Some("imported".to_owned()),
+            label,
         },
     )?;
     if mark_active {
-        config_store.set_active(Tool::Claude, "default")?;
-        println!("  Imported Claude Code credentials as profile 'default' and marked it active.");
+        config_store.set_active(Tool::Claude, &profile_name)?;
+        println!(
+            "  Imported Claude Code credentials as profile '{}' and marked it active.",
+            profile_name
+        );
     } else {
-        println!("  Imported Claude Code credentials as profile 'default'.");
+        println!(
+            "  Imported Claude Code credentials as profile '{}'.",
+            profile_name
+        );
     }
     Ok(())
 }
@@ -201,34 +259,41 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
-    if profile_store.exists(Tool::Codex, "default") {
+    if confirmed && profile_store.exists(Tool::Codex, "default") {
         println!("  Codex CLI: profile 'default' already exists, skipping.");
         return Ok(());
     }
 
     println!("  Codex CLI: found {}", src.display());
-    let should_import = confirmed || prompt_yes_no("  Save as profile \"default\"? [Y/n] ");
-    if !should_import {
+    let Some((profile_name, label)) =
+        import_name_and_label(Tool::Codex, &profile_store, confirmed)?
+    else {
         return Ok(());
-    }
+    };
 
-    profile_store.create(Tool::Codex, "default")?;
-    auth::codex::write_file_store_config(&profile_store, "default")?;
-    profile_store.copy_file_into(Tool::Codex, "default", &src, "auth.json")?;
+    profile_store.create(Tool::Codex, &profile_name)?;
+    auth::codex::write_file_store_config(&profile_store, &profile_name)?;
+    profile_store.copy_file_into(Tool::Codex, &profile_name, &src, "auth.json")?;
     config_store.add_profile(
         Tool::Codex,
-        "default",
+        &profile_name,
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
-            label: Some("imported".to_owned()),
+            label,
         },
     )?;
     if mark_active {
-        config_store.set_active(Tool::Codex, "default")?;
-        println!("  Imported Codex CLI credentials as profile 'default' and marked it active.");
+        config_store.set_active(Tool::Codex, &profile_name)?;
+        println!(
+            "  Imported Codex CLI credentials as profile '{}' and marked it active.",
+            profile_name
+        );
     } else {
-        println!("  Imported Codex CLI credentials as profile 'default'.");
+        println!(
+            "  Imported Codex CLI credentials as profile '{}'.",
+            profile_name
+        );
     }
     Ok(())
 }
@@ -251,33 +316,40 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Gemini)?;
 
-    if profile_store.exists(Tool::Gemini, "default") {
+    if confirmed && profile_store.exists(Tool::Gemini, "default") {
         println!("  Gemini CLI: profile 'default' already exists, skipping.");
         return Ok(());
     }
 
     println!("  Gemini CLI: found {}", src.display());
-    let should_import = confirmed || prompt_yes_no("  Save as profile \"default\"? [Y/n] ");
-    if !should_import {
+    let Some((profile_name, label)) =
+        import_name_and_label(Tool::Gemini, &profile_store, confirmed)?
+    else {
         return Ok(());
-    }
+    };
 
-    profile_store.create(Tool::Gemini, "default")?;
-    profile_store.copy_file_into(Tool::Gemini, "default", src, filename)?;
+    profile_store.create(Tool::Gemini, &profile_name)?;
+    profile_store.copy_file_into(Tool::Gemini, &profile_name, src, filename)?;
     config_store.add_profile(
         Tool::Gemini,
-        "default",
+        &profile_name,
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: method,
-            label: Some("imported".to_owned()),
+            label,
         },
     )?;
     if mark_active {
-        config_store.set_active(Tool::Gemini, "default")?;
-        println!("  Imported Gemini CLI credentials as profile 'default' and marked it active.");
+        config_store.set_active(Tool::Gemini, &profile_name)?;
+        println!(
+            "  Imported Gemini CLI credentials as profile '{}' and marked it active.",
+            profile_name
+        );
     } else {
-        println!("  Imported Gemini CLI credentials as profile 'default'.");
+        println!(
+            "  Imported Gemini CLI credentials as profile '{}'.",
+            profile_name
+        );
     }
     Ok(())
 }
