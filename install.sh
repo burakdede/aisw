@@ -98,15 +98,8 @@ resolve_install_dir() {
         return
     fi
 
-    if [ -w /usr/local/bin ]; then
-        INSTALL_DIR="/usr/local/bin"
-    elif [ "$(id -u)" -eq 0 ]; then
-        # Running as root — /usr/local/bin should be writable, but wasn't.
-        INSTALL_DIR="/usr/local/bin"
-    else
-        INSTALL_DIR="$HOME/.local/bin"
-        NEEDS_PATH_NOTE=1
-    fi
+    INSTALL_DIR="$HOME/.local/bin"
+    NEEDS_PATH_NOTE=1
 }
 
 # ---------------------------------------------------------------------------
@@ -143,48 +136,40 @@ verify_checksum() {
 # Shell completions
 # ---------------------------------------------------------------------------
 
-install_with_optional_sudo() {
+install_without_sudo() {
     src="$1"
     dest="$2"
 
     dest_dir=$(dirname "$dest")
     if [ ! -d "$dest_dir" ]; then
-        if mkdir -p "$dest_dir" 2>/dev/null; then
-            :
-        elif command -v sudo > /dev/null 2>&1; then
-            sudo mkdir -p "$dest_dir"
-        else
-            return 1
-        fi
+        mkdir -p "$dest_dir" 2>/dev/null || return 1
     fi
 
-    if [ -w "$dest_dir" ] || [ "$(id -u)" -eq 0 ]; then
-        cp "$src" "$dest"
-        chmod 0644 "$dest"
-    elif command -v sudo > /dev/null 2>&1; then
-        sudo cp "$src" "$dest"
-        sudo chmod 0644 "$dest"
-    else
+    if [ ! -w "$dest_dir" ] && [ "$(id -u)" -ne 0 ]; then
         return 1
     fi
+
+    cp "$src" "$dest"
+    chmod 0644 "$dest"
 }
 
 resolve_bash_completion_path() {
-    if [ -w /etc/bash_completion.d ] || [ "$(id -u)" -eq 0 ]; then
-        printf '%s\n' "/etc/bash_completion.d/aisw"
-    else
-        printf '%s\n' "$HOME/.local/share/bash-completion/completions/aisw"
-    fi
+    printf '%s\n' "$HOME/.local/share/bash-completion/completions/aisw"
 }
 
 resolve_zsh_completion_path() {
     if command -v zsh > /dev/null 2>&1; then
         for dir in $(zsh -fc 'print -rl -- $fpath' 2>/dev/null); do
-            if [ -d "$dir" ] && [ -w "$dir" ]; then
-                printf '%s\n' "$dir/_aisw"
-                return
+            if [ -d "$dir" ]; then
+                if [ -w "$dir" ] || [ "$(id -u)" -eq 0 ]; then
+                    printf '%s\n' "$dir/_aisw"
+                    return
+                fi
+                continue
             fi
-            if mkdir -p "$dir" 2>/dev/null; then
+
+            parent_dir=$(dirname "$dir")
+            if [ -d "$parent_dir" ] && [ -w "$parent_dir" ] && mkdir -p "$dir" 2>/dev/null; then
                 printf '%s\n' "$dir/_aisw"
                 return
             fi
@@ -200,7 +185,7 @@ download_and_install_completion() {
     url="${BASE_URL}/${name}"
 
     if curl -fsSL "$url" -o "$src"; then
-        if install_with_optional_sudo "$src" "$dest"; then
+        if install_without_sudo "$src" "$dest"; then
             info "Installed ${name} completion to ${dest}"
         else
             echo "Warning: could not install ${name} completion to ${dest}" >&2
@@ -266,15 +251,13 @@ main() {
 
     INSTALL_PATH="$INSTALL_DIR/$BINARY"
 
-    # Copy with sudo if the directory is not writable.
-    if [ -w "$INSTALL_DIR" ]; then
-        cp "$TMP_BINARY" "$INSTALL_PATH"
-        chmod +x "$INSTALL_PATH"
-    else
-        echo "  $INSTALL_DIR is not writable — using sudo."
-        sudo cp "$TMP_BINARY" "$INSTALL_PATH"
-        sudo chmod +x "$INSTALL_PATH"
+    if [ ! -w "$INSTALL_DIR" ] && [ "$(id -u)" -ne 0 ]; then
+        die "Install directory is not writable: $INSTALL_DIR
+  Set AISW_INSTALL_DIR to a user-writable path and re-run the installer."
     fi
+
+    cp "$TMP_BINARY" "$INSTALL_PATH"
+    chmod +x "$INSTALL_PATH"
 
     echo ""
     echo "aisw ${VERSION_LABEL} installed to $INSTALL_PATH"

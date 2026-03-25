@@ -47,7 +47,7 @@ line with `string replace` / `string split` and applies the values via `set -gx`
 
 When installed via `install.sh`, completions are installed to these locations:
 
-- Bash: `/etc/bash_completion.d/aisw` when writable, otherwise `~/.local/share/bash-completion/completions/aisw`
+- Bash: `~/.local/share/bash-completion/completions/aisw`
 - Zsh: the first writable directory in `fpath` when detectable, otherwise `~/.zsh/completions/_aisw`
 - Fish: `~/.config/fish/completions/aisw.fish`
 
