@@ -8,7 +8,7 @@ import starlight from '@astrojs/starlight';
 const siteOrigin = 'https://burakdede.github.io';
 const siteBasePath = '/aisw';
 const siteUrl = `${siteOrigin}${siteBasePath}/`;
-const logoPath = `${siteBasePath}/aisw.png`;
+const logoPath = `${siteBasePath}/aisw-512.png`;
 const cargoToml = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'Cargo.toml'), 'utf8');
 const currentVersion = cargoToml.match(/^version = "([^"]+)"$/m)?.[1] ?? '0.0.0';
 const siteSchema = {
@@ -53,12 +53,12 @@ export default defineConfig({
 		starlight({
 			title: 'aisw',
 			description: 'Documentation for aisw, the AI CLI account switcher for Claude, Codex, and Gemini.',
-			logo: {
-				src: './public/aisw.png',
-				alt: 'aisw logo',
-			},
-			favicon: '/aisw.png',
-			head: [
+				logo: {
+					src: './public/aisw-512.png',
+					alt: 'aisw logo',
+				},
+				favicon: '/favicon.ico',
+				head: [
 				{
 					tag: 'meta',
 					attrs: {
@@ -80,10 +80,26 @@ export default defineConfig({
 						content: '#0b1020',
 					},
 				},
-				{
-					tag: 'meta',
-					attrs: {
-						property: 'og:image',
+					{
+						tag: 'link',
+						attrs: {
+							rel: 'icon',
+							href: `${siteBasePath}/favicon.ico`,
+							sizes: 'any',
+						},
+					},
+					{
+						tag: 'link',
+						attrs: {
+							rel: 'apple-touch-icon',
+							href: `${siteBasePath}/apple-touch-icon.png`,
+							sizes: '180x180',
+						},
+					},
+					{
+						tag: 'meta',
+						attrs: {
+							property: 'og:image',
 						content: `${siteOrigin}${logoPath}`,
 					},
 				},

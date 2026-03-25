@@ -10,7 +10,7 @@ const publicRoot = path.join(websiteRoot, 'public');
 const siteOrigin = 'https://burakdede.github.io';
 const siteBasePath = '/aisw';
 const siteUrl = `${siteOrigin}${siteBasePath}`;
-const logoUrl = `${siteOrigin}${siteBasePath}/aisw.png`;
+const logoUrl = `${siteOrigin}${siteBasePath}/aisw-512.png`;
 const cargoTomlPath = path.join(repoRoot, 'Cargo.toml');
 const docsKeywords = [
   'aisw',
@@ -267,7 +267,13 @@ function buildWebManifest() {
       theme_color: '#0b1020',
       icons: [
         {
-          src: `${siteBasePath}/aisw.png`,
+          src: `${siteBasePath}/aisw-192.png`,
+          sizes: '192x192',
+          type: 'image/png',
+          purpose: 'any',
+        },
+        {
+          src: `${siteBasePath}/aisw-512.png`,
           sizes: '512x512',
           type: 'image/png',
           purpose: 'any',

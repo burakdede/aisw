@@ -1,7 +1,7 @@
 # aisw
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw.png" alt="aisw logo" width="160" />
+  <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-512.png" alt="aisw logo" width="160" />
 </p>
 
 Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI.

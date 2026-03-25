@@ -9,7 +9,13 @@
   "theme_color": "#0b1020",
   "icons": [
     {
-      "src": "/aisw/aisw.png",
+      "src": "/aisw/aisw-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/aisw/aisw-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
