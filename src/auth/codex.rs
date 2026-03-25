@@ -1,4 +1,8 @@
-use anyhow::{bail, Result};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
@@ -10,6 +14,9 @@ const CONFIG_FILE: &str = "config.toml";
 
 // Codex reads credentials from a file rather than the OS keyring when this is set.
 const CONFIG_TOML_CONTENTS: &str = "cli_auth_credentials_store = \"file\"\n";
+
+const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
+const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 pub fn add_api_key(
     profile_store: &ProfileStore,
@@ -57,6 +64,113 @@ pub fn validate_api_key(key: &str) -> Result<()> {
     if key.trim().is_empty() {
         bail!("Codex API key must not be empty");
     }
+    Ok(())
+}
+
+/// Start the Codex OAuth flow using the installed `codex` binary.
+///
+/// Pre-writes `config.toml` with `cli_auth_credentials_store = "file"` before
+/// spawning so Codex writes `auth.json` into `CODEX_HOME` instead of the OS keyring.
+pub fn add_oauth(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    codex_bin: &Path,
+) -> Result<()> {
+    add_oauth_with(
+        profile_store,
+        config_store,
+        name,
+        label,
+        codex_bin,
+        OAUTH_TIMEOUT,
+    )
+}
+
+fn add_oauth_with(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    codex_bin: &Path,
+    timeout: Duration,
+) -> Result<()> {
+    let profile_dir = profile_store.create(Tool::Codex, name)?;
+
+    // config.toml must be written before spawning — without it Codex falls back to keyring.
+    profile_store
+        .write_file(
+            Tool::Codex,
+            name,
+            CONFIG_FILE,
+            CONFIG_TOML_CONTENTS.as_bytes(),
+        )
+        .inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Codex, name);
+        })?;
+
+    let auth_path = run_oauth_flow(codex_bin, &profile_dir, timeout).inspect_err(|_| {
+        let _ = profile_store.delete(Tool::Codex, name);
+    })?;
+
+    set_auth_permissions(&auth_path)?;
+
+    config_store.add_profile(
+        Tool::Codex,
+        name,
+        ProfileMeta {
+            added_at: Utc::now(),
+            auth_method: AuthMethod::OAuth,
+            label,
+        },
+    )?;
+
+    Ok(())
+}
+
+fn run_oauth_flow(codex_bin: &Path, profile_dir: &Path, timeout: Duration) -> Result<PathBuf> {
+    let mut child = Command::new(codex_bin)
+        .arg("login")
+        .env("CODEX_HOME", profile_dir)
+        .spawn()
+        .with_context(|| format!("could not spawn {}", codex_bin.display()))?;
+
+    let auth_path = profile_dir.join(AUTH_FILE);
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        if auth_path.exists() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(auth_path);
+        }
+
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "Codex login timed out after {}s. \
+                 If auth.json was not written, verify that config.toml has \
+                 cli_auth_credentials_store = \"file\" (not \"keyring\").",
+                timeout.as_secs()
+            );
+        }
+
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+#[cfg(unix)]
+fn set_auth_permissions(path: &Path) -> Result<()> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("could not set permissions on {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_auth_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -181,5 +295,107 @@ mod tests {
         let (ps, cs) = stores(dir.path());
         add_api_key(&ps, &cs, "main", "", None).unwrap_err();
         assert!(!ps.exists(Tool::Codex, "main"));
+    }
+
+    // ---- OAuth tests ----
+
+    #[cfg(unix)]
+    fn make_oauth_mock(dir: &std::path::Path, delay_secs: u64, write_auth: bool) -> PathBuf {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let bin = dir.join("codex");
+        let body = if write_auth {
+            format!(
+                "sleep {}\necho '{{\"token\":\"tok\"}}' > \"$CODEX_HOME/auth.json\"\n",
+                delay_secs
+            )
+        } else {
+            format!("sleep {}\n", delay_secs)
+        };
+        fs::write(&bin, format!("#!/bin/sh\n{}", body)).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_config_toml_written_before_spawn() {
+        // Verify config.toml exists in the profile dir when the mock binary runs.
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let bin = bin_dir.join("codex");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             [ -f \"$CODEX_HOME/config.toml\" ] && touch \"$CODEX_HOME/config_was_present\"\n\
+             echo '{}' > \"$CODEX_HOME/auth.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(10)).unwrap();
+
+        let sentinel = ps
+            .profile_dir(Tool::Codex, "main")
+            .join("config_was_present");
+        assert!(
+            sentinel.exists(),
+            "config.toml was not present when codex was spawned"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_succeeds() {
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, 0, true);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(10)).unwrap();
+
+        assert!(ps.exists(Tool::Codex, "main"));
+        let config = cs.load().unwrap();
+        assert_eq!(config.profiles.codex["main"].auth_method, AuthMethod::OAuth);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_times_out_and_cleans_up() {
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, 60, false);
+
+        let (ps, cs) = stores(dir.path());
+        let err = add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(1)).unwrap_err();
+
+        assert!(err.to_string().contains("timed out"));
+        assert!(!ps.exists(Tool::Codex, "main"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_auth_json_has_600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, 0, true);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(&ps, &cs, "main", None, &bin, Duration::from_secs(10)).unwrap();
+
+        let path = ps.profile_dir(Tool::Codex, "main").join(AUTH_FILE);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }
