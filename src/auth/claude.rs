@@ -1,4 +1,8 @@
-use anyhow::{bail, Result};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
@@ -8,6 +12,8 @@ use crate::types::Tool;
 const CREDENTIALS_FILE: &str = ".credentials.json";
 const KEY_PREFIX: &str = "sk-ant-";
 const KEY_MIN_LEN: usize = 40;
+const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
+const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 pub fn add_api_key(
     profile_store: &ProfileStore,
@@ -51,6 +57,101 @@ pub fn validate_api_key(key: &str) -> Result<()> {
             KEY_MIN_LEN
         );
     }
+    Ok(())
+}
+
+/// Start the Claude OAuth flow using the installed `claude` binary.
+///
+/// Spawns `claude` with `CLAUDE_CONFIG_DIR` set to the profile directory so
+/// Claude writes its credentials there rather than the default location.
+/// Polls for `.credentials.json` until it appears or the timeout expires.
+pub fn add_oauth(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    claude_bin: &Path,
+) -> Result<()> {
+    add_oauth_with(
+        profile_store,
+        config_store,
+        name,
+        label,
+        claude_bin,
+        OAUTH_TIMEOUT,
+    )
+}
+
+fn add_oauth_with(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    claude_bin: &Path,
+    timeout: Duration,
+) -> Result<()> {
+    let profile_dir = profile_store.create(Tool::Claude, name)?;
+
+    let result = run_oauth_flow(claude_bin, &profile_dir, timeout).inspect_err(|_| {
+        let _ = profile_store.delete(Tool::Claude, name);
+    })?;
+
+    set_credentials_permissions(&result)?;
+
+    config_store.add_profile(
+        Tool::Claude,
+        name,
+        ProfileMeta {
+            added_at: Utc::now(),
+            auth_method: AuthMethod::OAuth,
+            label,
+        },
+    )?;
+
+    Ok(())
+}
+
+fn run_oauth_flow(claude_bin: &Path, profile_dir: &Path, timeout: Duration) -> Result<PathBuf> {
+    let mut child = Command::new(claude_bin)
+        .env("CLAUDE_CONFIG_DIR", profile_dir)
+        .spawn()
+        .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
+
+    let credentials_path = profile_dir.join(CREDENTIALS_FILE);
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        if credentials_path.exists() {
+            // Give the binary a moment to finish writing, then kill it if still running.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(credentials_path);
+        }
+
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "Claude login timed out after {}s. \
+                 The browser window may still be open.",
+                timeout.as_secs()
+            );
+        }
+
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+#[cfg(unix)]
+fn set_credentials_permissions(path: &Path) -> Result<()> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("could not set permissions on {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_credentials_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -173,5 +274,110 @@ mod tests {
 
         // Profile dir must NOT have been created.
         assert!(!ps.exists(Tool::Claude, "work"));
+    }
+
+    // ---- OAuth tests ----
+
+    #[cfg(unix)]
+    fn make_oauth_mock(dir: &std::path::Path, delay_secs: u64, write_creds: bool) -> PathBuf {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let bin = dir.join("claude");
+        let creds_write = if write_creds {
+            format!(
+                "sleep {}\necho '{{\"oauthToken\":\"tok\"}}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+                delay_secs
+            )
+        } else {
+            format!("sleep {}\n", delay_secs)
+        };
+        fs::write(&bin, format!("#!/bin/sh\n{}", creds_write)).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_succeeds_when_credentials_appear() {
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, 0, true);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(10)).unwrap();
+
+        assert!(ps.exists(Tool::Claude, "work"));
+        let config = cs.load().unwrap();
+        assert_eq!(
+            config.profiles.claude["work"].auth_method,
+            AuthMethod::OAuth
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_times_out_when_no_credentials() {
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, 60, false);
+
+        let (ps, cs) = stores(dir.path());
+        let err = add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(1)).unwrap_err();
+
+        assert!(err.to_string().contains("timed out"));
+        // Profile dir cleaned up after timeout.
+        assert!(!ps.exists(Tool::Claude, "work"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_credentials_file_has_600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, 0, true);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(10)).unwrap();
+
+        let path = ps.profile_dir(Tool::Claude, "work").join(CREDENTIALS_FILE);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_sets_claude_config_dir_env() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        // Mock binary that writes its CLAUDE_CONFIG_DIR value to a sentinel file,
+        // then writes credentials so the flow completes.
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             echo \"$CLAUDE_CONFIG_DIR\" > \"$CLAUDE_CONFIG_DIR/env_was_set\"\n\
+             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(&ps, &cs, "work", None, &bin, Duration::from_secs(10)).unwrap();
+
+        let sentinel = ps.profile_dir(Tool::Claude, "work").join("env_was_set");
+        assert!(
+            sentinel.exists(),
+            "CLAUDE_CONFIG_DIR was not set in spawned process"
+        );
     }
 }
