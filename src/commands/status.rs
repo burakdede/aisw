@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use crate::activation::{self, SessionActivation};
 use crate::cli::StatusArgs;
 use crate::config::{AuthMethod, ConfigStore};
 use crate::profile::ProfileStore;
@@ -15,6 +16,7 @@ pub(crate) struct ToolStatus {
     pub stored_profiles: usize,
     pub active_profile: Option<String>,
     pub auth_method: Option<String>,
+    pub effective_in_current_session: Option<bool>,
     pub credentials_present: bool,
     pub permissions_ok: bool,
 }
@@ -53,22 +55,38 @@ pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<To
             Tool::Gemini => config.profiles.gemini.len(),
         };
 
-        let (active_profile, auth_method, credentials_present, permissions_ok) =
-            if let Some(name) = active_name {
-                let profiles = match tool {
-                    Tool::Claude => &config.profiles.claude,
-                    Tool::Codex => &config.profiles.codex,
-                    Tool::Gemini => &config.profiles.gemini,
-                };
-                let auth = profiles
-                    .get(name)
-                    .map(|m| auth_label(m.auth_method).to_owned());
-                let profile_dir = profile_store.profile_dir(tool, name);
-                let (creds, perms) = check_profile_dir(&profile_dir);
-                (Some(name.to_owned()), auth, creds, perms)
-            } else {
-                (None, None, false, true)
+        let (
+            active_profile,
+            auth_method,
+            effective_in_current_session,
+            credentials_present,
+            permissions_ok,
+        ) = if let Some(name) = active_name {
+            let profiles = match tool {
+                Tool::Claude => &config.profiles.claude,
+                Tool::Codex => &config.profiles.codex,
+                Tool::Gemini => &config.profiles.gemini,
             };
+            let auth = profiles
+                .get(name)
+                .map(|m| auth_label(m.auth_method).to_owned());
+            let effective = profiles
+                .get(name)
+                .map(|m| {
+                    activation::assess_current_session(tool, m.auth_method, &profile_store, name)
+                })
+                .transpose()?
+                .and_then(|state| match state {
+                    SessionActivation::Effective => Some(true),
+                    SessionActivation::CurrentShellNotUsingProfile => Some(false),
+                    SessionActivation::NotApplicable => None,
+                });
+            let profile_dir = profile_store.profile_dir(tool, name);
+            let (creds, perms) = check_profile_dir(&profile_dir);
+            (Some(name.to_owned()), auth, effective, creds, perms)
+        } else {
+            (None, None, None, false, true)
+        };
 
         statuses.push(ToolStatus {
             tool,
@@ -76,6 +94,7 @@ pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<To
             stored_profiles,
             active_profile,
             auth_method,
+            effective_in_current_session,
             credentials_present,
             permissions_ok,
         });
@@ -137,6 +156,9 @@ fn status_message(s: &ToolStatus) -> &'static str {
     if !s.permissions_ok {
         return "credentials present \u{2014} permissions too broad!";
     }
+    if s.effective_in_current_session == Some(false) {
+        return "credentials present, but current shell is not using this profile";
+    }
     "credentials present (validity not checked)"
 }
 
@@ -165,6 +187,7 @@ fn print_json(statuses: &[ToolStatus]) -> Result<()> {
                 "stored_profiles":      s.stored_profiles,
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
+                "effective_in_current_session": s.effective_in_current_session,
                 "credentials_present":  s.credentials_present,
                 "permissions_ok":       s.permissions_ok,
             })
@@ -243,8 +266,22 @@ mod tests {
         let statuses = collect_status(tmp.path(), &empty_path()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
         assert_eq!(claude.active_profile.as_deref(), Some("work"));
+        assert_eq!(claude.effective_in_current_session, Some(false));
         assert!(claude.credentials_present);
         assert!(claude.permissions_ok);
+    }
+
+    #[test]
+    fn gemini_effective_state_is_not_applicable() {
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let cs = ConfigStore::new(tmp.path());
+        auth::gemini::add_api_key(&ps, &cs, "work", "AIzatest1234567890ABCDEF", None).unwrap();
+        cs.set_active(Tool::Gemini, "work").unwrap();
+
+        let statuses = collect_status(tmp.path(), &empty_path()).unwrap();
+        let gemini = statuses.iter().find(|s| s.tool == Tool::Gemini).unwrap();
+        assert_eq!(gemini.effective_in_current_session, None);
     }
 
     #[test]

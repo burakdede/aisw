@@ -39,7 +39,7 @@ Switch the active account for a tool.
 aisw use <tool> <profile_name>
 ```
 
-For Claude and Codex, the switch requires shell integration to take effect in the current session. If the shell hook is not installed, aisw prints the manual fallback command. Run `aisw init` to install the hook.
+For Claude and Codex, the switch requires shell integration to take effect in the current session. If the current shell is not using the hook yet, `aisw` records the selected profile as active and prints a warning telling you to restart or source your shell config before launching the upstream CLI.
 
 For Gemini, the switch rewrites `~/.gemini/.env` directly — no shell hook required.
 
@@ -112,7 +112,7 @@ Show the current state across all tools.
 aisw status [--json]
 ```
 
-Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and whether the expected environment variables are set. Token validity is not checked — aisw only verifies that files exist.
+Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and, for Claude/Codex, whether the current shell is actually using the active profile. Token validity is not checked — aisw only verifies that files exist and whether the local session matches the configured profile.
 
 | Flag | Description |
 |---|---|

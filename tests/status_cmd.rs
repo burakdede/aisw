@@ -64,6 +64,7 @@ fn status_json_has_expected_keys() {
     assert_eq!(claude["binary_found"], true);
     assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
+    assert_eq!(claude["effective_in_current_session"], false);
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
 }
@@ -87,6 +88,34 @@ fn status_warns_on_broad_permissions() {
         .assert()
         .success()
         .stdout(contains("permissions too broad"));
+}
+
+#[test]
+fn status_reports_shell_mismatch_for_active_claude_profile() {
+    let env = TestEnv::new();
+    add_and_activate_claude(&env, "work");
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("current shell is not using this profile"));
+}
+
+#[test]
+fn status_reports_credentials_present_when_current_shell_matches() {
+    let env = TestEnv::new();
+    add_and_activate_claude(&env, "work");
+
+    env.cmd()
+        .args(["status"])
+        .env(
+            "ANTHROPIC_API_KEY",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        )
+        .assert()
+        .success()
+        .stdout(contains("credentials present (validity not checked)"));
 }
 
 #[test]

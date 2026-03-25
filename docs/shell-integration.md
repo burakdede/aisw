@@ -10,6 +10,9 @@ The hook intercepts `aisw use <tool> <profile>`, runs the real binary with `--em
 and applies the emitted `export KEY=VALUE` lines to the shell environment. All other
 subcommands are passed through unchanged.
 
+Without the hook, `aisw use` still updates aisw's configured active profile, but it warns
+that the current shell is not using that profile yet.
+
 ---
 
 ## Bash

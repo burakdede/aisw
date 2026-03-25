@@ -1,3 +1,4 @@
+pub mod activation;
 pub mod auth;
 pub mod backup;
 pub mod cli;

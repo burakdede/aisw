@@ -322,7 +322,8 @@ fn restore_after_remove_recreates_profile_in_config_and_can_be_used() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched claude to profile 'work'."));
+        .stdout(contains("Configured claude profile 'work' as active"))
+        .stdout(contains("this shell is not using it yet"));
 }
 
 // ---------------------------------------------------------------------------

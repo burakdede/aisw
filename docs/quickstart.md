@@ -79,7 +79,8 @@ aisw use codex personal
 ```
 
 Environment variables are applied to your shell session via the hook. Without the hook,
-use the `--emit-env` flag and eval the output yourself:
+`aisw` records the profile as active but warns that the current shell is not using it yet.
+Use the `--emit-env` flag and eval the output yourself:
 
 ```sh
 eval "$(aisw use claude work --emit-env)"
@@ -94,8 +95,9 @@ aisw status
 ```
 
 Shows which profile is active for each tool, whether the binary is installed, and the
-state of credential files. If profiles are stored for a tool but none is active, `status`
-reports that explicitly.
+state of credential files. For Claude and Codex, `status` also reports when the current
+shell is not actually using the configured active profile yet. If profiles are stored for
+a tool but none is active, `status` reports that explicitly.
 
 ---
 

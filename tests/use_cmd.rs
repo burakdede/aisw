@@ -147,6 +147,22 @@ fn use_without_emit_env_prints_switched_message() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched"))
-        .stdout(contains("work"));
+        .stdout(contains("Configured claude profile 'work' as active"))
+        .stdout(contains("this shell is not using it yet"));
+}
+
+#[test]
+fn use_prints_switched_when_current_shell_matches_profile() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+
+    env.cmd()
+        .args(["use", "claude", "work"])
+        .env(
+            "ANTHROPIC_API_KEY",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        )
+        .assert()
+        .success()
+        .stdout(contains("Switched claude to profile 'work'."));
 }

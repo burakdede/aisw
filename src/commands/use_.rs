@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::activation::{self, SessionActivation};
 use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
@@ -98,7 +99,27 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     config_store.set_active(args.tool, &args.profile_name)?;
 
     if !args.emit_env {
-        println!("Switched {} to profile '{}'.", args.tool, args.profile_name);
+        let activation = activation::assess_current_session(
+            args.tool,
+            profile_meta.auth_method,
+            &profile_store,
+            &args.profile_name,
+        )?;
+        match activation {
+            SessionActivation::Effective | SessionActivation::NotApplicable => {
+                println!("Switched {} to profile '{}'.", args.tool, args.profile_name);
+            }
+            SessionActivation::CurrentShellNotUsingProfile => {
+                println!(
+                    "Configured {} profile '{}' as active, but this shell is not using it yet.",
+                    args.tool, args.profile_name
+                );
+                println!(
+                    "Enable the aisw shell hook, then restart or source your shell config before launching {}.",
+                    args.tool.binary_name()
+                );
+            }
+        }
     }
 
     Ok(())

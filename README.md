@@ -81,7 +81,7 @@ See [docs/commands.md](docs/commands.md) for full flag reference and examples.
 
 ## Shell integration
 
-`aisw use` sets environment variables. For these to take effect in your current shell session, the shell hook must be active. Without it, the variables are set in a subprocess and discarded.
+`aisw use` sets environment variables. For these to take effect in your current shell session, the shell hook must be active. Without it, `aisw` records the selected profile as active but warns that the current shell is not using it yet.
 
 Add to your shell config:
 
