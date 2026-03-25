@@ -53,12 +53,13 @@ export default defineConfig({
 		starlight({
 			title: 'aisw',
 			description: 'Documentation for aisw, the AI CLI account switcher for Claude, Codex, and Gemini.',
-				logo: {
-					src: './public/aisw-512.png',
-					alt: 'aisw logo',
-				},
-				favicon: '/favicon.ico',
-				head: [
+			logo: {
+				light: './public/aisw-mark-light.svg',
+				dark: './public/aisw-mark-dark.svg',
+				alt: 'aisw logo',
+			},
+			favicon: '/favicon.ico',
+			head: [
 				{
 					tag: 'meta',
 					attrs: {

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">aisw logo light</title>
+  <desc id="desc">The aisw brand mark for light backgrounds.</desc>
+  <circle cx="128" cy="128" r="100" fill="#273041"/>
+  <path
+    d="M100 85 C94 81 86 82 81 87 C75 93 74 102 79 108 L123 128 L79 148 C74 154 75 163 81 169 C86 174 94 175 100 171 L157 139 C163 136 167 132 167 128 C167 124 163 120 157 117 Z"
+    fill="#19C97A"
+  />
+</svg>
