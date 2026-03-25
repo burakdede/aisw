@@ -71,31 +71,21 @@ detect_platform() {
 }
 
 # ---------------------------------------------------------------------------
-# Version resolution
+# Release selection
 # ---------------------------------------------------------------------------
 
-resolve_version() {
+resolve_release_path() {
     if [ -n "${AISW_VERSION:-}" ]; then
         VERSION="$AISW_VERSION"
+        RELEASE_PATH="download/v${VERSION}"
+        VERSION_LABEL="v${VERSION}"
         return
     fi
 
-    need_cmd curl
-
-    # Follow the redirect from /releases/latest to get the resolved tag.
-    LATEST_URL="https://github.com/$REPO/releases/latest"
-    REDIRECT=$(curl -fsSL --head -o /dev/null -w '%{url_effective}' "$LATEST_URL" 2>/dev/null) || \
-        die "Could not determine latest version from $LATEST_URL
-  Set AISW_VERSION=x.y.z to install a specific version."
-
-    VERSION="${REDIRECT##*/}"
-    # Strip leading 'v' if present.
-    VERSION="${VERSION#v}"
-
-    if [ -z "$VERSION" ]; then
-        die "Could not parse version from redirect URL: $REDIRECT
-  Set AISW_VERSION=x.y.z to install a specific version."
-    fi
+    # Use GitHub's stable latest-download endpoint instead of scraping redirect
+    # targets from /releases/latest. That redirect shape is not guaranteed.
+    RELEASE_PATH="latest/download"
+    VERSION_LABEL="latest"
 }
 
 # ---------------------------------------------------------------------------
@@ -158,15 +148,15 @@ main() {
     need_cmd chmod
 
     detect_platform
-    resolve_version
+    resolve_release_path
     resolve_install_dir
 
     BINARY_NAME="${BINARY}-${TARGET}"
-    BASE_URL="https://github.com/$REPO/releases/download/v${VERSION}"
+    BASE_URL="https://github.com/$REPO/releases/${RELEASE_PATH}"
     DOWNLOAD_URL="${BASE_URL}/${BINARY_NAME}"
     CHECKSUM_URL="${BASE_URL}/${BINARY_NAME}.sha256"
 
-    echo "Installing aisw v${VERSION} (${TARGET})"
+    echo "Installing aisw ${VERSION_LABEL} (${TARGET})"
     info "Download URL: $DOWNLOAD_URL"
     info "Install dir:  $INSTALL_DIR"
 
@@ -182,7 +172,7 @@ main() {
     info "Downloading binary..."
     curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BINARY" || \
         die "Download failed: $DOWNLOAD_URL
-  Check that version v${VERSION} exists at https://github.com/$REPO/releases"
+  Check that release ${VERSION_LABEL} exists at https://github.com/$REPO/releases"
 
     info "Downloading checksum..."
     curl -fsSL "$CHECKSUM_URL" -o "$TMP_CHECKSUM" || \
@@ -209,7 +199,7 @@ main() {
     fi
 
     echo ""
-    echo "aisw v${VERSION} installed to $INSTALL_PATH"
+    echo "aisw ${VERSION_LABEL} installed to $INSTALL_PATH"
 
     if [ "${NEEDS_PATH_NOTE:-0}" -eq 1 ]; then
         echo ""
