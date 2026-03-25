@@ -4,6 +4,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::backup::BackupManager;
 use crate::cli::BackupCommand;
+use crate::config::ConfigStore;
 use crate::profile::ProfileStore;
 
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
@@ -67,6 +68,7 @@ fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
 pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
     let manager = BackupManager::new(home);
     let profile_store = ProfileStore::new(home);
+    let config_store = ConfigStore::new(home);
 
     let entries = manager.list()?;
     let matching: Vec<_> = entries
@@ -87,7 +89,7 @@ pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
             e.tool, e.profile, backup_id
         );
     }
-    manager.restore(backup_id, &profile_store)?;
+    manager.restore(backup_id, &profile_store, &config_store)?;
     for e in &matching {
         println!(
             "Restored. The \"{}\" profile now has credentials from that backup.",
@@ -104,21 +106,41 @@ mod tests {
 
     use super::*;
     use crate::backup::BackupManager;
+    use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
     use crate::profile::ProfileStore;
     use crate::types::Tool;
 
     fn make_profile(home: &Path, tool: Tool, name: &str) {
         let ps = ProfileStore::new(home);
+        let cs = ConfigStore::new(home);
         ps.create(tool, name).unwrap();
         ps.write_file(tool, name, "creds.json", b"{\"key\":\"val\"}")
             .unwrap();
+        cs.add_profile(
+            tool,
+            name,
+            ProfileMeta {
+                added_at: chrono::Utc::now(),
+                auth_method: AuthMethod::ApiKey,
+                label: None,
+            },
+        )
+        .unwrap();
     }
 
     fn snapshot(home: &Path, tool: Tool, name: &str) -> String {
         let ps = ProfileStore::new(home);
+        let cs = ConfigStore::new(home);
+        let config = cs.load().unwrap();
+        let profile_meta = match tool {
+            Tool::Claude => config.profiles.claude.get(name),
+            Tool::Codex => config.profiles.codex.get(name),
+            Tool::Gemini => config.profiles.gemini.get(name),
+        }
+        .unwrap();
         let profile_dir = ps.profile_dir(tool, name);
         let m = BackupManager::new(home);
-        m.snapshot(tool, name, &profile_dir).unwrap();
+        m.snapshot(tool, name, &profile_dir, profile_meta).unwrap();
         m.list().unwrap()[0].backup_id.clone()
     }
 

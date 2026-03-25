@@ -38,7 +38,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     if config.settings.backup_on_switch {
         let backup_manager = BackupManager::new(home);
         let profile_dir = profile_store.profile_dir(args.tool, &args.profile_name);
-        backup_manager.snapshot(args.tool, &args.profile_name, &profile_dir)?;
+        backup_manager.snapshot(args.tool, &args.profile_name, &profile_dir, profile_meta)?;
     }
 
     match args.tool {

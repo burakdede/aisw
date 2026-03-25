@@ -60,7 +60,18 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
 
     // Final backup before deleting.
     let profile_dir = profile_store.profile_dir(args.tool, &args.profile_name);
-    BackupManager::new(home).snapshot(args.tool, &args.profile_name, &profile_dir)?;
+    let profile_meta = match args.tool {
+        Tool::Claude => config.profiles.claude.get(&args.profile_name),
+        Tool::Codex => config.profiles.codex.get(&args.profile_name),
+        Tool::Gemini => config.profiles.gemini.get(&args.profile_name),
+    }
+    .with_context(|| {
+        format!(
+            "profile '{}' exists on disk for {} but is missing from config",
+            args.profile_name, args.tool
+        )
+    })?;
+    BackupManager::new(home).snapshot(args.tool, &args.profile_name, &profile_dir, profile_meta)?;
 
     profile_store.delete(args.tool, &args.profile_name)?;
     config_store.remove_profile(args.tool, &args.profile_name)?;

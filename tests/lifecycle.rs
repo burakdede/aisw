@@ -280,6 +280,51 @@ fn switching_between_two_codex_profiles_updates_active() {
     assert_eq!(work["active"], false);
 }
 
+#[test]
+fn restore_after_remove_recreates_profile_in_config_and_can_be_used() {
+    let env = TestEnv::new();
+    setup_claude(&env);
+
+    add_claude(&env, "work");
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let backup_list = env
+        .cmd()
+        .args(["backup", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let backup_id = String::from_utf8_lossy(&backup_list)
+        .lines()
+        .nth(1)
+        .and_then(|line| line.split_whitespace().next())
+        .expect("expected backup id")
+        .to_owned();
+
+    env.cmd()
+        .args(["remove", "claude", "work", "--yes", "--force"])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["backup", "restore", "--yes", &backup_id])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(contains("work"));
+    env.cmd()
+        .args(["use", "claude", "work"])
+        .assert()
+        .success()
+        .stdout(contains("Switched claude to profile 'work'."));
+}
+
 // ---------------------------------------------------------------------------
 // --set-active on add — reflected immediately in list and status
 // ---------------------------------------------------------------------------

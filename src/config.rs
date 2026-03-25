@@ -162,6 +162,13 @@ impl ConfigStore {
         Ok(config)
     }
 
+    pub fn upsert_profile(&self, tool: Tool, name: &str, meta: ProfileMeta) -> Result<Config> {
+        let mut config = self.load()?;
+        tool_profiles_mut(&mut config, tool).insert(name.to_owned(), meta);
+        self.save(&config)?;
+        Ok(config)
+    }
+
     pub fn remove_profile(&self, tool: Tool, name: &str) -> Result<Config> {
         let mut config = self.load()?;
         let profiles = tool_profiles_mut(&mut config, tool);
@@ -366,6 +373,41 @@ mod tests {
         let err = store.remove_profile(Tool::Gemini, "ghost").unwrap_err();
         assert!(err.to_string().contains("not found"));
         assert!(err.to_string().contains("ghost"));
+    }
+
+    #[test]
+    fn upsert_profile_recreates_missing_entry() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .upsert_profile(Tool::Claude, "work", meta(AuthMethod::ApiKey))
+            .unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(
+            config.profiles.claude["work"].auth_method,
+            AuthMethod::ApiKey
+        );
+    }
+
+    #[test]
+    fn upsert_profile_overwrites_existing_entry() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .add_profile(Tool::Claude, "work", meta(AuthMethod::OAuth))
+            .unwrap();
+        store
+            .upsert_profile(Tool::Claude, "work", meta(AuthMethod::ApiKey))
+            .unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(
+            config.profiles.claude["work"].auth_method,
+            AuthMethod::ApiKey
+        );
     }
 
     #[test]

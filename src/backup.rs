@@ -4,11 +4,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 
+use crate::config::{ConfigStore, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
 const BACKUPS_DIR: &str = "backups";
+const METADATA_FILE: &str = ".aisw-backup.json";
 static BACKUP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone)]
@@ -20,6 +23,11 @@ pub struct BackupEntry {
 
 pub struct BackupManager {
     home: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BackupProfileMetadata {
+    profile_meta: ProfileMeta,
 }
 
 impl BackupManager {
@@ -35,7 +43,13 @@ impl BackupManager {
 
     /// Snapshot all files in `profile_dir` into a uniquely identified backup directory.
     /// Returns the path of the created backup directory.
-    pub fn snapshot(&self, tool: Tool, name: &str, profile_dir: &Path) -> Result<PathBuf> {
+    pub fn snapshot(
+        &self,
+        tool: Tool,
+        name: &str,
+        profile_dir: &Path,
+        profile_meta: &ProfileMeta,
+    ) -> Result<PathBuf> {
         let backup_id = backup_id_now();
         let dest = self
             .backups_dir()
@@ -60,6 +74,13 @@ impl BackupManager {
             })?;
             set_permissions_600(&dst)?;
         }
+
+        write_metadata(
+            &dest.join(METADATA_FILE),
+            &BackupProfileMetadata {
+                profile_meta: profile_meta.clone(),
+            },
+        )?;
 
         Ok(dest)
     }
@@ -116,7 +137,12 @@ impl BackupManager {
 
     /// Restore files from the backup identified by `backup_id` back into the
     /// corresponding profile directory, enforcing 0600 on all restored files.
-    pub fn restore(&self, backup_id: &str, profile_store: &ProfileStore) -> Result<()> {
+    pub fn restore(
+        &self,
+        backup_id: &str,
+        profile_store: &ProfileStore,
+        config_store: &ConfigStore,
+    ) -> Result<()> {
         let backup_root = self.backups_dir().join(backup_id);
         if !backup_root.is_dir() {
             bail!("no backup found with id '{}'", backup_id);
@@ -145,10 +171,16 @@ impl BackupManager {
                     format!("could not create profile dir {}", dest_dir.display())
                 })?;
 
+                let metadata = read_metadata(&profile_path.join(METADATA_FILE))?;
+                config_store.upsert_profile(tool, &profile_name, metadata.profile_meta)?;
+
                 for file_entry in fs::read_dir(&profile_path)? {
                     let file_entry = file_entry?;
                     let src = file_entry.path();
                     if src.is_symlink() || !src.is_file() {
+                        continue;
+                    }
+                    if file_entry.file_name() == METADATA_FILE {
                         continue;
                     }
                     let dst = dest_dir.join(file_entry.file_name());
@@ -208,6 +240,25 @@ fn backup_id_now() -> String {
     )
 }
 
+fn write_metadata(path: &Path, metadata: &BackupProfileMetadata) -> Result<()> {
+    let json =
+        serde_json::to_vec_pretty(metadata).context("could not serialize backup metadata")?;
+    fs::write(path, json)
+        .with_context(|| format!("could not write backup metadata {}", path.display()))?;
+    set_permissions_600(path)
+}
+
+fn read_metadata(path: &Path) -> Result<BackupProfileMetadata> {
+    let bytes = fs::read(path).with_context(|| {
+        format!(
+            "backup is missing required metadata file {}",
+            path.display()
+        )
+    })?;
+    serde_json::from_slice(&bytes)
+        .with_context(|| format!("could not parse backup metadata file {}", path.display()))
+}
+
 #[cfg(unix)]
 fn set_permissions_600(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -245,6 +296,14 @@ mod tests {
         store.profile_dir(tool, name)
     }
 
+    fn profile_meta() -> ProfileMeta {
+        ProfileMeta {
+            added_at: Utc::now(),
+            auth_method: crate::config::AuthMethod::ApiKey,
+            label: Some("Test".to_owned()),
+        }
+    }
+
     #[test]
     fn list_empty_when_no_backups_dir() {
         let dir = tempdir().unwrap();
@@ -264,10 +323,13 @@ mod tests {
         );
 
         let m = manager(dir.path());
-        let backup_path = m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
+        let backup_path = m
+            .snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+            .unwrap();
 
         assert!(backup_path.is_dir());
         assert!(backup_path.join(".credentials.json").exists());
+        assert!(backup_path.join(METADATA_FILE).exists());
     }
 
     #[test]
@@ -284,7 +346,9 @@ mod tests {
         );
 
         let m = manager(dir.path());
-        let backup_path = m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
+        let backup_path = m
+            .snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+            .unwrap();
 
         let mode = fs::metadata(backup_path.join("secret.json"))
             .unwrap()
@@ -309,7 +373,9 @@ mod tests {
         }
 
         let m = manager(dir.path());
-        let backup_path = m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
+        let backup_path = m
+            .snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+            .unwrap();
 
         assert!(backup_path.join("real.json").exists());
         assert!(!backup_path.join("link.json").exists());
@@ -322,8 +388,10 @@ mod tests {
 
         let m = manager(dir.path());
         // Back-to-back snapshots still get distinct, sortable ids.
-        m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
-        m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
+        m.snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+            .unwrap();
+        m.snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+            .unwrap();
 
         let entries = m.list().unwrap();
         assert_eq!(entries.len(), 2);
@@ -340,8 +408,10 @@ mod tests {
         let codex_dir = make_profile(dir.path(), Tool::Codex, "main", &[("a.json", b"a")]);
 
         let m = manager(dir.path());
-        m.snapshot(Tool::Claude, "work", &claude_dir).unwrap();
-        m.snapshot(Tool::Codex, "main", &codex_dir).unwrap();
+        m.snapshot(Tool::Claude, "work", &claude_dir, &profile_meta())
+            .unwrap();
+        m.snapshot(Tool::Codex, "main", &codex_dir, &profile_meta())
+            .unwrap();
 
         let entries = m.list().unwrap();
         assert_eq!(entries.len(), 2);
@@ -355,7 +425,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let m = manager(dir.path());
         let ps = profile_store(dir.path());
-        let err = m.restore("2099-01-01T00-00-00.000Z-0000", &ps).unwrap_err();
+        let cs = ConfigStore::new(dir.path());
+        let err = m
+            .restore("2099-01-01T00-00-00.000Z-0000", &ps, &cs)
+            .unwrap_err();
         assert!(err.to_string().contains("no backup found"));
     }
 
@@ -370,7 +443,8 @@ mod tests {
         );
 
         let m = manager(dir.path());
-        m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
+        m.snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+            .unwrap();
 
         // Overwrite the profile file to simulate a change.
         let ps = profile_store(dir.path());
@@ -378,7 +452,8 @@ mod tests {
             .unwrap();
 
         let entries = m.list().unwrap();
-        m.restore(&entries[0].backup_id, &ps).unwrap();
+        let cs = ConfigStore::new(dir.path());
+        m.restore(&entries[0].backup_id, &ps, &cs).unwrap();
 
         let restored = ps
             .read_file(Tool::Claude, "work", ".credentials.json")
@@ -393,8 +468,10 @@ mod tests {
         let codex_dir = make_profile(dir.path(), Tool::Codex, "main", &[("a.json", b"codex")]);
 
         let m = manager(dir.path());
-        m.snapshot(Tool::Claude, "work", &claude_dir).unwrap();
-        m.snapshot(Tool::Codex, "main", &codex_dir).unwrap();
+        m.snapshot(Tool::Claude, "work", &claude_dir, &profile_meta())
+            .unwrap();
+        m.snapshot(Tool::Codex, "main", &codex_dir, &profile_meta())
+            .unwrap();
 
         let ps = profile_store(dir.path());
         ps.write_file(Tool::Claude, "work", "c.json", b"changed-claude")
@@ -410,7 +487,8 @@ mod tests {
             .backup_id
             .clone();
 
-        m.restore(&claude_id, &ps).unwrap();
+        let cs = ConfigStore::new(dir.path());
+        m.restore(&claude_id, &ps, &cs).unwrap();
 
         assert_eq!(
             ps.read_file(Tool::Claude, "work", "c.json").unwrap(),
@@ -429,7 +507,8 @@ mod tests {
         let m = manager(dir.path());
 
         for _ in 0..3 {
-            m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
+            m.snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+                .unwrap();
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
 
@@ -443,9 +522,38 @@ mod tests {
         let dir = tempdir().unwrap();
         let profile_dir = make_profile(dir.path(), Tool::Claude, "work", &[("f.json", b"x")]);
         let m = manager(dir.path());
-        m.snapshot(Tool::Claude, "work", &profile_dir).unwrap();
+        m.snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
+            .unwrap();
 
         m.prune(10).unwrap();
         assert_eq!(m.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn restore_recreates_missing_config_entry() {
+        let dir = tempdir().unwrap();
+        let meta = profile_meta();
+        let profile_dir = make_profile(
+            dir.path(),
+            Tool::Claude,
+            "work",
+            &[(".credentials.json", b"{\"apiKey\":\"sk-ant-orig\"}")],
+        );
+
+        let m = manager(dir.path());
+        m.snapshot(Tool::Claude, "work", &profile_dir, &meta)
+            .unwrap();
+
+        let ps = profile_store(dir.path());
+        ps.delete(Tool::Claude, "work").unwrap();
+
+        let cs = ConfigStore::new(dir.path());
+        let backup_id = m.list().unwrap()[0].backup_id.clone();
+        m.restore(&backup_id, &ps, &cs).unwrap();
+
+        let config = cs.load().unwrap();
+        let restored = &config.profiles.claude["work"];
+        assert_eq!(restored.auth_method, meta.auth_method);
+        assert_eq!(restored.label, meta.label);
     }
 }
