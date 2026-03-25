@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      - name: Set artifact names
+        id: artifact
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            echo "binary=aisw-${{ matrix.target }}.exe" >> "$GITHUB_OUTPUT"
+            echo "src=target/${{ matrix.target }}/release/aisw.exe" >> "$GITHUB_OUTPUT"
+          else
+            echo "binary=aisw-${{ matrix.target }}" >> "$GITHUB_OUTPUT"
+            echo "src=target/${{ matrix.target }}/release/aisw" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy binary
+        shell: bash
+        run: cp "${{ steps.artifact.outputs.src }}" "${{ steps.artifact.outputs.binary }}"
+
+      - name: Check binary size
+        shell: bash
+        run: |
+          size=$(wc -c < "${{ steps.artifact.outputs.binary }}")
+          max=$((10 * 1024 * 1024))
+          echo "Binary size: ${size} bytes ($(( size / 1024 ))KB)"
+          if [ "${size}" -gt "${max}" ]; then
+            echo "Error: binary ${{ steps.artifact.outputs.binary }} is ${size} bytes, exceeds 10MB limit"
+            exit 1
+          fi
+
+      - name: Cold start check
+        if: "!matrix.cross && matrix.os != 'windows-latest'"
+        shell: bash
+        env:
+          BINARY: ${{ steps.artifact.outputs.binary }}
+        run: |
+          chmod +x "$BINARY"
+          # warmup run
+          "./$BINARY" --version
+          # timed run via Python (portable across macOS and Linux)
+          python3 - <<'EOF'
+          import subprocess, time, os, sys
+          binary = "./" + os.environ["BINARY"]
+          start = time.monotonic()
+          subprocess.run([binary, "--version"], capture_output=True, check=True)
+          ms = (time.monotonic() - start) * 1000
+          print(f"Cold start: {ms:.0f}ms")
+          if ms > 50:
+              print(f"Warning: startup {ms:.0f}ms exceeds 50ms target", file=sys.stderr)
+          EOF
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          BINARY="${{ steps.artifact.outputs.binary }}"
+          if command -v sha256sum > /dev/null 2>&1; then
+            sha256sum "$BINARY" | awk '{print $1}' > "${BINARY}.sha256"
+          else
+            shasum -a 256 "$BINARY" | awk '{print $1}' > "${BINARY}.sha256"
+          fi
+          echo "SHA256: $(cat ${BINARY}.sha256)"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.binary }}
+          path: |
+            ${{ steps.artifact.outputs.binary }}
+            ${{ steps.artifact.outputs.binary }}.sha256
+          retention-days: 1
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh artifacts/
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          NOTES=$(git log --pretty="format:- %s" "$RANGE")
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: false
+          body: |
+            ## Changes
+
+            ${{ steps.notes.outputs.notes }}
+
+            ## Install
+
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
+            ```
+
+            Or download directly from the assets below and verify the checksum:
+
+            ```sh
+            # Linux / macOS
+            sha256sum -c aisw-<target>.sha256
+            # macOS (if sha256sum not available)
+            shasum -a 256 -c aisw-<target>.sha256
+            ```
+          files: artifacts/*
