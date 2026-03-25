@@ -4,6 +4,7 @@ use crate::cli::{Cli, Command};
 use crate::config::ConfigStore;
 
 pub mod add;
+pub mod backup;
 pub mod init;
 pub mod list;
 pub mod remove;
@@ -25,7 +26,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             init::run_inner(&home, &user_home, shell_env.as_deref(), args.yes)?;
         }
         Command::ShellHook(args) => shell_hook::run(args)?,
-        Command::Backup(_) => todo!(),
+        Command::Backup(args) => backup::run(args.command, &home)?,
     }
     Ok(())
 }

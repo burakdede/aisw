@@ -148,6 +148,10 @@ pub enum BackupCommand {
     Restore {
         /// Timestamp of the backup to restore (from 'aisw backup list')
         timestamp: String,
+
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        yes: bool,
     },
 }
 
@@ -295,7 +299,7 @@ mod tests {
         let Command::Backup(args) = cli.command else {
             panic!("wrong command")
         };
-        let BackupCommand::Restore { timestamp } = args.command else {
+        let BackupCommand::Restore { timestamp, .. } = args.command else {
             panic!("wrong subcommand")
         };
         assert_eq!(timestamp, "2026-03-25T10-00-00Z");
