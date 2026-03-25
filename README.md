@@ -2,8 +2,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-wordmark-dark.svg">
-    <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-wordmark-light.svg" alt="aisw logo" width="320" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-mark-dark.svg">
+    <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-mark-light.svg" alt="aisw logo" width="160" />
   </picture>
 </p>
 
