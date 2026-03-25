@@ -34,7 +34,7 @@ pub enum Command {
     Status(StatusArgs),
 
     /// First-run setup: shell integration and credential import
-    Init,
+    Init(InitArgs),
 
     /// Print the shell integration hook for the given shell
     #[command(name = "shell-hook")]
@@ -111,6 +111,13 @@ pub struct StatusArgs {
     /// Output as JSON
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// Answer yes to all confirmation prompts
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -246,7 +253,16 @@ mod tests {
     #[test]
     fn init() {
         let cli = parse(&["init"]).unwrap();
-        assert!(matches!(cli.command, Command::Init));
+        assert!(matches!(cli.command, Command::Init(_)));
+    }
+
+    #[test]
+    fn init_yes_flag() {
+        let cli = parse(&["init", "--yes"]).unwrap();
+        let Command::Init(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(args.yes);
     }
 
     #[test]
