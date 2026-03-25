@@ -129,6 +129,16 @@ fn init_imports_codex_credentials() {
 
     let profile_dir = env.aisw_home.join("profiles").join("codex").join("default");
     assert!(profile_dir.join("auth.json").exists());
+    assert!(profile_dir.join("config.toml").exists());
+    let config_toml = fs::read_to_string(profile_dir.join("config.toml")).unwrap();
+    assert!(config_toml.contains("cli_auth_credentials_store = \"file\""));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["codex"]["default"]["auth_method"],
+        "o_auth"
+    );
 }
 
 #[test]

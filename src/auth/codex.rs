@@ -18,6 +18,15 @@ const CONFIG_TOML_CONTENTS: &str = "cli_auth_credentials_store = \"file\"\n";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
+pub(crate) fn write_file_store_config(profile_store: &ProfileStore, name: &str) -> Result<()> {
+    profile_store.write_file(
+        Tool::Codex,
+        name,
+        CONFIG_FILE,
+        CONFIG_TOML_CONTENTS.as_bytes(),
+    )
+}
+
 pub fn add_api_key(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
@@ -33,14 +42,7 @@ pub fn add_api_key(
         let _ = ps.delete(Tool::Codex, name);
     };
 
-    profile_store
-        .write_file(
-            Tool::Codex,
-            name,
-            CONFIG_FILE,
-            CONFIG_TOML_CONTENTS.as_bytes(),
-        )
-        .inspect_err(|_| cleanup(profile_store))?;
+    write_file_store_config(profile_store, name).inspect_err(|_| cleanup(profile_store))?;
 
     let auth_json = format!("{{\"token\":\"{}\"}}", key);
     profile_store
@@ -104,16 +106,9 @@ fn add_oauth_with(
     let profile_dir = profile_store.create(Tool::Codex, name)?;
 
     // config.toml must be written before spawning — without it Codex falls back to keyring.
-    profile_store
-        .write_file(
-            Tool::Codex,
-            name,
-            CONFIG_FILE,
-            CONFIG_TOML_CONTENTS.as_bytes(),
-        )
-        .inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Codex, name);
-        })?;
+    write_file_store_config(profile_store, name).inspect_err(|_| {
+        let _ = profile_store.delete(Tool::Codex, name);
+    })?;
 
     let auth_path =
         run_oauth_flow(codex_bin, &profile_dir, timeout, poll_interval).inspect_err(|_| {

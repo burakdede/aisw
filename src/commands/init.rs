@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::Utc;
 
+use crate::auth;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
@@ -200,6 +201,7 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
     }
 
     profile_store.create(Tool::Codex, "default")?;
+    auth::codex::write_file_store_config(&profile_store, "default")?;
     profile_store.copy_file_into(Tool::Codex, "default", &src, "auth.json")?;
     config_store.add_profile(
         Tool::Codex,
