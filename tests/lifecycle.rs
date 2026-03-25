@@ -426,12 +426,12 @@ fn status_shows_no_active_before_use_and_active_after() {
 
     add_claude(&env, "work");
 
-    // Before use: no active profile.
+    // Before use: profile exists, but none is active yet.
     env.cmd()
         .args(["status"])
         .assert()
         .success()
-        .stdout(contains("no active profile"));
+        .stdout(contains("profiles stored, but none is active"));
 
     // After use: profile visible.
     env.cmd().args(["use", "claude", "work"]).assert().success();
@@ -443,7 +443,7 @@ fn status_shows_no_active_before_use_and_active_after() {
         .stdout(contains("work"))
         .stdout(contains("credentials present"));
 
-    // After remove --force: back to no active profile.
+    // After remove --force: back to no active profile because nothing is stored.
     env.cmd()
         .args(["remove", "claude", "work", "--yes", "--force"])
         .assert()

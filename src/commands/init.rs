@@ -129,6 +129,11 @@ fn prompt_yes_no(prompt: &str) -> bool {
     matches!(line.trim(), "" | "y" | "Y")
 }
 
+fn should_mark_import_active(config_store: &ConfigStore, tool: Tool) -> Result<bool> {
+    let config = config_store.load()?;
+    Ok(config_store.get_active(&config, tool).is_none())
+}
+
 fn import_credentials(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
     println!("\nImport existing credentials as profiles?");
     import_claude(aisw_home, user_home, confirmed)?;
@@ -152,6 +157,7 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
 
     let profile_store = ProfileStore::new(aisw_home);
     let config_store = ConfigStore::new(aisw_home);
+    let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
     if profile_store.exists(Tool::Claude, "default") {
         println!("  Claude Code: profile 'default' already exists, skipping.");
@@ -175,7 +181,12 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             label: Some("imported".to_owned()),
         },
     )?;
-    println!("  Imported Claude Code credentials as profile 'default'.");
+    if mark_active {
+        config_store.set_active(Tool::Claude, "default")?;
+        println!("  Imported Claude Code credentials as profile 'default' and marked it active.");
+    } else {
+        println!("  Imported Claude Code credentials as profile 'default'.");
+    }
     Ok(())
 }
 
@@ -188,6 +199,7 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
 
     let profile_store = ProfileStore::new(aisw_home);
     let config_store = ConfigStore::new(aisw_home);
+    let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
     if profile_store.exists(Tool::Codex, "default") {
         println!("  Codex CLI: profile 'default' already exists, skipping.");
@@ -212,7 +224,12 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
             label: Some("imported".to_owned()),
         },
     )?;
-    println!("  Imported Codex CLI credentials as profile 'default'.");
+    if mark_active {
+        config_store.set_active(Tool::Codex, "default")?;
+        println!("  Imported Codex CLI credentials as profile 'default' and marked it active.");
+    } else {
+        println!("  Imported Codex CLI credentials as profile 'default'.");
+    }
     Ok(())
 }
 
@@ -232,6 +249,7 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
 
     let profile_store = ProfileStore::new(aisw_home);
     let config_store = ConfigStore::new(aisw_home);
+    let mark_active = should_mark_import_active(&config_store, Tool::Gemini)?;
 
     if profile_store.exists(Tool::Gemini, "default") {
         println!("  Gemini CLI: profile 'default' already exists, skipping.");
@@ -255,7 +273,12 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             label: Some("imported".to_owned()),
         },
     )?;
-    println!("  Imported Gemini CLI credentials as profile 'default'.");
+    if mark_active {
+        config_store.set_active(Tool::Gemini, "default")?;
+        println!("  Imported Gemini CLI credentials as profile 'default' and marked it active.");
+    } else {
+        println!("  Imported Gemini CLI credentials as profile 'default'.");
+    }
     Ok(())
 }
 

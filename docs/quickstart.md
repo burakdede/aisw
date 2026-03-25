@@ -28,7 +28,8 @@ The wizard will:
 1. Create `~/.aisw/` and write a default `config.json`.
 2. Detect your shell and offer to append the shell hook to your RC file.
 3. Scan for existing credentials for Claude Code, Codex CLI, and Gemini CLI, and offer
-   to import each one as a `default` profile.
+   to import each one as a `default` profile. Imported live credentials become active by
+   default unless aisw is already managing an active profile for that tool.
 
 Running `aisw init` a second time is safe — the shell hook will not be duplicated, and
 existing profiles will not be overwritten.
@@ -93,7 +94,8 @@ aisw status
 ```
 
 Shows which profile is active for each tool, whether the binary is installed, and the
-state of credential files.
+state of credential files. If profiles are stored for a tool but none is active, `status`
+reports that explicitly.
 
 ---
 

@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use common::TestEnv;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 fn run_init(env: &TestEnv) -> assert_cmd::assert::Assert {
@@ -98,7 +99,7 @@ fn init_imports_claude_credentials() {
     .unwrap();
 
     run_init(&env).success().stdout(contains(
-        "Imported Claude Code credentials as profile 'default'.",
+        "Imported Claude Code credentials as profile 'default' and marked it active.",
     ));
 
     let profile_dir = env
@@ -114,6 +115,7 @@ fn init_imports_claude_credentials() {
         config["profiles"]["claude"]["default"]["auth_method"],
         "o_auth"
     );
+    assert_eq!(config["active"]["claude"], "default");
 }
 
 #[test]
@@ -124,7 +126,7 @@ fn init_imports_codex_credentials() {
     fs::write(codex_dir.join("auth.json"), b"{\"token\":\"tok\"}").unwrap();
 
     run_init(&env).success().stdout(contains(
-        "Imported Codex CLI credentials as profile 'default'.",
+        "Imported Codex CLI credentials as profile 'default' and marked it active.",
     ));
 
     let profile_dir = env.aisw_home.join("profiles").join("codex").join("default");
@@ -139,6 +141,7 @@ fn init_imports_codex_credentials() {
         config["profiles"]["codex"]["default"]["auth_method"],
         "o_auth"
     );
+    assert_eq!(config["active"]["codex"], "default");
 }
 
 #[test]
@@ -149,7 +152,7 @@ fn init_imports_gemini_env_credentials() {
     fs::write(gemini_dir.join(".env"), b"GEMINI_API_KEY=abc\n").unwrap();
 
     run_init(&env).success().stdout(contains(
-        "Imported Gemini CLI credentials as profile 'default'.",
+        "Imported Gemini CLI credentials as profile 'default' and marked it active.",
     ));
 
     let config: serde_json::Value =
@@ -158,6 +161,43 @@ fn init_imports_gemini_env_credentials() {
         config["profiles"]["gemini"]["default"]["auth_method"],
         "api_key"
     );
+    assert_eq!(config["active"]["gemini"], "default");
+}
+
+#[test]
+fn init_does_not_replace_existing_active_profile_when_importing() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "--set-active",
+        ])
+        .assert()
+        .success();
+
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        b"{\"token\":\"oauth\"}",
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains(
+            "Imported Claude Code credentials as profile 'default'.",
+        ))
+        .stdout(predicates::str::contains("marked it active.").not());
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["claude"], "work");
 }
 
 #[test]

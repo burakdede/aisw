@@ -12,6 +12,7 @@ use crate::types::Tool;
 pub(crate) struct ToolStatus {
     pub tool: Tool,
     pub binary_found: bool,
+    pub stored_profiles: usize,
     pub active_profile: Option<String>,
     pub auth_method: Option<String>,
     pub credentials_present: bool,
@@ -46,6 +47,11 @@ pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<To
             Tool::Codex => config.active.codex.as_deref(),
             Tool::Gemini => config.active.gemini.as_deref(),
         };
+        let stored_profiles = match tool {
+            Tool::Claude => config.profiles.claude.len(),
+            Tool::Codex => config.profiles.codex.len(),
+            Tool::Gemini => config.profiles.gemini.len(),
+        };
 
         let (active_profile, auth_method, credentials_present, permissions_ok) =
             if let Some(name) = active_name {
@@ -67,6 +73,7 @@ pub(crate) fn collect_status(home: &Path, tool_path: &OsString) -> Result<Vec<To
         statuses.push(ToolStatus {
             tool,
             binary_found,
+            stored_profiles,
             active_profile,
             auth_method,
             credentials_present,
@@ -119,6 +126,9 @@ fn status_message(s: &ToolStatus) -> &'static str {
         return "binary not found";
     }
     if s.active_profile.is_none() {
+        if s.stored_profiles > 0 {
+            return "profiles stored, but none is active";
+        }
         return "no active profile";
     }
     if !s.credentials_present {
@@ -152,6 +162,7 @@ fn print_json(statuses: &[ToolStatus]) -> Result<()> {
             serde_json::json!({
                 "tool":                 s.tool.binary_name(),
                 "binary_found":         s.binary_found,
+                "stored_profiles":      s.stored_profiles,
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
                 "credentials_present":  s.credentials_present,

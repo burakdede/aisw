@@ -48,7 +48,7 @@ First time? Run the setup wizard:
 aisw init
 ```
 
-It detects installed tools, installs the shell hook, and offers to import your existing credentials as a `default` profile.
+It detects installed tools, installs the shell hook, and offers to import your existing credentials as a `default` profile. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool.
 
 ## Command reference
 

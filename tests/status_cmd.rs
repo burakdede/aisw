@@ -62,6 +62,7 @@ fn status_json_has_expected_keys() {
 
     let claude = arr.iter().find(|e| e["tool"] == "claude").unwrap();
     assert_eq!(claude["binary_found"], true);
+    assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
@@ -102,5 +103,5 @@ fn status_no_active_profile_shows_dash() {
         .args(["status"])
         .assert()
         .success()
-        .stdout(contains("no active profile"));
+        .stdout(contains("profiles stored, but none is active"));
 }
