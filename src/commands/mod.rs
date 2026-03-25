@@ -5,6 +5,7 @@ use crate::config::ConfigStore;
 
 pub mod add;
 pub mod list;
+pub mod status;
 pub mod use_;
 
 pub fn dispatch(cli: Cli) -> Result<()> {
@@ -14,7 +15,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Use(args) => use_::run(args, &home)?,
         Command::List(args) => list::run(args, &home)?,
         Command::Remove(_) => todo!(),
-        Command::Status(_) => todo!(),
+        Command::Status(args) => status::run(args, &home)?,
         Command::Init => todo!(),
         Command::ShellHook(_) => todo!(),
         Command::Backup(_) => todo!(),
