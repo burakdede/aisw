@@ -21,18 +21,13 @@ const ansi = {
   body: '\u001b[38;5;252m',
   muted: '\u001b[38;5;245m',
   heading: '\u001b[1;38;5;223m',
-  section: '\u001b[1;38;5;153m',
-  success: '\u001b[1;38;5;151m',
-  warning: '\u001b[1;38;5;215m',
   note: '\u001b[38;5;186m',
-  accent: '\u001b[1;38;5;111m',
-  table: '\u001b[38;5;153m',
 };
 
 const header = {
   version: 2,
-  width: 100,
-  height: 30,
+  width: 108,
+  height: 32,
   timestamp: 1774526400,
   title: 'aisw important workflows',
   env: {
@@ -43,45 +38,92 @@ const header = {
 
 const steps = [
   {
-    title: '1/7 First-run setup',
-    detail: 'Initialize aisw and import an existing Codex login already present on the machine.',
+    marker: 'Init',
+    title: '1/10 First-run setup',
+    detail:
+      'Initialize aisw, install shell integration, detect supported tools, and import an existing Codex login.',
     command: 'aisw init --yes',
   },
   {
-    title: '2/7 Add a work profile',
-    detail: 'Store a dedicated Claude Code account for work without activating it yet.',
+    marker: 'Add work',
+    title: '2/10 Add a work profile',
+    detail:
+      'Save a Claude Code API key for your work account without switching away from the imported default state yet.',
     command:
-      'aisw add claude work --api-key sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA --label "Work quota"',
+      'aisw add claude work --api-key sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA --label "Work account"',
   },
   {
-    title: '3/7 Add a fallback profile',
-    detail: 'Keep a second Claude profile ready for quota or account rotation.',
+    marker: 'Add personal',
+    title: '3/10 Add a personal fallback',
+    detail:
+      'Keep a second Claude profile ready for quota rotation or personal usage on the same machine.',
     command:
-      'aisw add claude personal --api-key sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB --label "Personal quota"',
+      'aisw add claude personal --api-key sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB --label "Personal account"',
   },
   {
-    title: '4/7 Switch accounts',
-    detail: 'Change the live Claude Code credentials in one command and keep a backup automatically.',
+    marker: 'Switch',
+    title: '4/10 Switch the live account',
+    detail:
+      'Activate the personal Claude profile. aisw updates the live credentials and snapshots the previous state.',
     command: 'aisw use claude personal',
   },
   {
-    title: '5/7 Verify current state',
-    detail: 'Check the active profile and local credential state for every supported tool.',
+    marker: 'Status',
+    title: '5/10 Confirm the active state',
+    detail:
+      'Check which profile is active for each tool and whether the current live credentials are present locally.',
     command: 'aisw status',
   },
   {
-    title: '6/7 Review stored profiles',
-    detail: 'See all saved accounts grouped by tool, with active profiles clearly marked.',
+    marker: 'Rename',
+    title: '6/10 Rename a stored profile',
+    detail:
+      'Rename a generic profile to something more specific after the account purpose becomes clear.',
+    command: 'aisw rename claude work client-acme',
+  },
+  {
+    marker: 'List',
+    title: '7/10 Review every stored profile',
+    detail:
+      'List all saved profiles grouped by tool so it is obvious which accounts exist and which one is active.',
     command: 'aisw list',
   },
   {
-    title: '7/7 Inspect backups',
-    detail: 'Every switch can leave behind a restore point you can list and recover later.',
+    marker: 'Remove',
+    title: '8/10 Clean up an unused profile',
+    detail:
+      'Remove a stored profile you no longer need. aisw keeps a backup before deleting the profile directory.',
+    command: 'aisw remove claude client-acme --yes',
+  },
+  {
+    marker: 'Backups',
+    title: '9/10 Inspect restore points',
+    detail:
+      'Review backup history after switching and deletion so you can recover a removed profile if needed.',
     command: 'aisw backup list',
+    after({ output, state }) {
+      state.clientBackupId = parseBackupId(output, 'claude', 'client-acme');
+      if (!state.clientBackupId) {
+        throw new Error('Could not find backup id for removed client-acme profile');
+      }
+    },
+  },
+  {
+    marker: 'Restore',
+    title: '10/10 Restore a removed profile',
+    detail:
+      'Recover the removed client profile from backup instead of re-entering credentials or repeating setup.',
+    command({ state }) {
+      if (!state.clientBackupId) {
+        throw new Error('Backup id missing before restore step');
+      }
+      return `aisw backup restore ${state.clientBackupId} --yes`;
+    },
   },
 ];
 
 const events = [];
+const markers = [];
 let t = 0;
 
 function pushOutput(text) {
@@ -93,64 +135,15 @@ function pause(seconds) {
   t += seconds;
 }
 
-function lineColor(line) {
-  if (!line) {
-    return ansi.body;
-  }
-  if (
-    line === 'Initialize aisw' ||
-    line === 'Setup complete' ||
-    line === 'Added profile' ||
-    line === 'Switched profile' ||
-    line === 'Status' ||
-    line === 'Profiles' ||
-    line === 'Backups'
-  ) {
-    return ansi.success;
-  }
-  if (line === 'Shell integration' || line === 'Import existing credentials' || line === 'Effects' || line === 'Next') {
-    return ansi.section;
-  }
-  if (line.startsWith('Could not verify')) {
-    return ansi.warning;
-  }
-  if (line === 'Claude Code' || line === 'Codex CLI' || line === 'Gemini CLI') {
-    return ansi.heading;
-  }
-  if (line.startsWith('BACKUP ID')) {
-    return ansi.table;
-  }
-  if (line.includes('[active]')) {
-    return ansi.accent;
-  }
-  if (line.startsWith('  Run ')) {
-    return ansi.note;
-  }
-  if ([...line].every((ch) => ch === '─')) {
-    return ansi.muted;
-  }
-  if (line.startsWith('  Active') || line.startsWith('  Auth') || line.startsWith('  State') || line.startsWith('  Label') || line.startsWith('  Tool') || line.startsWith('  Profile') || line.startsWith('  Activation') || line.startsWith('  Home')) {
-    return ansi.body;
-  }
-  return ansi.body;
-}
-
-function colorizeLine(line) {
-  if (line === '') {
-    return '';
-  }
-  return `${lineColor(line)}${line}${ansi.reset}`;
-}
-
 function printIntro() {
   const lines = [
     `${ansi.heading}aisw demo${ansi.reset}`,
-    `${ansi.body}Switch between Claude Code, Codex CLI, and Gemini CLI accounts${ansi.reset}`,
-    `${ansi.muted}This walkthrough shows setup, profile storage, switching, status, and backup inspection.${ansi.reset}`,
+    `${ansi.body}Manage and switch Claude Code, Codex CLI, and Gemini CLI accounts from one local profile store.${ansi.reset}`,
+    `${ansi.muted}This walkthrough uses real command output captured from an isolated demo environment.${ansi.reset}`,
     '',
   ];
   pushOutput(`${lines.join('\r\n')}\r\n`);
-  pause(2.1);
+  pause(2.4);
 }
 
 function printStepBanner(title, detail) {
@@ -160,30 +153,30 @@ function printStepBanner(title, detail) {
     '',
   ];
   pushOutput(`${lines.join('\r\n')}\r\n`);
-  pause(1.9);
+  pause(2.1);
 }
 
 function typeCommand(command) {
   pushOutput(`${ansi.prompt}${prompt}${ansi.reset}`);
   for (const ch of command) {
-    pause(0.078);
+    pause(0.076);
     pushOutput(`${ansi.command}${ch}${ansi.reset}`);
   }
-  pause(0.28);
+  pause(0.32);
   pushOutput('\r\n');
 }
 
-function printBlock(lines) {
-  pause(0.62);
-  pushOutput(`${lines.map(colorizeLine).join('\r\n')}\r\n`);
+function printCapturedOutput(output) {
+  pause(0.8);
+  pushOutput(output);
 }
 
 function printOutro() {
-  pause(1.8);
+  pause(2.0);
   const lines = [
     '',
     `${ansi.heading}Done${ansi.reset}`,
-    `${ansi.body}aisw stores named profiles, updates live tool credentials on ${ansi.command}use${ansi.reset}${ansi.body}, and keeps backups available for restore.${ansi.reset}`,
+    `${ansi.body}aisw keeps named profiles separate from the live tool config, switches with one command, and preserves backups for safe recovery.${ansi.reset}`,
     '',
   ];
   pushOutput(`${lines.join('\r\n')}\r\n`);
@@ -191,24 +184,37 @@ function printOutro() {
 
 function sanitizeOutput(text, tempRoot) {
   return text
-    .replaceAll(tempRoot, '/tmp/aisw-demo')
     .replaceAll(`${tempRoot}/home`, '/tmp/aisw-demo/home')
+    .replaceAll(tempRoot, '/tmp/aisw-demo')
     .replaceAll(/\r\n/g, '\n')
-    .trimEnd();
+    .replaceAll(/\u001b\[6n/g, '')
+    .trimEnd()
+    .split('\n')
+    .join('\r\n');
 }
 
 function captureCommandOutput(command, env) {
-  const output = execFileSync(
-    'script',
-    ['-qec', command, '/dev/null'],
-    {
-      cwd: process.cwd(),
-      env,
-      encoding: 'utf8',
-    }
-  );
+  return execFileSync('script', ['-qec', command, '/dev/null'], {
+    cwd: process.cwd(),
+    env,
+    encoding: 'utf8',
+  });
+}
 
-  return output;
+function stripAnsi(value) {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
+function parseBackupId(output, tool, profile) {
+  const cleaned = stripAnsi(output);
+  const lines = cleaned.split('\n').map((line) => line.trim());
+  for (const line of lines) {
+    const parts = line.split(/\s+/);
+    if (parts.length >= 3 && parts[1] === tool && parts[2] === profile) {
+      return parts[0];
+    }
+  }
+  return null;
 }
 
 async function setupDemoEnv() {
@@ -224,7 +230,7 @@ async function setupDemoEnv() {
 
   await fs.writeFile(
     path.join(binDir, 'claude'),
-    '#!/usr/bin/env sh\necho "claude 1.0.0"\n',
+    '#!/usr/bin/env sh\nif [ "$1" = "--version" ]; then\n  echo "claude 1.0.0"\nelse\n  echo "claude mock"\nfi\n',
     { mode: 0o755 }
   );
   await fs.writeFile(
@@ -232,20 +238,25 @@ async function setupDemoEnv() {
     '#!/usr/bin/env sh\nif [ "$1" = "--version" ]; then\n  echo "codex 1.0.0"\nelse\n  echo "codex mock"\nfi\n',
     { mode: 0o755 }
   );
+
   await fs.writeFile(
     path.join(codexDir, 'auth.json'),
     '{"provider":"chatgpt","access_token":"test","refresh_token":"test"}\n'
   );
 
+  const env = { ...process.env };
+  delete env.NO_COLOR;
+
   return {
     tempRoot,
     env: {
-      ...process.env,
-      PATH: `${aiswBinDir}:${binDir}:${process.env.PATH ?? ''}`,
+      ...env,
+      PATH: `${aiswBinDir}:${binDir}:/usr/bin:/bin`,
       HOME: fakeHome,
       AISW_HOME: aiswHome,
       SHELL: '/bin/bash',
       TERM: 'xterm-256color',
+      CLICOLOR_FORCE: '1',
     },
   };
 }
@@ -253,23 +264,34 @@ async function setupDemoEnv() {
 async function main() {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const demoEnv = await setupDemoEnv();
+  const state = {};
+
   printIntro();
 
   for (const step of steps) {
-    const rawOutput = captureCommandOutput(step.command, demoEnv.env);
-    const lines = sanitizeOutput(rawOutput, demoEnv.tempRoot).split('\n');
+    const command = typeof step.command === 'function' ? step.command({ state }) : step.command;
+    markers.push([Number(t.toFixed(1)), step.marker]);
     printStepBanner(step.title, step.detail);
-    typeCommand(step.command);
-    printBlock(lines);
-    pause(2.35);
+    typeCommand(command);
+    const rawOutput = captureCommandOutput(command, demoEnv.env);
+    const sanitizedOutput = sanitizeOutput(rawOutput, demoEnv.tempRoot);
+    printCapturedOutput(`${sanitizedOutput}\r\n`);
+    if (step.after) {
+      step.after({ output: sanitizedOutput, state });
+    }
+    pause(2.8);
   }
 
   printOutro();
   pushOutput(`${ansi.prompt}${prompt}${ansi.reset}`);
 
-  const contents = [JSON.stringify(header), ...events.map((event) => JSON.stringify(event))].join('\n');
+  const contents = [
+    JSON.stringify(header),
+    ...events.map((event) => JSON.stringify(event)),
+  ].join('\n');
   await fs.writeFile(outputPath, contents);
   console.log(`Wrote ${outputPath}`);
+  console.log(`Markers: ${JSON.stringify(markers)}`);
 }
 
 main().catch((error) => {

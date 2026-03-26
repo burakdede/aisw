@@ -23,12 +23,6 @@ Full install options and setup notes: [Quickstart](https://burakdede.github.io/a
 curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
 ```
 
-**Homebrew (macOS):**
-
-```sh
-brew install burakdede/aisw/aisw
-```
-
 **Cargo:**
 
 ```sh

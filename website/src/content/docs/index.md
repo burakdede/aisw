@@ -59,8 +59,8 @@ cargo install aisw
 <script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"></script>
 <script>
   AsciinemaPlayer.create('/aisw/demos/aisw-important-workflows.cast', document.getElementById('aisw-home-demo'), {
-    cols: 100,
-    rows: 28,
+    cols: 108,
+    rows: 32,
     autoPlay: false,
     loop: false,
     preload: true,
@@ -68,13 +68,16 @@ cargo install aisw
     poster: 'npt:2',
     terminalFontSize: '16px',
     markers: [
-      [2.1, 'Init'],
-      [12.5, 'Add work'],
-      [23.2, 'Add personal'],
-      [36.0, 'Switch'],
-      [45.2, 'Status'],
-      [55.0, 'List'],
-      [67.0, 'Backups']
+      [2.4, 'Init'],
+      [9.6, 'Add work'],
+      [23.4, 'Add personal'],
+      [37.9, 'Switch'],
+      [45.7, 'Status'],
+      [52.6, 'Rename'],
+      [61.2, 'List'],
+      [67.9, 'Remove'],
+      [76.7, 'Backups'],
+      [83.9, 'Restore']
     ]
   });
 </script>
