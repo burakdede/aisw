@@ -30,7 +30,16 @@ cargo install aisw
     preload: true,
     fit: 'width',
     poster: 'npt:2',
-    terminalFontSize: '16px'
+    terminalFontSize: '16px',
+    markers: [
+      [2.1, 'Init'],
+      [12.5, 'Add work'],
+      [23.2, 'Add personal'],
+      [36.0, 'Switch'],
+      [45.2, 'Status'],
+      [55.0, 'List'],
+      [67.0, 'Backups']
+    ]
   });
 </script>
 
