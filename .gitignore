@@ -6,3 +6,4 @@ website/dist
 website/node_modules
 website/.git
 website/.vscode
+.claude/

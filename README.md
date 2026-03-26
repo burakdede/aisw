@@ -9,6 +9,21 @@
 
 <p align="center">AI and coding agent account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI.</p>
 
+<p align="center">
+  <a href="https://crates.io/crates/aisw">
+    <img src="https://img.shields.io/crates/v/aisw?style=flat-square" alt="Crates.io version" />
+  </a>
+  <a href="https://github.com/burakdede/aisw/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/burakdede/aisw/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status" />
+  </a>
+  <a href="https://github.com/burakdede/aisw/releases">
+    <img src="https://img.shields.io/github/v/release/burakdede/aisw?style=flat-square&label=release" alt="Latest release" />
+  </a>
+  <a href="https://burakdede.github.io/aisw/">
+    <img src="https://img.shields.io/badge/docs-website-4c6fff?style=flat-square" alt="Documentation website" />
+  </a>
+</p>
+
 ## The problem
 
 AI coding CLI tools have daily and weekly usage quotas. When a quota runs out, work stops. There is no unified tool for switching between accounts across Claude Code, Codex CLI, and Gemini CLI.
