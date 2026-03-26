@@ -39,7 +39,8 @@ fn backup_list_help_exits_zero() {
         .cmd()
         .args(["backup", "list", "--help"])
         .assert()
-        .success();
+        .success()
+        .stdout(contains("--json"));
 }
 
 #[test]
@@ -86,6 +87,37 @@ fn backup_list_shows_entry_after_use() {
         .stdout(contains("BACKUP ID"))
         .stdout(contains("claude"))
         .stdout(contains("work"));
+}
+
+#[test]
+fn backup_list_json_output_is_valid_json_array() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    let key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let output = env
+        .cmd()
+        .args(["backup", "list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output).expect("stdout is not valid JSON");
+    assert!(json.is_array());
+    let arr = json.as_array().unwrap();
+    assert!(!arr.is_empty());
+    assert_eq!(arr[0]["tool"], "claude");
+    assert_eq!(arr[0]["profile"], "work");
+    assert!(arr[0]["backup_id"].as_str().is_some());
 }
 
 // ── backup restore ────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::backup::BackupManager;
-use crate::cli::BackupCommand;
+use crate::cli::{BackupCommand, BackupListArgs};
 use crate::config::ConfigStore;
 use crate::next_steps;
 use crate::output;
@@ -11,13 +11,17 @@ use crate::profile::ProfileStore;
 
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
     match command {
-        BackupCommand::List => run_list(home),
+        BackupCommand::List(args) => run_list(args, home),
         BackupCommand::Restore { backup_id, yes } => run_restore(&backup_id, yes, home),
     }
 }
 
-fn run_list(home: &Path) -> Result<()> {
+fn run_list(args: BackupListArgs, home: &Path) -> Result<()> {
     let entries = BackupManager::new(home).list()?;
+    if args.json {
+        return print_json(&entries);
+    }
+
     if entries.is_empty() {
         output::print_title("Backups");
         output::print_empty_state(
@@ -30,6 +34,21 @@ fn run_list(home: &Path) -> Result<()> {
     for e in &entries {
         println!("{:<31} {:<8} {}", e.backup_id, e.tool, e.profile);
     }
+    Ok(())
+}
+
+fn print_json(entries: &[crate::backup::BackupEntry]) -> Result<()> {
+    let json_rows: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "backup_id": entry.backup_id,
+                "tool": entry.tool.binary_name(),
+                "profile": entry.profile,
+            })
+        })
+        .collect();
+    println!("{}", serde_json::to_string_pretty(&json_rows)?);
     Ok(())
 }
 
@@ -154,7 +173,7 @@ mod tests {
         let dir = tempdir().unwrap();
         // No error, no backups — run_list should succeed with no output (we can't
         // easily capture stdout in unit tests, but we verify it doesn't error).
-        run_list(dir.path()).unwrap();
+        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
     }
 
     #[test]
@@ -162,7 +181,7 @@ mod tests {
         let dir = tempdir().unwrap();
         make_profile(dir.path(), Tool::Claude, "work");
         snapshot(dir.path(), Tool::Claude, "work");
-        run_list(dir.path()).unwrap();
+        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
     }
 
     #[test]
@@ -200,6 +219,6 @@ mod tests {
     fn run_list_empty_dir_exits_ok() {
         let dir = tempdir().unwrap();
         // backups dir does not even exist yet
-        run_list(dir.path()).unwrap();
+        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
     }
 }

@@ -238,15 +238,20 @@ Manage credential backups. Backups are created automatically before every profil
 ### aisw backup list
 
 ```
-aisw backup list
+aisw backup list [--json]
 ```
 
 Lists all backups with their unique backup id, tool, and profile name. Sorted newest-first.
+
+| Flag | Description |
+|---|---|
+| `--json` | Output as a JSON array for scripting |
 
 Examples:
 
 ```
 aisw backup list
+aisw backup list --json
 ```
 
 ### aisw backup restore

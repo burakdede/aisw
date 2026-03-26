@@ -154,10 +154,17 @@ pub struct BackupArgs {
     pub command: BackupCommand,
 }
 
+#[derive(Args, Debug)]
+pub struct BackupListArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum BackupCommand {
     /// List all credential backups
-    List,
+    List(BackupListArgs),
 
     /// Restore a backup by id
     Restore {
@@ -316,7 +323,22 @@ mod tests {
         let Command::Backup(args) = cli.command else {
             panic!("wrong command")
         };
-        assert!(matches!(args.command, BackupCommand::List));
+        let BackupCommand::List(list_args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert!(!list_args.json);
+    }
+
+    #[test]
+    fn backup_list_json() {
+        let cli = parse(&["backup", "list", "--json"]).unwrap();
+        let Command::Backup(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let BackupCommand::List(list_args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert!(list_args.json);
     }
 
     #[test]
