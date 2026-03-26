@@ -24,10 +24,10 @@ fn init_prints_setup_complete() {
     let env = TestEnv::new();
     run_init(&env)
         .success()
-        .stdout(contains("Setup complete."))
-        .stdout(contains(
-            "Next: run 'aisw list' to review profiles, then 'aisw use <tool> <name>' to switch.",
-        ));
+        .stdout(contains("Setup complete"))
+        .stdout(contains("Next"))
+        .stdout(contains("aisw list"))
+        .stdout(contains("aisw use <tool> <name>"));
 }
 
 #[test]
@@ -160,9 +160,12 @@ fn init_imports_codex_credentials() {
         .args(["status"])
         .assert()
         .success()
-        .stdout(contains(
-        "Codex CLI         default (oauth)           credentials present (validity not checked)",
-    ));
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("Active"))
+        .stdout(contains("default"))
+        .stdout(contains("Auth"))
+        .stdout(contains("oauth"))
+        .stdout(contains("credentials present (validity not checked)"));
 }
 
 #[test]
@@ -387,7 +390,7 @@ fn init_allows_unresolved_oauth_identity_with_warning() {
     fs::write(codex_dir.join("auth.json"), br#"{"token":"opaque-token"}"#).unwrap();
 
     run_init(&env).success().stderr(contains(
-        "could not verify whether codex OAuth profile 'default'",
+        "Could not verify whether codex OAuth profile 'default'",
     ));
 
     assert!(env

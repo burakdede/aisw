@@ -7,6 +7,7 @@ use crate::auth;
 use crate::cli::AddArgs;
 use crate::config::ConfigStore;
 use crate::next_steps;
+use crate::output;
 use crate::profile::ProfileStore;
 use crate::tool_detection;
 use crate::types::Tool;
@@ -76,11 +77,25 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         config_store.set_active(args.tool, &args.profile_name)?;
     }
 
-    println!("Added {} profile '{}'.", args.tool, args.profile_name);
-    println!(
-        "{}",
-        next_steps::after_add(args.tool, &args.profile_name, args.set_active)
+    output::print_title("Added profile");
+    output::print_kv("Tool", args.tool.display_name());
+    output::print_kv("Profile", &args.profile_name);
+    output::print_kv(
+        "Activation",
+        if args.set_active { "active" } else { "stored" },
     );
+    output::print_blank_line();
+    output::print_effects_header();
+    output::print_effect("Profile credentials stored in aisw.");
+    if args.set_active {
+        output::print_effect("Active profile updated.");
+    }
+    output::print_blank_line();
+    output::print_next_step(next_steps::after_add(
+        args.tool,
+        &args.profile_name,
+        args.set_active,
+    ));
 
     Ok(())
 }

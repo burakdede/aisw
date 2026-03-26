@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use serde_json::Value;
 
 use crate::config::{AuthMethod, Config, ConfigStore};
+use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -16,10 +17,10 @@ pub fn ensure_unique_oauth_identity(
     pending_name: &str,
 ) -> Result<()> {
     let Some(identity) = resolve_oauth_identity(profile_store, tool, pending_name)? else {
-        eprintln!(
-            "Warning: could not verify whether {} OAuth profile '{}' belongs to a distinct account identity.",
+        output::print_warning_stderr(format!(
+            "Could not verify whether {} OAuth profile '{}' belongs to a distinct account identity.",
             tool, pending_name
-        );
+        ));
         return Ok(());
     };
 

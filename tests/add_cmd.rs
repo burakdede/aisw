@@ -19,9 +19,12 @@ fn add_claude_api_key_succeeds() {
         .args(["add", "claude", "work", "--api-key", VALID_CLAUDE_KEY])
         .assert()
         .success()
-        .stdout(contains("Added"))
+        .stdout(contains("Added profile"))
+        .stdout(contains("Tool"))
+        .stdout(contains("Claude Code"))
         .stdout(contains("work"))
-        .stdout(contains("Next: run 'aisw use claude work' to activate it."));
+        .stdout(contains("Next"))
+        .stdout(contains("aisw use claude work"));
 }
 
 #[test]
@@ -123,9 +126,12 @@ fn add_codex_api_key_succeeds() {
         .args(["add", "codex", "work", "--api-key", VALID_CODEX_KEY])
         .assert()
         .success()
-        .stdout(contains("Added"))
+        .stdout(contains("Added profile"))
+        .stdout(contains("Tool"))
+        .stdout(contains("Codex CLI"))
         .stdout(contains("work"))
-        .stdout(contains("Next: run 'aisw use codex work' to activate it."));
+        .stdout(contains("Next"))
+        .stdout(contains("aisw use codex work"));
 }
 
 #[test]
@@ -149,9 +155,12 @@ fn add_gemini_api_key_succeeds() {
         .args(["add", "gemini", "work", "--api-key", VALID_GEMINI_KEY])
         .assert()
         .success()
-        .stdout(contains("Added"))
+        .stdout(contains("Added profile"))
+        .stdout(contains("Tool"))
+        .stdout(contains("Gemini CLI"))
         .stdout(contains("work"))
-        .stdout(contains("Next: run 'aisw use gemini work' to activate it."));
+        .stdout(contains("Next"))
+        .stdout(contains("aisw use gemini work"));
 }
 
 #[test]

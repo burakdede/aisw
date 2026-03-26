@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::cli::RenameArgs;
 use crate::config::ConfigStore;
+use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
 
 pub fn run(args: RenameArgs, home: &Path) -> Result<()> {
@@ -34,10 +35,16 @@ pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
         ));
     }
 
-    println!(
-        "Renamed {} profile '{}' to '{}'.",
-        args.tool, args.old_name, args.new_name
-    );
+    output::print_title("Renamed profile");
+    output::print_kv("Tool", args.tool.display_name());
+    output::print_kv("Previous", &args.old_name);
+    output::print_kv("New", &args.new_name);
+    output::print_blank_line();
+    output::print_effects_header();
+    output::print_effect("Stored profile renamed.");
+    output::print_effect("Config references updated.");
+    output::print_blank_line();
+    output::print_next_step("Run 'aisw list' to review stored profiles.");
     Ok(())
 }
 

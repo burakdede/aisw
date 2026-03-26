@@ -6,6 +6,7 @@ use anyhow::Result;
 use crate::activation::{self, LiveActivation};
 use crate::cli::StatusArgs;
 use crate::config::{AuthMethod, ConfigStore};
+use crate::output;
 use crate::profile::ProfileStore;
 use crate::tool_detection;
 use crate::types::Tool;
@@ -183,17 +184,16 @@ fn status_message(s: &ToolStatus) -> &'static str {
 }
 
 fn print_text(statuses: &[ToolStatus]) {
+    output::print_title("Status");
+
     for s in statuses {
-        let profile_info = match (&s.active_profile, &s.auth_method) {
-            (Some(name), Some(auth)) => format!("{} ({})", name, auth),
-            _ => "\u{2014}".to_owned(),
-        };
-        println!(
-            "{:<16}  {:<24}  {}",
-            s.tool.display_name(),
-            profile_info,
-            status_message(s)
-        );
+        output::print_tool_section(s.tool);
+        output::print_kv("Active", output::active_value(s.active_profile.as_deref()));
+        if let Some(auth) = s.auth_method.as_deref() {
+            output::print_kv("Auth", auth);
+        }
+        output::print_kv("State", status_message(s));
+        output::print_blank_line();
     }
 }
 

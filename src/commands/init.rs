@@ -8,6 +8,7 @@ use chrono::Utc;
 use crate::auth;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::next_steps;
+use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
 use crate::types::Tool;
 
@@ -25,36 +26,40 @@ pub(crate) fn run_inner(
         .with_context(|| format!("could not create {}", aisw_home.display()))?;
     let config_store = ConfigStore::new(aisw_home);
     config_store.load()?; // creates config.json with defaults if absent
-    println!("Created {}.", aisw_home.display());
+    output::print_title("Initialize aisw");
+    output::print_kv("Home", aisw_home.display().to_string());
+    output::print_blank_line();
 
     // Shell hook installation.
     let shell_name = shell_env
         .and_then(|s| Path::new(s).file_name())
         .and_then(|n| n.to_str());
+    output::print_section("Shell integration");
     match shell_name {
         Some(s @ ("bash" | "zsh" | "fish")) => {
             install_shell_hook(user_home, s, confirmed)?;
         }
         Some(name) => {
-            println!(
+            output::print_warning(format!(
                 "Shell not recognized ({}). Install the hook manually: \
                  aisw shell-hook bash >> ~/.bashrc",
                 name
-            );
+            ));
         }
         None => {
-            println!(
+            output::print_warning(
                 "Could not detect shell. Install the hook manually: \
-                 aisw shell-hook bash >> ~/.bashrc"
+                 aisw shell-hook bash >> ~/.bashrc",
             );
         }
     }
+    output::print_blank_line();
 
     // Credential import.
     import_credentials(aisw_home, user_home, confirmed)?;
 
-    println!("\nSetup complete.");
-    println!("{}", next_steps::after_init());
+    output::print_title("Setup complete");
+    output::print_next_step(next_steps::after_init());
     Ok(())
 }
 
@@ -80,7 +85,7 @@ fn install_shell_hook(user_home: &Path, shell: &str, confirmed: bool) -> Result<
         let contents =
             fs::read_to_string(&rc).with_context(|| format!("could not read {}", rc.display()))?;
         if contents.contains(HOOK_MARKER) {
-            println!("Shell hook already installed in {}.", rc.display());
+            output::print_info(format!("Shell hook already installed in {}.", rc.display()));
             return Ok(());
         }
     }
@@ -93,7 +98,7 @@ fn install_shell_hook(user_home: &Path, shell: &str, confirmed: bool) -> Result<
         ));
 
     if !should_install {
-        println!("Skipping shell hook installation.");
+        output::print_info("Skipping shell hook installation.");
         return Ok(());
     }
 
@@ -116,11 +121,11 @@ fn install_shell_hook(user_home: &Path, shell: &str, confirmed: bool) -> Result<
     file.write_all(hook_line.as_bytes())
         .with_context(|| format!("could not write to {}", rc.display()))?;
 
-    println!(
-        "  Appended to {}. Restart your shell or run: source {}",
+    output::print_info(format!(
+        "Appended to {}. Restart your shell or run: source {}",
         rc.display(),
         rc.display()
-    );
+    ));
     Ok(())
 }
 
@@ -160,14 +165,14 @@ fn import_name_and_label(
         };
 
         if let Err(err) = validate_profile_name(&profile_name) {
-            eprintln!("  Invalid profile name: {}", err);
+            output::print_warning_stderr(format!("Invalid profile name: {}", err));
             continue;
         }
         if profile_store.exists(tool, &profile_name) {
-            eprintln!(
-                "  Profile '{}' already exists for {}. Choose a different name.",
+            output::print_warning_stderr(format!(
+                "Profile '{}' already exists for {}. Choose a different name.",
                 profile_name, tool
-            );
+            ));
             continue;
         }
 
@@ -226,7 +231,7 @@ fn activate_imported_profile(
 }
 
 fn import_credentials(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
-    println!("\nImport existing credentials as profiles?");
+    output::print_section("Import existing credentials");
     import_claude(aisw_home, user_home, confirmed)?;
     import_codex(aisw_home, user_home, confirmed)?;
     import_gemini(aisw_home, user_home, confirmed)?;
@@ -242,7 +247,7 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             .join(".credentials.json"),
     ];
     let Some(src) = candidates.iter().find(|p| p.exists()) else {
-        println!("  Claude Code: no existing credentials found.");
+        output::print_info("Claude Code: no existing credentials found.");
         return Ok(());
     };
 
@@ -251,11 +256,11 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
     if confirmed && profile_store.exists(Tool::Claude, "default") {
-        println!("  Claude Code: profile 'default' already exists, skipping.");
+        output::print_info("Claude Code: profile 'default' already exists, skipping.");
         return Ok(());
     }
 
-    println!("  Claude Code: found {}", src.display());
+    output::print_info(format!("Claude Code: found {}", src.display()));
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Claude, &profile_store, confirmed)?
     else {
@@ -291,15 +296,15 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             &profile_name,
             user_home,
         )?;
-        println!(
-            "  Imported Claude Code credentials as profile '{}' and marked it active.",
+        output::print_success(format!(
+            "Imported Claude Code credentials as profile '{}' and marked it active.",
             profile_name
-        );
+        ));
     } else {
-        println!(
-            "  Imported Claude Code credentials as profile '{}'.",
+        output::print_success(format!(
+            "Imported Claude Code credentials as profile '{}'.",
             profile_name
-        );
+        ));
     }
     Ok(())
 }
@@ -307,7 +312,7 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
 fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
     let src = user_home.join(".codex").join("auth.json");
     if !src.exists() {
-        println!("  Codex CLI: no existing credentials found.");
+        output::print_info("Codex CLI: no existing credentials found.");
         return Ok(());
     }
 
@@ -316,11 +321,11 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
     if confirmed && profile_store.exists(Tool::Codex, "default") {
-        println!("  Codex CLI: profile 'default' already exists, skipping.");
+        output::print_info("Codex CLI: profile 'default' already exists, skipping.");
         return Ok(());
     }
 
-    println!("  Codex CLI: found {}", src.display());
+    output::print_info(format!("Codex CLI: found {}", src.display()));
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Codex, &profile_store, confirmed)?
     else {
@@ -357,15 +362,15 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
             &profile_name,
             user_home,
         )?;
-        println!(
-            "  Imported Codex CLI credentials as profile '{}' and marked it active.",
+        output::print_success(format!(
+            "Imported Codex CLI credentials as profile '{}' and marked it active.",
             profile_name
-        );
+        ));
     } else {
-        println!(
-            "  Imported Codex CLI credentials as profile '{}'.",
+        output::print_success(format!(
+            "Imported Codex CLI credentials as profile '{}'.",
             profile_name
-        );
+        ));
     }
     Ok(())
 }
@@ -380,7 +385,7 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     } else if settings_file.exists() {
         (&settings_file, "settings.json", AuthMethod::OAuth)
     } else {
-        println!("  Gemini CLI: no existing credentials found.");
+        output::print_info("Gemini CLI: no existing credentials found.");
         return Ok(());
     };
 
@@ -389,11 +394,11 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     let mark_active = should_mark_import_active(&config_store, Tool::Gemini)?;
 
     if confirmed && profile_store.exists(Tool::Gemini, "default") {
-        println!("  Gemini CLI: profile 'default' already exists, skipping.");
+        output::print_info("Gemini CLI: profile 'default' already exists, skipping.");
         return Ok(());
     }
 
-    println!("  Gemini CLI: found {}", src.display());
+    output::print_info(format!("Gemini CLI: found {}", src.display()));
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Gemini, &profile_store, confirmed)?
     else {
@@ -431,15 +436,15 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             &profile_name,
             user_home,
         )?;
-        println!(
-            "  Imported Gemini CLI credentials as profile '{}' and marked it active.",
+        output::print_success(format!(
+            "Imported Gemini CLI credentials as profile '{}' and marked it active.",
             profile_name
-        );
+        ));
     } else {
-        println!(
-            "  Imported Gemini CLI credentials as profile '{}'.",
+        output::print_success(format!(
+            "Imported Gemini CLI credentials as profile '{}'.",
             profile_name
-        );
+        ));
     }
     Ok(())
 }

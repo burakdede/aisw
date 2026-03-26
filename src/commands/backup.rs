@@ -6,6 +6,7 @@ use crate::backup::BackupManager;
 use crate::cli::BackupCommand;
 use crate::config::ConfigStore;
 use crate::next_steps;
+use crate::output;
 use crate::profile::ProfileStore;
 
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
@@ -18,9 +19,13 @@ pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
 fn run_list(home: &Path) -> Result<()> {
     let entries = BackupManager::new(home).list()?;
     if entries.is_empty() {
-        println!("No backups found. Backups are created automatically before each switch.");
+        output::print_title("Backups");
+        output::print_empty_state(
+            "No backups found. Backups are created automatically before each switch.",
+        );
         return Ok(());
     }
+    output::print_title("Backups");
     println!("{:<31} {:<8} PROFILE", "BACKUP ID", "TOOL");
     for e in &entries {
         println!("{:<31} {:<8} {}", e.backup_id, e.tool, e.profile);
@@ -58,7 +63,7 @@ fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
             .read_line(&mut line)
             .context("could not read confirmation from stdin")?;
         if !matches!(line.trim(), "y" | "Y") {
-            println!("Aborted.");
+            output::print_warning("Aborted.");
             return Ok(());
         }
     }
@@ -84,19 +89,18 @@ pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
         );
     }
 
-    for e in &matching {
-        println!(
-            "Restoring {}/{} from backup {}...",
-            e.tool, e.profile, backup_id
-        );
-    }
     manager.restore(backup_id, &profile_store, &config_store)?;
     for e in &matching {
-        println!(
-            "Restored. The \"{}\" profile now has credentials from that backup.",
-            e.profile
-        );
-        println!("{}", next_steps::after_restore(e.tool, &e.profile));
+        output::print_title("Restored backup");
+        output::print_kv("Tool", e.tool.display_name());
+        output::print_kv("Profile", &e.profile);
+        output::print_kv("Backup", backup_id);
+        output::print_blank_line();
+        output::print_effects_header();
+        output::print_effect("Stored profile files restored from backup.");
+        output::print_effect("Config entry recreated if it was missing.");
+        output::print_blank_line();
+        output::print_next_step(next_steps::after_restore(e.tool, &e.profile));
     }
     Ok(())
 }

@@ -3,6 +3,23 @@ mod common;
 use common::TestEnv;
 use predicates::str::contains;
 
+fn first_backup_id(list_output: &str) -> &str {
+    list_output
+        .lines()
+        .find_map(|line| {
+            let candidate = line.split_whitespace().next()?;
+            if candidate != "Backups"
+                && candidate != "BACKUP"
+                && !candidate.chars().all(|ch| ch == '─')
+            {
+                Some(candidate)
+            } else {
+                None
+            }
+        })
+        .expect("expected at least one backup entry")
+}
+
 // ── help / parse tests ────────────────────────────────────────────────────────
 
 #[test]
@@ -100,12 +117,7 @@ fn backup_restore_yes_restores_credentials() {
     // Capture the backup id.
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    // First non-header line has the backup id in the first column.
-    let backup_id = list_str
-        .lines()
-        .nth(1) // skip the BACKUP ID header
-        .and_then(|l| l.split_whitespace().next())
-        .expect("expected at least one backup entry");
+    let backup_id = first_backup_id(&list_str);
 
     // Restore using --yes skips confirmation.
     env.cmd()
@@ -131,11 +143,7 @@ fn backup_restore_prints_use_hint() {
 
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    let backup_id = list_str
-        .lines()
-        .nth(1)
-        .and_then(|l| l.split_whitespace().next())
-        .expect("expected at least one backup entry");
+    let backup_id = first_backup_id(&list_str);
 
     env.cmd()
         .args(["backup", "restore", "--yes", backup_id])
@@ -159,17 +167,12 @@ fn backup_restore_prints_next_step_hint() {
 
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    let backup_id = list_str
-        .lines()
-        .nth(1)
-        .and_then(|l| l.split_whitespace().next())
-        .expect("expected at least one backup entry");
+    let backup_id = first_backup_id(&list_str);
 
     env.cmd()
         .args(["backup", "restore", "--yes", backup_id])
         .assert()
         .success()
-        .stdout(contains(
-            "Next: run 'aisw use claude work' to switch to it.",
-        ));
+        .stdout(contains("Next"))
+        .stdout(contains("aisw use claude work"));
 }
