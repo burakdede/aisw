@@ -2,7 +2,37 @@
 
 `aisw` stands for AI Switcher. It is a multi-account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI, built to help you switch AI CLI accounts without manually copying credential files, editing config directories, or re-running login flows every time you hit a usage limit.
 
-Use this documentation to install the tool, set up profiles, understand how switching works, and operate the release workflow.
+## Install
+
+### Shell installer
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
+```
+
+### Cargo
+
+```sh
+cargo install aisw
+```
+
+## Watch aisw work
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.css">
+<div id="aisw-home-demo"></div>
+<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"></script>
+<script>
+  AsciinemaPlayer.create('/aisw/demos/aisw-important-workflows.cast', document.getElementById('aisw-home-demo'), {
+    cols: 100,
+    rows: 28,
+    autoPlay: false,
+    loop: false,
+    preload: true,
+    fit: 'width',
+    poster: 'npt:2',
+    terminalFontSize: '16px'
+  });
+</script>
 
 ## What aisw helps with
 

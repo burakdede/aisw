@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__linear-server__list_issues",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo check:*)",
+      "mcp__linear-server__save_issue",
+      "mcp__linear-server__get_issue"
+    ]
+  }
+}

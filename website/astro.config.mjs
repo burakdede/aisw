@@ -52,7 +52,7 @@ export default defineConfig({
 	integrations: [
 		sitemap(),
 		starlight({
-			title: 'aisw AI Switcher',
+			title: 'aisw',
 			description:
 				'AI account switcher for Claude Code, Codex CLI, and Gemini CLI. Install aisw, manage multiple profiles, and switch accounts locally.',
 			logo: {
@@ -158,6 +158,9 @@ export default defineConfig({
 			editLink: {
 				baseUrl: 'https://github.com/burakdede/aisw/edit/main/',
 			},
+			customCss: [
+				'./src/styles/custom.css',
+			],
 		}),
 	],
 });

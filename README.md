@@ -13,6 +13,15 @@ Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI.
 
 AI coding CLI tools have daily and weekly usage quotas. When a quota runs out, work stops. There is no unified tool for switching between accounts across Claude Code, Codex CLI, and Gemini CLI.
 
+## Terminal demo
+
+See the main workflows before installing:
+
+- Embedded player on the website homepage: <https://burakdede.github.io/aisw/>
+- Raw Asciinema cast: <https://burakdede.github.io/aisw/demos/aisw-important-workflows.cast>
+
+The demo covers `aisw init`, importing an existing login, adding profiles, switching with `aisw use`, checking `aisw status`, and viewing automatic backups.
+
 ## Install
 
 **curl (Linux, macOS):**

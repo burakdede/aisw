@@ -5,16 +5,16 @@ editUrl: https://github.com/burakdede/aisw/edit/main/docs/index.md
 template: splash
 hero:
   title: "aisw"
-  tagline: "AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts. Current release: v0.1.0."
+  tagline: "AI / Coding Agent account manager and switcher for Claude Code, Codex CLI, and Gemini CLI."
   actions:
     - text: Quickstart
       link: /aisw/quickstart/
       variant: primary
+    - text: Watch Demo
+      link: /aisw/#watch-aisw-work
+      variant: secondary
     - text: Releases
       link: https://github.com/burakdede/aisw/releases
-      variant: secondary
-    - text: GitHub
-      link: https://github.com/burakdede/aisw
       variant: minimal
 head:
   - tag: meta
@@ -36,11 +36,39 @@ head:
       {"@context":"https://schema.org","@graph":[{"@type":"WebPage","name":"aisw AI Switcher Documentation","headline":"aisw AI Switcher Documentation","description":"Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.","url":"https://burakdede.github.io/aisw/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, AI Switcher, aisw AI Switcher, AI CLI account switcher, Claude Code account switcher, Codex CLI account switcher, Gemini CLI account switcher, manage multiple AI CLI accounts","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"}]},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What does aisw actually change when I switch accounts?","acceptedAnswer":{"@type":"Answer","text":"aisw use applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files."}},{"@type":"Question","name":"Does aisw send credentials or prompts over the network?","acceptedAnswer":{"@type":"Answer","text":"No. aisw itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher."}},{"@type":"Question","name":"Where are profiles stored, and how are they protected?","acceptedAnswer":{"@type":"Answer","text":"Stored profiles live under ~/.aisw/profiles/<tool>/<name>/. Credential files are written with 0600 permissions so only your user can read or write them, and aisw status reports files that are broader than that."}}]}]}
 ---
 
-> Current documented CLI release: `v0.1.0`. Use [Quickstart](/aisw/quickstart/) to install and start switching profiles.
-
 `aisw` stands for AI Switcher. It is a multi-account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI, built to help you switch AI CLI accounts without manually copying credential files, editing config directories, or re-running login flows every time you hit a usage limit.
 
-Use this documentation to install the tool, set up profiles, understand how switching works, and operate the release workflow.
+## Install
+
+### Shell installer
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
+```
+
+### Cargo
+
+```sh
+cargo install aisw
+```
+
+## Watch aisw work
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.css">
+<div id="aisw-home-demo"></div>
+<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"></script>
+<script>
+  AsciinemaPlayer.create('/aisw/demos/aisw-important-workflows.cast', document.getElementById('aisw-home-demo'), {
+    cols: 100,
+    rows: 28,
+    autoPlay: false,
+    loop: false,
+    preload: true,
+    fit: 'width',
+    poster: 'npt:2',
+    terminalFontSize: '16px'
+  });
+</script>
 
 ## What aisw helps with
 

@@ -381,12 +381,12 @@ function buildHeroFrontmatter(doc, currentVersion) {
   if (doc.source !== 'index.md') {
     return '';
   }
-  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: secondary\n    - text: GitHub\n      link: https://github.com/burakdede/aisw\n      variant: minimal\n`;
+  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "AI / Coding Agent account manager and switcher for Claude Code, Codex CLI, and Gemini CLI."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Watch Demo\n      link: ${withBasePath('/#watch-aisw-work')}\n      variant: secondary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: minimal\n`;
 }
 
 function injectVersionContext(doc, body, currentVersion) {
   if (doc.source === 'index.md') {
-    return `> Current documented CLI release: \`v${currentVersion}\`. Use [Quickstart](${withBasePath('/quickstart/')}) to install and start switching profiles.\n\n${body}`;
+    return body;
   }
 
   if (doc.source === 'releases.md') {

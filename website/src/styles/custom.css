@@ -1,0 +1,60 @@
+:root {
+  --sl-content-width: 72rem;
+}
+
+.hero {
+  padding-block: 1.25rem 0.5rem;
+}
+
+.hero .stack {
+  gap: 0.85rem;
+}
+
+.hero .copy {
+  gap: 0.45rem;
+}
+
+.hero h1 {
+  margin-bottom: 0;
+}
+
+.hero .tagline {
+  max-width: 42rem;
+}
+
+.content-panel .sl-container {
+  padding-top: 0.15rem;
+}
+
+.sl-markdown-content blockquote:first-child {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+#aisw-home-demo .ap-wrapper,
+#aisw-home-demo .ap-player {
+  width: 100% !important;
+}
+
+#aisw-home-demo .ap-overlay.ap-overlay-start {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#aisw-home-demo .ap-play-button {
+  position: static;
+  margin: 0;
+}
+
+@media (min-width: 72rem) {
+  .hero {
+    padding-block: 0.75rem 0.15rem;
+  }
+
+  .content-panel .sl-container {
+    padding-top: 0;
+  }
+}
