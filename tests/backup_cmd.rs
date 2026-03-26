@@ -3,16 +3,38 @@ mod common;
 use common::TestEnv;
 use predicates::str::contains;
 
-fn first_backup_id(list_output: &str) -> &str {
+fn strip_ansi(input: &str) -> String {
+    let mut stripped = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for next in chars.by_ref() {
+                if ('@'..='~').contains(&next) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        stripped.push(ch);
+    }
+
+    stripped
+}
+
+fn first_backup_id(list_output: &str) -> String {
     list_output
         .lines()
         .find_map(|line| {
-            let candidate = line.split_whitespace().next()?;
+            let visible = strip_ansi(line);
+            let candidate = visible.split_whitespace().next()?;
             if candidate != "Backups"
                 && candidate != "BACKUP"
                 && !candidate.chars().all(|ch| ch == '─')
             {
-                Some(candidate)
+                Some(candidate.to_owned())
             } else {
                 None
             }
@@ -153,7 +175,7 @@ fn backup_restore_yes_restores_credentials() {
 
     // Restore using --yes skips confirmation.
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
         .stdout(contains("Restored"))
@@ -178,7 +200,7 @@ fn backup_restore_prints_use_hint() {
     let backup_id = first_backup_id(&list_str);
 
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
         .stdout(contains("aisw use"));
@@ -202,7 +224,7 @@ fn backup_restore_prints_next_step_hint() {
     let backup_id = first_backup_id(&list_str);
 
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
         .stdout(contains("Next"))

@@ -74,16 +74,38 @@ fn status_json(env: &TestEnv) -> serde_json::Value {
     serde_json::from_slice(&out).expect("status --json output is not valid JSON")
 }
 
-fn first_backup_id(list_output: &str) -> &str {
+fn strip_ansi(input: &str) -> String {
+    let mut stripped = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for next in chars.by_ref() {
+                if ('@'..='~').contains(&next) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        stripped.push(ch);
+    }
+
+    stripped
+}
+
+fn first_backup_id(list_output: &str) -> String {
     list_output
         .lines()
         .find_map(|line| {
-            let candidate = line.split_whitespace().next()?;
+            let visible = strip_ansi(line);
+            let candidate = visible.split_whitespace().next()?;
             if candidate != "Backups"
                 && candidate != "BACKUP"
                 && !candidate.chars().all(|ch| ch == '─')
             {
-                Some(candidate)
+                Some(candidate.to_owned())
             } else {
                 None
             }
@@ -553,7 +575,7 @@ fn backup_restore_then_use_completes_successfully() {
 
     // Restore the backup.
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
         .stdout(contains("Restored"));
@@ -595,10 +617,13 @@ fn backup_list_grows_with_each_switch() {
     // switches should produce three distinct backup entries.
     let backup_count = list_str
         .lines()
-        .filter_map(|line| line.split_whitespace().next())
+        .filter_map(|line| {
+            let visible = strip_ansi(line);
+            visible.split_whitespace().next().map(ToOwned::to_owned)
+        })
         .filter(|candidate| {
-            *candidate != "Backups"
-                && *candidate != "BACKUP"
+            candidate != "Backups"
+                && candidate != "BACKUP"
                 && !candidate.chars().all(|ch| ch == '─')
         })
         .count();
