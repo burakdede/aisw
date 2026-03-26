@@ -27,6 +27,19 @@ aisw backup restore 20260325T114502Z-claude-work
 aisw use claude work
 ```
 
+## Automation and prompts
+
+`aisw` does not yet provide a global `--non-interactive` or `--quiet` flag.
+
+Current behavior:
+
+- `aisw init`, `aisw remove`, and `aisw backup restore` prompt unless you pass `--yes`.
+- `aisw add` is interactive unless you pass `--api-key`.
+- `aisw list --json`, `aisw status --json`, and `aisw backup list --json` are the supported machine-readable inventory/status interfaces.
+- `aisw use --emit-env` and `aisw shell-hook` intentionally emit raw shell text.
+
+For CI or automation, use `--yes` where available, use `--api-key` for profile creation, and prefer the JSON output modes above.
+
 ## aisw add
 
 Add a new account profile for a tool.

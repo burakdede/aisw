@@ -86,6 +86,25 @@ See the command reference at <https://burakdede.github.io/aisw/commands/> for fu
 
 Successful `init`, `add`, `use`, and `backup restore` commands also print a short next-step hint to help move through the common workflow without adding noise to inventory or status commands.
 
+## Automation and prompts
+
+`aisw` does not currently have a global `--non-interactive` or `--quiet` flag.
+
+Current automation-safe usage:
+
+- Use `--yes` for commands that otherwise prompt for confirmation:
+  - `aisw init --yes`
+  - `aisw remove ... --yes`
+  - `aisw backup restore ... --yes`
+- Use `aisw add ... --api-key ...` when you need non-interactive profile creation. Without `--api-key`, `aisw add` uses an interactive auth flow.
+- Use `--json` for machine-readable inventory/status output:
+  - `aisw list --json`
+  - `aisw status --json`
+  - `aisw backup list --json`
+- `aisw use --emit-env` and `aisw shell-hook` intentionally print raw shell output for scripting and shell integration.
+
+If you need fully non-interactive automation today, prefer API-key-based `add`, explicit `--yes` flags, and the JSON output modes above.
+
 ## How it works
 
 - aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.
