@@ -10,7 +10,9 @@ use common::TestEnv;
 use predicates::str::contains;
 
 const CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const CLAUDE_KEY_ALT: &str = "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const CODEX_KEY: &str = "sk-codex-test-key-12345";
+const CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 
 // ---------------------------------------------------------------------------
@@ -30,15 +32,25 @@ fn setup_gemini(env: &TestEnv) {
 }
 
 fn add_claude(env: &TestEnv, name: &str) {
+    let key = if name == "work" {
+        CLAUDE_KEY
+    } else {
+        CLAUDE_KEY_ALT
+    };
     env.cmd()
-        .args(["add", "claude", name, "--api-key", CLAUDE_KEY])
+        .args(["add", "claude", name, "--api-key", key])
         .assert()
         .success();
 }
 
 fn add_codex(env: &TestEnv, name: &str) {
+    let key = if name == "work" || name == "main" {
+        CODEX_KEY
+    } else {
+        CODEX_KEY_ALT
+    };
     env.cmd()
-        .args(["add", "codex", name, "--api-key", CODEX_KEY])
+        .args(["add", "codex", name, "--api-key", key])
         .assert()
         .success();
 }
@@ -435,7 +447,7 @@ fn add_without_set_active_does_not_change_active_in_status() {
         .assert()
         .success();
     env.cmd()
-        .args(["add", "claude", "personal", "--api-key", CLAUDE_KEY])
+        .args(["add", "claude", "personal", "--api-key", CLAUDE_KEY_ALT])
         .assert()
         .success();
 

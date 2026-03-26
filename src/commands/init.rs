@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::next_steps;
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
+use crate::tool_detection::{self, DetectedTool};
 use crate::types::Tool;
 
 // Marker written by shell_hook.rs — must match.
@@ -30,11 +32,14 @@ pub(crate) fn run_inner(
     output::print_kv("Home", aisw_home.display().to_string());
     output::print_blank_line();
 
+    let detected_tools = detect_supported_tools();
+
     // Shell hook installation.
     let shell_name = shell_env
         .and_then(|s| Path::new(s).file_name())
         .and_then(|n| n.to_str());
     output::print_section("Shell integration");
+    output::print_kv("Shell", shell_name.unwrap_or("unknown"));
     match shell_name {
         Some(s @ ("bash" | "zsh" | "fish")) => {
             install_shell_hook(user_home, s, confirmed)?;
@@ -55,12 +60,33 @@ pub(crate) fn run_inner(
     }
     output::print_blank_line();
 
+    print_detected_tools(&detected_tools);
+
     // Credential import.
-    import_credentials(aisw_home, user_home, confirmed)?;
+    import_credentials(aisw_home, user_home, &detected_tools, confirmed)?;
 
     output::print_title("Setup complete");
     output::print_next_step(next_steps::after_init());
     Ok(())
+}
+
+fn detect_supported_tools() -> HashMap<Tool, Option<DetectedTool>> {
+    [Tool::Claude, Tool::Codex, Tool::Gemini]
+        .into_iter()
+        .map(|tool| (tool, tool_detection::detect(tool)))
+        .collect()
+}
+
+fn print_detected_tools(detected: &HashMap<Tool, Option<DetectedTool>>) {
+    output::print_section("Detected tools");
+    output::print_info("aisw checked your PATH for supported coding agent CLIs.");
+    output::print_blank_line();
+
+    for tool in [Tool::Claude, Tool::Codex, Tool::Gemini] {
+        output::print_tool_section(tool);
+        print_detection_metadata(detected.get(&tool).and_then(|entry| entry.as_ref()));
+        output::print_blank_line();
+    }
 }
 
 fn rc_file(user_home: &Path, shell: &str) -> PathBuf {
@@ -230,15 +256,77 @@ fn activate_imported_profile(
     Ok(())
 }
 
-fn import_credentials(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
-    output::print_section("Import existing credentials");
-    import_claude(aisw_home, user_home, confirmed)?;
-    import_codex(aisw_home, user_home, confirmed)?;
-    import_gemini(aisw_home, user_home, confirmed)?;
+fn import_credentials(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: &HashMap<Tool, Option<DetectedTool>>,
+    confirmed: bool,
+) -> Result<()> {
+    output::print_section("Credential onboarding");
+    output::print_info(
+        "Each tool is checked for existing live credentials that can be imported into aisw.",
+    );
+    output::print_blank_line();
+    import_claude(
+        aisw_home,
+        user_home,
+        detected.get(&Tool::Claude).and_then(|entry| entry.as_ref()),
+        confirmed,
+    )?;
+    import_codex(
+        aisw_home,
+        user_home,
+        detected.get(&Tool::Codex).and_then(|entry| entry.as_ref()),
+        confirmed,
+    )?;
+    import_gemini(
+        aisw_home,
+        user_home,
+        detected.get(&Tool::Gemini).and_then(|entry| entry.as_ref()),
+        confirmed,
+    )?;
     Ok(())
 }
 
-fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
+fn print_detection_metadata(detected: Option<&DetectedTool>) {
+    match detected {
+        Some(tool) => {
+            output::print_kv("Status", "detected");
+            if let Some(version) = tool.version.as_deref() {
+                output::print_kv("Version", version);
+            }
+            output::print_kv("Path", tool.binary_path.display().to_string());
+        }
+        None => {
+            output::print_kv("Status", "not detected");
+        }
+    }
+}
+
+fn print_import_header(tool: Tool, detected: Option<&DetectedTool>) {
+    output::print_tool_section(tool);
+    output::print_kv("Detected", if detected.is_some() { "yes" } else { "no" });
+}
+
+fn extract_json_string_field(bytes: &[u8], field: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    value.get(field)?.as_str().map(ToOwned::to_owned)
+}
+
+fn extract_gemini_api_key(bytes: &[u8]) -> Option<String> {
+    std::str::from_utf8(bytes)
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("GEMINI_API_KEY=").map(ToOwned::to_owned))
+}
+
+fn import_claude(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: Option<&DetectedTool>,
+    confirmed: bool,
+) -> Result<()> {
+    print_import_header(Tool::Claude, detected);
     let candidates = [
         user_home.join(".claude").join(".credentials.json"),
         user_home
@@ -247,7 +335,8 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             .join(".credentials.json"),
     ];
     let Some(src) = candidates.iter().find(|p| p.exists()) else {
-        output::print_info("Claude Code: no existing credentials found.");
+        output::print_kv("Credentials", "not found");
+        output::print_blank_line();
         return Ok(());
     };
 
@@ -255,42 +344,99 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
-    if confirmed && profile_store.exists(Tool::Claude, "default") {
-        output::print_info("Claude Code: profile 'default' already exists, skipping.");
+    let source_bytes =
+        fs::read(src).with_context(|| format!("could not read {}", src.display()))?;
+    let imported_method = if extract_json_string_field(&source_bytes, "apiKey").is_some() {
+        AuthMethod::ApiKey
+    } else {
+        AuthMethod::OAuth
+    };
+    if let Some(api_key) = extract_json_string_field(&source_bytes, "apiKey") {
+        if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
+            &profile_store,
+            &config_store,
+            Tool::Claude,
+            &api_key,
+        )? {
+            output::print_kv("Credentials", format!("found {}", src.display()));
+            output::print_kv("Auth", "api_key");
+            output::print_kv("Import", "already managed");
+            output::print_info(format!(
+                "Live credentials already match profile '{}'.",
+                existing_name
+            ));
+            output::print_blank_line();
+            return Ok(());
+        }
+    }
+    if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
+        &profile_store,
+        &config_store,
+        Tool::Claude,
+        &source_bytes,
+    )? {
+        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Auth", "oauth");
+        output::print_kv("Import", "already managed");
+        output::print_info(format!(
+            "Live credentials already match profile '{}'.",
+            existing_name
+        ));
+        output::print_blank_line();
         return Ok(());
     }
 
-    output::print_info(format!("Claude Code: found {}", src.display()));
+    if confirmed && profile_store.exists(Tool::Claude, "default") {
+        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Import", "skipped");
+        output::print_info("Profile 'default' already exists.");
+        output::print_blank_line();
+        return Ok(());
+    }
+
+    output::print_kv("Credentials", format!("found {}", src.display()));
+    output::print_kv(
+        "Auth",
+        if imported_method == AuthMethod::ApiKey {
+            "api_key"
+        } else {
+            "oauth"
+        },
+    );
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Claude, &profile_store, confirmed)?
     else {
+        output::print_kv("Import", "skipped");
+        output::print_blank_line();
         return Ok(());
     };
 
     profile_store.create(Tool::Claude, &profile_name)?;
     profile_store.copy_file_into(Tool::Claude, &profile_name, src, ".credentials.json")?;
-    auth::identity::ensure_unique_oauth_identity(
-        &profile_store,
-        &config_store,
-        Tool::Claude,
-        &profile_name,
-    )
-    .inspect_err(|_| {
-        let _ = profile_store.delete(Tool::Claude, &profile_name);
-    })?;
+    if imported_method == AuthMethod::OAuth {
+        auth::identity::ensure_unique_oauth_identity(
+            &profile_store,
+            &config_store,
+            Tool::Claude,
+            &profile_name,
+        )
+        .inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Claude, &profile_name);
+        })?;
+    }
     config_store.add_profile(
         Tool::Claude,
         &profile_name,
         ProfileMeta {
             added_at: Utc::now(),
-            auth_method: AuthMethod::OAuth,
+            auth_method: imported_method,
             label,
         },
     )?;
     if mark_active {
         activate_imported_profile(
             Tool::Claude,
-            AuthMethod::OAuth,
+            imported_method,
             &profile_store,
             &config_store,
             &profile_name,
@@ -300,19 +446,31 @@ fn import_claude(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             "Imported Claude Code credentials as profile '{}' and marked it active.",
             profile_name
         ));
+        output::print_kv("Import", format!("profile '{}'", profile_name));
+        output::print_kv("Activation", "active");
     } else {
         output::print_success(format!(
             "Imported Claude Code credentials as profile '{}'.",
             profile_name
         ));
+        output::print_kv("Import", format!("profile '{}'", profile_name));
+        output::print_kv("Activation", "stored");
     }
+    output::print_blank_line();
     Ok(())
 }
 
-fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
+fn import_codex(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: Option<&DetectedTool>,
+    confirmed: bool,
+) -> Result<()> {
+    print_import_header(Tool::Codex, detected);
     let src = user_home.join(".codex").join("auth.json");
     if !src.exists() {
-        output::print_info("Codex CLI: no existing credentials found.");
+        output::print_kv("Credentials", "not found");
+        output::print_blank_line();
         return Ok(());
     }
 
@@ -320,15 +478,58 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
-    if confirmed && profile_store.exists(Tool::Codex, "default") {
-        output::print_info("Codex CLI: profile 'default' already exists, skipping.");
+    let source_bytes =
+        fs::read(&src).with_context(|| format!("could not read {}", src.display()))?;
+    if let Some(secret) = extract_json_string_field(&source_bytes, "token") {
+        if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
+            &profile_store,
+            &config_store,
+            Tool::Codex,
+            &secret,
+        )? {
+            output::print_kv("Credentials", format!("found {}", src.display()));
+            output::print_kv("Auth", "api_key");
+            output::print_kv("Import", "already managed");
+            output::print_info(format!(
+                "Live credentials already match profile '{}'.",
+                existing_name
+            ));
+            output::print_blank_line();
+            return Ok(());
+        }
+    }
+    if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
+        &profile_store,
+        &config_store,
+        Tool::Codex,
+        &source_bytes,
+    )? {
+        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Auth", "oauth");
+        output::print_kv("Import", "already managed");
+        output::print_info(format!(
+            "Live credentials already match profile '{}'.",
+            existing_name
+        ));
+        output::print_blank_line();
         return Ok(());
     }
 
-    output::print_info(format!("Codex CLI: found {}", src.display()));
+    if confirmed && profile_store.exists(Tool::Codex, "default") {
+        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Import", "skipped");
+        output::print_info("Profile 'default' already exists.");
+        output::print_blank_line();
+        return Ok(());
+    }
+
+    output::print_kv("Credentials", format!("found {}", src.display()));
+    output::print_kv("Auth", "oauth");
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Codex, &profile_store, confirmed)?
     else {
+        output::print_kv("Import", "skipped");
+        output::print_blank_line();
         return Ok(());
     };
 
@@ -366,16 +567,27 @@ fn import_codex(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<(
             "Imported Codex CLI credentials as profile '{}' and marked it active.",
             profile_name
         ));
+        output::print_kv("Import", format!("profile '{}'", profile_name));
+        output::print_kv("Activation", "active");
     } else {
         output::print_success(format!(
             "Imported Codex CLI credentials as profile '{}'.",
             profile_name
         ));
+        output::print_kv("Import", format!("profile '{}'", profile_name));
+        output::print_kv("Activation", "stored");
     }
+    output::print_blank_line();
     Ok(())
 }
 
-fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<()> {
+fn import_gemini(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: Option<&DetectedTool>,
+    confirmed: bool,
+) -> Result<()> {
+    print_import_header(Tool::Gemini, detected);
     let gemini_dir = user_home.join(".gemini");
     let env_file = gemini_dir.join(".env");
     let settings_file = gemini_dir.join("settings.json");
@@ -385,7 +597,8 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     } else if settings_file.exists() {
         (&settings_file, "settings.json", AuthMethod::OAuth)
     } else {
-        output::print_info("Gemini CLI: no existing credentials found.");
+        output::print_kv("Credentials", "not found");
+        output::print_blank_line();
         return Ok(());
     };
 
@@ -393,15 +606,72 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Gemini)?;
 
+    if method == AuthMethod::ApiKey {
+        let source_bytes =
+            fs::read(src).with_context(|| format!("could not read {}", src.display()))?;
+        if let Some(api_key) = extract_gemini_api_key(&source_bytes) {
+            if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
+                &profile_store,
+                &config_store,
+                Tool::Gemini,
+                &api_key,
+            )? {
+                output::print_kv("Credentials", format!("found {}", src.display()));
+                output::print_kv("Auth", "api_key");
+                output::print_kv("Import", "already managed");
+                output::print_info(format!(
+                    "Live credentials already match profile '{}'.",
+                    existing_name
+                ));
+                output::print_blank_line();
+                return Ok(());
+            }
+        }
+    }
+
+    if method == AuthMethod::OAuth {
+        let source_bytes =
+            fs::read(src).with_context(|| format!("could not read {}", src.display()))?;
+        if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
+            &profile_store,
+            &config_store,
+            Tool::Gemini,
+            &source_bytes,
+        )? {
+            output::print_kv("Credentials", format!("found {}", src.display()));
+            output::print_kv("Auth", "oauth");
+            output::print_kv("Import", "already managed");
+            output::print_info(format!(
+                "Live credentials already match profile '{}'.",
+                existing_name
+            ));
+            output::print_blank_line();
+            return Ok(());
+        }
+    }
+
     if confirmed && profile_store.exists(Tool::Gemini, "default") {
-        output::print_info("Gemini CLI: profile 'default' already exists, skipping.");
+        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Import", "skipped");
+        output::print_info("Profile 'default' already exists.");
+        output::print_blank_line();
         return Ok(());
     }
 
-    output::print_info(format!("Gemini CLI: found {}", src.display()));
+    output::print_kv("Credentials", format!("found {}", src.display()));
+    output::print_kv(
+        "Auth",
+        if method == AuthMethod::ApiKey {
+            "api_key"
+        } else {
+            "oauth"
+        },
+    );
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Gemini, &profile_store, confirmed)?
     else {
+        output::print_kv("Import", "skipped");
+        output::print_blank_line();
         return Ok(());
     };
 
@@ -440,12 +710,17 @@ fn import_gemini(aisw_home: &Path, user_home: &Path, confirmed: bool) -> Result<
             "Imported Gemini CLI credentials as profile '{}' and marked it active.",
             profile_name
         ));
+        output::print_kv("Import", format!("profile '{}'", profile_name));
+        output::print_kv("Activation", "active");
     } else {
         output::print_success(format!(
             "Imported Gemini CLI credentials as profile '{}'.",
             profile_name
         ));
+        output::print_kv("Import", format!("profile '{}'", profile_name));
+        output::print_kv("Activation", "stored");
     }
+    output::print_blank_line();
     Ok(())
 }
 

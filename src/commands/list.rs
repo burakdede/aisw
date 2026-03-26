@@ -215,7 +215,14 @@ mod tests {
         let ps = ProfileStore::new(tmp.path());
         let cs = ConfigStore::new(tmp.path());
         auth::claude::add_api_key(&ps, &cs, "zzz", claude_key(), None).unwrap();
-        auth::claude::add_api_key(&ps, &cs, "aaa", claude_key(), None).unwrap();
+        auth::claude::add_api_key(
+            &ps,
+            &cs,
+            "aaa",
+            "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            None,
+        )
+        .unwrap();
 
         let rows = collect_rows(&list_args(Some(Tool::Claude), false), tmp.path()).unwrap();
         assert_eq!(rows[0].profile, "aaa");

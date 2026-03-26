@@ -24,6 +24,8 @@ fn init_prints_setup_complete() {
     let env = TestEnv::new();
     run_init(&env)
         .success()
+        .stdout(contains("Detected tools"))
+        .stdout(contains("Credential onboarding"))
         .stdout(contains("Setup complete"))
         .stdout(contains("Next"))
         .stdout(contains("aisw list"))
@@ -324,7 +326,25 @@ fn init_skips_import_when_no_credentials_found() {
     let env = TestEnv::new();
     run_init(&env)
         .success()
-        .stdout(contains("no existing credentials found."));
+        .stdout(contains("Claude Code"))
+        .stdout(contains("Credentials"))
+        .stdout(contains("not found"));
+}
+
+#[test]
+fn init_reports_detected_tools_and_missing_tools_explicitly() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Detected tools"))
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("Status"))
+        .stdout(contains("detected"))
+        .stdout(contains("Claude Code"))
+        .stdout(contains("not detected"))
+        .stdout(contains("Gemini CLI"));
 }
 
 #[test]
@@ -371,13 +391,153 @@ fn init_blocks_import_of_duplicate_oauth_identity() {
     .unwrap();
 
     run_init(&env)
-        .failure()
-        .stderr(contains("already exists as 'work'"));
+        .success()
+        .stdout(contains("already managed"))
+        .stdout(contains("Live credentials already match profile 'work'."));
 
     assert!(!env
         .aisw_home
         .join("profiles")
         .join("claude")
+        .join("default")
+        .exists());
+}
+
+#[test]
+fn init_skips_duplicate_codex_oauth_identity_without_failing() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    fs::create_dir_all(&env.aisw_home).unwrap();
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "active": { "claude": null, "codex": "burak", "gemini": null },
+            "profiles": {
+                "claude": {},
+                "codex": {
+                    "burak": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    }
+                },
+                "gemini": {}
+            },
+            "settings": { "backup_on_switch": true, "max_backups": 10 }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join("burak");
+    fs::create_dir_all(&profile_dir).unwrap();
+    fs::write(
+        profile_dir.join("auth.json"),
+        br#"{"account":{"email":"burak@burakdede.com"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = \"file\"\n",
+    )
+    .unwrap();
+
+    let codex_dir = env.fake_home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(
+        codex_dir.join("auth.json"),
+        br#"{"account":{"email":"burak@burakdede.com"}}"#,
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("already managed"))
+        .stdout(contains("Live credentials already match profile 'burak'."));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("codex")
+        .join("default")
+        .exists());
+}
+
+#[test]
+fn init_skips_duplicate_claude_api_key_without_failing() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"apiKey":"sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#,
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Claude Code"))
+        .stdout(contains("already managed"))
+        .stdout(contains("Live credentials already match profile 'work'."));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .exists());
+}
+
+#[test]
+fn init_skips_duplicate_gemini_api_key_without_failing() {
+    let env = TestEnv::new();
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "gemini",
+            "work",
+            "--api-key",
+            "AIzatest1234567890ABCDEF",
+        ])
+        .assert()
+        .success();
+
+    let gemini_dir = env.fake_home.join(".gemini");
+    fs::create_dir_all(&gemini_dir).unwrap();
+    fs::write(
+        gemini_dir.join(".env"),
+        b"GEMINI_API_KEY=AIzatest1234567890ABCDEF\n",
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Gemini CLI"))
+        .stdout(contains("already managed"))
+        .stdout(contains("Live credentials already match profile 'work'."));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("gemini")
         .join("default")
         .exists());
 }

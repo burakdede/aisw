@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
+use super::{claude, codex, gemini};
 use crate::config::{AuthMethod, Config, ConfigStore};
 use crate::output;
 use crate::profile::ProfileStore;
@@ -48,6 +49,60 @@ pub fn ensure_unique_oauth_identity(
     Ok(())
 }
 
+pub fn existing_oauth_profile_for_json_bytes(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    tool: Tool,
+    bytes: &[u8],
+) -> Result<Option<String>> {
+    let Some(identity) = resolve_identity_from_json_bytes(bytes)? else {
+        return Ok(None);
+    };
+
+    let config = config_store.load()?;
+    for existing_name in oauth_profile_names(&config, tool) {
+        let Some(existing_identity) = resolve_oauth_identity(profile_store, tool, existing_name)?
+        else {
+            continue;
+        };
+
+        if existing_identity == identity {
+            return Ok(Some(existing_name.to_owned()));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Treat API-key profiles as duplicates only on exact secret match.
+///
+/// This is intentionally narrower than "same account" because vendor auth docs
+/// treat API keys as independently issued credentials, and users may
+/// intentionally keep multiple keys for one account/project with different
+/// operational purposes. We therefore minimize false positives and only treat a
+/// profile as duplicate when the stored secret is byte-for-byte equal.
+///
+/// References:
+/// - Anthropic Claude Code setup / API-key auth
+/// - OpenAI developer quickstart / Create and export an API key
+/// - Google AI Studio / Gemini API key setup
+pub fn existing_api_key_profile_for_secret(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    tool: Tool,
+    secret: &str,
+) -> Result<Option<String>> {
+    let config = config_store.load()?;
+    for existing_name in api_key_profile_names(&config, tool) {
+        let existing_secret = read_api_key_for_profile(profile_store, tool, existing_name)?;
+        if existing_secret == secret {
+            return Ok(Some(existing_name.to_owned()));
+        }
+    }
+
+    Ok(None)
+}
+
 fn oauth_profile_names(config: &Config, tool: Tool) -> Vec<&str> {
     let profiles = match tool {
         Tool::Claude => &config.profiles.claude,
@@ -59,6 +114,33 @@ fn oauth_profile_names(config: &Config, tool: Tool) -> Vec<&str> {
         .iter()
         .filter_map(|(name, meta)| (meta.auth_method == AuthMethod::OAuth).then_some(name.as_str()))
         .collect()
+}
+
+fn api_key_profile_names(config: &Config, tool: Tool) -> Vec<&str> {
+    let profiles = match tool {
+        Tool::Claude => &config.profiles.claude,
+        Tool::Codex => &config.profiles.codex,
+        Tool::Gemini => &config.profiles.gemini,
+    };
+
+    profiles
+        .iter()
+        .filter_map(|(name, meta)| {
+            (meta.auth_method == AuthMethod::ApiKey).then_some(name.as_str())
+        })
+        .collect()
+}
+
+fn read_api_key_for_profile(
+    profile_store: &ProfileStore,
+    tool: Tool,
+    profile_name: &str,
+) -> Result<String> {
+    match tool {
+        Tool::Claude => claude::read_api_key(profile_store, profile_name),
+        Tool::Codex => codex::read_api_key(profile_store, profile_name),
+        Tool::Gemini => gemini::read_api_key(profile_store, profile_name),
+    }
 }
 
 fn resolve_oauth_identity(

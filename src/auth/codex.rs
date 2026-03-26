@@ -49,6 +49,19 @@ pub fn add_api_key(
 ) -> Result<()> {
     validate_api_key(key)?;
 
+    if let Some(existing_name) = identity::existing_api_key_profile_for_secret(
+        profile_store,
+        config_store,
+        Tool::Codex,
+        key,
+    )? {
+        bail!(
+            "Codex API key already exists as profile '{}'.\n  \
+             Use that profile or provide a different API key.",
+            existing_name
+        );
+    }
+
     profile_store.create(Tool::Codex, name)?;
 
     let cleanup = |ps: &ProfileStore| {

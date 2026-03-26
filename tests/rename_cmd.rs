@@ -5,11 +5,12 @@ use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const VALID_CLAUDE_KEY_ALT: &str = "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
-fn add_claude_profile(env: &TestEnv, name: &str) {
+fn add_claude_profile(env: &TestEnv, name: &str, key: &str) {
     env.add_fake_tool("claude", "claude 2.3.0");
     env.cmd()
-        .args(["add", "claude", name, "--api-key", VALID_CLAUDE_KEY])
+        .args(["add", "claude", name, "--api-key", key])
         .assert()
         .success();
 }
@@ -17,7 +18,7 @@ fn add_claude_profile(env: &TestEnv, name: &str) {
 #[test]
 fn rename_profile_updates_list_output() {
     let env = TestEnv::new();
-    add_claude_profile(&env, "default");
+    add_claude_profile(&env, "default", VALID_CLAUDE_KEY);
 
     env.cmd()
         .args(["rename", "claude", "default", "work"])
@@ -65,8 +66,8 @@ fn rename_active_profile_preserves_active_state() {
 #[test]
 fn rename_duplicate_target_fails() {
     let env = TestEnv::new();
-    add_claude_profile(&env, "default");
-    add_claude_profile(&env, "work");
+    add_claude_profile(&env, "default", VALID_CLAUDE_KEY);
+    add_claude_profile(&env, "work", VALID_CLAUDE_KEY_ALT);
 
     env.cmd()
         .args(["rename", "claude", "default", "work"])
