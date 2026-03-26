@@ -40,6 +40,23 @@ Current behavior:
 
 For CI or automation, use `--yes` where available, use `--api-key` for profile creation, and prefer the JSON output modes above.
 
+## Stdout, stderr, and JSON stability
+
+Use these rules when integrating `aisw` into scripts:
+
+- Human-readable command results are printed to stdout.
+- Errors are printed to stderr and return a non-zero exit code.
+- Interactive prompts are printed during prompt-driven flows such as `init`, `remove`, and `backup restore` when you do not pass `--yes`.
+- `aisw use --emit-env` and `aisw shell-hook` intentionally print raw shell code to stdout.
+
+Supported machine-readable outputs:
+
+- `aisw list --json`
+- `aisw status --json`
+- `aisw backup list --json`
+
+These JSON outputs are the supported automation interface and are intended to remain stable within a released major version. Human-readable stdout should be treated as presentation output and may change between releases.
+
 ## aisw add
 
 Add a new account profile for a tool.
