@@ -29,5 +29,6 @@ use clap::Parser;
 
 pub fn run() -> Result<()> {
     let cli = cli::Cli::parse();
+    output::configure_color(cli.no_color);
     commands::dispatch(cli)
 }

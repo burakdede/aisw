@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::ffi::OsString;
 
 use anyhow::Error;
 use console::style;
@@ -6,6 +7,12 @@ use console::style;
 use crate::types::Tool;
 
 const KV_LABEL_WIDTH: usize = 14;
+
+pub fn configure_color(no_color_flag: bool) {
+    let enabled = should_enable_color(no_color_flag, std::env::var_os("NO_COLOR"));
+    console::set_colors_enabled(enabled);
+    console::set_colors_enabled_stderr(enabled);
+}
 
 pub fn print_title(title: &str) {
     println!("{}", style(title).bold().cyan());
@@ -137,5 +144,29 @@ fn style_state<'a>(value: Cow<'a, str>) -> console::StyledObject<Cow<'a, str>> {
         style(value).yellow()
     } else {
         style(value)
+    }
+}
+
+fn should_enable_color(no_color_flag: bool, no_color_env: Option<OsString>) -> bool {
+    !no_color_flag && no_color_env.is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_enable_color;
+
+    #[test]
+    fn color_enabled_by_default() {
+        assert!(should_enable_color(false, None));
+    }
+
+    #[test]
+    fn no_color_flag_disables_color() {
+        assert!(!should_enable_color(true, None));
+    }
+
+    #[test]
+    fn no_color_env_disables_color() {
+        assert!(!should_enable_color(false, Some("1".into())));
     }
 }

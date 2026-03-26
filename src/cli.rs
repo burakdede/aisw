@@ -11,6 +11,10 @@ use crate::types::Tool;
     propagate_version = true,
 )]
 pub struct Cli {
+    /// Disable colored output
+    #[arg(long, global = true)]
+    pub no_color: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -188,6 +192,7 @@ mod tests {
     #[test]
     fn add_api_key() {
         let cli = parse(&["add", "claude", "work", "--api-key", "sk-ant-test"]).unwrap();
+        assert!(!cli.no_color);
         let Command::Add(args) = cli.command else {
             panic!("wrong command")
         };
@@ -351,6 +356,13 @@ mod tests {
             panic!("wrong subcommand")
         };
         assert_eq!(backup_id, "2026-03-25T10-00-00.123Z-0001");
+    }
+
+    #[test]
+    fn global_no_color_flag() {
+        let cli = parse(&["--no-color", "status"]).unwrap();
+        assert!(cli.no_color);
+        assert!(matches!(cli.command, Command::Status(_)));
     }
 
     #[test]
