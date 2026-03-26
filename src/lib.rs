@@ -5,6 +5,7 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod next_steps;
+pub mod output;
 pub mod profile;
 pub mod tool_detection;
 pub mod types;
@@ -28,5 +29,6 @@ use clap::Parser;
 
 pub fn run() -> Result<()> {
     let cli = cli::Cli::parse();
+    output::configure_color(cli.no_color);
     commands::dispatch(cli)
 }

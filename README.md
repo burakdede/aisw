@@ -86,6 +86,42 @@ See the command reference at <https://burakdede.github.io/aisw/commands/> for fu
 
 Successful `init`, `add`, `use`, and `backup restore` commands also print a short next-step hint to help move through the common workflow without adding noise to inventory or status commands.
 
+## Automation and prompts
+
+`aisw` does not currently have a global `--non-interactive` or `--quiet` flag.
+
+Current automation-safe usage:
+
+- Use `--yes` for commands that otherwise prompt for confirmation:
+  - `aisw init --yes`
+  - `aisw remove ... --yes`
+  - `aisw backup restore ... --yes`
+- Use `aisw add ... --api-key ...` when you need non-interactive profile creation. Without `--api-key`, `aisw add` uses an interactive auth flow.
+- Use `--json` for machine-readable inventory/status output:
+  - `aisw list --json`
+  - `aisw status --json`
+  - `aisw backup list --json`
+- `aisw use --emit-env` and `aisw shell-hook` intentionally print raw shell output for scripting and shell integration.
+
+If you need fully non-interactive automation today, prefer API-key-based `add`, explicit `--yes` flags, and the JSON output modes above.
+
+## Output contract
+
+`aisw` uses this output model:
+
+- Human-oriented command results and status output go to stdout.
+- Errors, warnings tied to failures, and interactive prompts go to stderr where appropriate.
+- `--json` modes are the supported machine-readable interface for scripting.
+- `aisw use --emit-env` and `aisw shell-hook` intentionally emit raw shell text to stdout.
+
+Supported JSON interfaces:
+
+- `aisw list --json`
+- `aisw status --json`
+- `aisw backup list --json`
+
+JSON output is intended to be stable for automation within a released major version. Human-readable stdout should be treated as presentation output and may change between releases.
+
 ## How it works
 
 - aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.

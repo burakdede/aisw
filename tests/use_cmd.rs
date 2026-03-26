@@ -239,10 +239,15 @@ fn use_without_emit_env_prints_switched_message() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched claude to profile 'work'."))
-        .stdout(contains(
-            "Next: run 'aisw status' to confirm the current state.",
-        ));
+        .stdout(contains("Switched profile"))
+        .stdout(contains("Tool"))
+        .stdout(contains("Claude Code"))
+        .stdout(contains("Active profile"))
+        .stdout(contains("work"))
+        .stdout(contains("Auth"))
+        .stdout(contains("api_key"))
+        .stdout(contains("Next"))
+        .stdout(contains("aisw status"));
 
     let live = env.fake_home.join(".claude").join(".credentials.json");
     assert!(live.exists(), "live Claude credentials should be written");
@@ -257,10 +262,15 @@ fn use_prints_switched_without_shell_env_matching() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched claude to profile 'work'."))
-        .stdout(contains(
-            "Next: run 'aisw status' to confirm the current state.",
-        ));
+        .stdout(contains("Switched profile"))
+        .stdout(contains("Tool"))
+        .stdout(contains("Claude Code"))
+        .stdout(contains("Active profile"))
+        .stdout(contains("work"))
+        .stdout(contains("Auth"))
+        .stdout(contains("api_key"))
+        .stdout(contains("Next"))
+        .stdout(contains("aisw status"));
 }
 
 #[test]

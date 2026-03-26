@@ -3,28 +3,52 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::backup::BackupManager;
-use crate::cli::BackupCommand;
+use crate::cli::{BackupCommand, BackupListArgs};
 use crate::config::ConfigStore;
 use crate::next_steps;
+use crate::output;
 use crate::profile::ProfileStore;
 
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
     match command {
-        BackupCommand::List => run_list(home),
+        BackupCommand::List(args) => run_list(args, home),
         BackupCommand::Restore { backup_id, yes } => run_restore(&backup_id, yes, home),
     }
 }
 
-fn run_list(home: &Path) -> Result<()> {
+fn run_list(args: BackupListArgs, home: &Path) -> Result<()> {
     let entries = BackupManager::new(home).list()?;
+    if args.json {
+        return print_json(&entries);
+    }
+
     if entries.is_empty() {
-        println!("No backups found. Backups are created automatically before each switch.");
+        output::print_title("Backups");
+        output::print_empty_state(
+            "No backups found. Backups are created automatically before each switch.",
+        );
         return Ok(());
     }
+    output::print_title("Backups");
     println!("{:<31} {:<8} PROFILE", "BACKUP ID", "TOOL");
     for e in &entries {
         println!("{:<31} {:<8} {}", e.backup_id, e.tool, e.profile);
     }
+    Ok(())
+}
+
+fn print_json(entries: &[crate::backup::BackupEntry]) -> Result<()> {
+    let json_rows: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "backup_id": entry.backup_id,
+                "tool": entry.tool.binary_name(),
+                "profile": entry.profile,
+            })
+        })
+        .collect();
+    println!("{}", serde_json::to_string_pretty(&json_rows)?);
     Ok(())
 }
 
@@ -58,7 +82,7 @@ fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
             .read_line(&mut line)
             .context("could not read confirmation from stdin")?;
         if !matches!(line.trim(), "y" | "Y") {
-            println!("Aborted.");
+            output::print_warning("Aborted.");
             return Ok(());
         }
     }
@@ -84,19 +108,18 @@ pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
         );
     }
 
-    for e in &matching {
-        println!(
-            "Restoring {}/{} from backup {}...",
-            e.tool, e.profile, backup_id
-        );
-    }
     manager.restore(backup_id, &profile_store, &config_store)?;
     for e in &matching {
-        println!(
-            "Restored. The \"{}\" profile now has credentials from that backup.",
-            e.profile
-        );
-        println!("{}", next_steps::after_restore(e.tool, &e.profile));
+        output::print_title("Restored backup");
+        output::print_kv("Tool", e.tool.display_name());
+        output::print_kv("Profile", &e.profile);
+        output::print_kv("Backup", backup_id);
+        output::print_blank_line();
+        output::print_effects_header();
+        output::print_effect("Stored profile files restored from backup.");
+        output::print_effect("Config entry recreated if it was missing.");
+        output::print_blank_line();
+        output::print_next_step(next_steps::after_restore(e.tool, &e.profile));
     }
     Ok(())
 }
@@ -150,7 +173,7 @@ mod tests {
         let dir = tempdir().unwrap();
         // No error, no backups — run_list should succeed with no output (we can't
         // easily capture stdout in unit tests, but we verify it doesn't error).
-        run_list(dir.path()).unwrap();
+        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
     }
 
     #[test]
@@ -158,7 +181,7 @@ mod tests {
         let dir = tempdir().unwrap();
         make_profile(dir.path(), Tool::Claude, "work");
         snapshot(dir.path(), Tool::Claude, "work");
-        run_list(dir.path()).unwrap();
+        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
     }
 
     #[test]
@@ -196,6 +219,6 @@ mod tests {
     fn run_list_empty_dir_exits_ok() {
         let dir = tempdir().unwrap();
         // backups dir does not even exist yet
-        run_list(dir.path()).unwrap();
+        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
     }
 }

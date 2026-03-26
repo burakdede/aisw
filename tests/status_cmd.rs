@@ -47,7 +47,10 @@ fn status_shows_credentials_present_for_active_profile() {
         .args(["status"])
         .assert()
         .success()
+        .stdout(contains("Status"))
+        .stdout(contains("Claude Code"))
         .stdout(contains("work"))
+        .stdout(contains("State"))
         .stdout(contains("credentials present"));
 }
 
@@ -146,5 +149,7 @@ fn status_no_active_profile_shows_dash() {
         .args(["status"])
         .assert()
         .success()
+        .stdout(contains("Active"))
+        .stdout(contains("none"))
         .stdout(contains("profiles stored, but none is active"));
 }

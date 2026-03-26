@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use crate::backup::BackupManager;
 use crate::cli::RemoveArgs;
 use crate::config::{Config, ConfigStore};
+use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -21,7 +22,7 @@ pub fn run(args: RemoveArgs, home: &Path) -> Result<()> {
             .read_line(&mut line)
             .context("could not read confirmation from stdin")?;
         if !matches!(line.trim(), "y" | "Y") {
-            println!("Aborted.");
+            output::print_warning("Aborted.");
             return Ok(());
         }
     }
@@ -54,7 +55,7 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     }
 
     if !confirmed {
-        println!("Aborted.");
+        output::print_warning("Aborted.");
         return Ok(());
     }
 
@@ -80,7 +81,19 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
         config_store.clear_active(args.tool)?;
     }
 
-    println!("Removed {} profile '{}'.", args.tool, args.profile_name);
+    output::print_title("Removed profile");
+    output::print_kv("Tool", args.tool.display_name());
+    output::print_kv("Profile", &args.profile_name);
+    output::print_kv("Was active", if is_active { "yes" } else { "no" });
+    output::print_blank_line();
+    output::print_effects_header();
+    output::print_effect("Stored profile files deleted.");
+    output::print_effect("Backup created before deletion.");
+    if is_active {
+        output::print_effect("Active profile cleared.");
+    }
+    output::print_blank_line();
+    output::print_next_step("Run 'aisw list' to review remaining profiles.");
     Ok(())
 }
 

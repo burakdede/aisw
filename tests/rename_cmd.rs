@@ -23,7 +23,10 @@ fn rename_profile_updates_list_output() {
         .args(["rename", "claude", "default", "work"])
         .assert()
         .success()
-        .stdout(contains("Renamed claude profile 'default' to 'work'."));
+        .stdout(contains("Renamed profile"))
+        .stdout(contains("Claude Code"))
+        .stdout(contains("default"))
+        .stdout(contains("work"));
 
     env.cmd()
         .args(["list"])

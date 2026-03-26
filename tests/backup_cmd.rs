@@ -3,6 +3,45 @@ mod common;
 use common::TestEnv;
 use predicates::str::contains;
 
+fn strip_ansi(input: &str) -> String {
+    let mut stripped = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for next in chars.by_ref() {
+                if ('@'..='~').contains(&next) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        stripped.push(ch);
+    }
+
+    stripped
+}
+
+fn first_backup_id(list_output: &str) -> String {
+    list_output
+        .lines()
+        .find_map(|line| {
+            let visible = strip_ansi(line);
+            let candidate = visible.split_whitespace().next()?;
+            if candidate != "Backups"
+                && candidate != "BACKUP"
+                && !candidate.chars().all(|ch| ch == '─')
+            {
+                Some(candidate.to_owned())
+            } else {
+                None
+            }
+        })
+        .expect("expected at least one backup entry")
+}
+
 // ── help / parse tests ────────────────────────────────────────────────────────
 
 #[test]
@@ -22,7 +61,8 @@ fn backup_list_help_exits_zero() {
         .cmd()
         .args(["backup", "list", "--help"])
         .assert()
-        .success();
+        .success()
+        .stdout(contains("--json"));
 }
 
 #[test]
@@ -71,6 +111,37 @@ fn backup_list_shows_entry_after_use() {
         .stdout(contains("work"));
 }
 
+#[test]
+fn backup_list_json_output_is_valid_json_array() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    let key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let output = env
+        .cmd()
+        .args(["backup", "list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output).expect("stdout is not valid JSON");
+    assert!(json.is_array());
+    let arr = json.as_array().unwrap();
+    assert!(!arr.is_empty());
+    assert_eq!(arr[0]["tool"], "claude");
+    assert_eq!(arr[0]["profile"], "work");
+    assert!(arr[0]["backup_id"].as_str().is_some());
+}
+
 // ── backup restore ────────────────────────────────────────────────────────────
 
 #[test]
@@ -100,16 +171,11 @@ fn backup_restore_yes_restores_credentials() {
     // Capture the backup id.
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    // First non-header line has the backup id in the first column.
-    let backup_id = list_str
-        .lines()
-        .nth(1) // skip the BACKUP ID header
-        .and_then(|l| l.split_whitespace().next())
-        .expect("expected at least one backup entry");
+    let backup_id = first_backup_id(&list_str);
 
     // Restore using --yes skips confirmation.
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
         .stdout(contains("Restored"))
@@ -131,14 +197,10 @@ fn backup_restore_prints_use_hint() {
 
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    let backup_id = list_str
-        .lines()
-        .nth(1)
-        .and_then(|l| l.split_whitespace().next())
-        .expect("expected at least one backup entry");
+    let backup_id = first_backup_id(&list_str);
 
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
         .stdout(contains("aisw use"));
@@ -159,17 +221,12 @@ fn backup_restore_prints_next_step_hint() {
 
     let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
     let list_str = String::from_utf8_lossy(&list_out);
-    let backup_id = list_str
-        .lines()
-        .nth(1)
-        .and_then(|l| l.split_whitespace().next())
-        .expect("expected at least one backup entry");
+    let backup_id = first_backup_id(&list_str);
 
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
-        .stdout(contains(
-            "Next: run 'aisw use claude work' to switch to it.",
-        ));
+        .stdout(contains("Next"))
+        .stdout(contains("aisw use claude work"));
 }

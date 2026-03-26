@@ -44,9 +44,9 @@ fn list_shows_added_profiles() {
         .args(["list"])
         .assert()
         .success()
-        .stdout(contains("claude"))
+        .stdout(contains("Claude Code"))
         .stdout(contains("work"))
-        .stdout(contains("codex"))
+        .stdout(contains("Codex CLI"))
         .stdout(contains("main"))
         .stdout(contains("api_key"));
 }
@@ -63,7 +63,7 @@ fn list_filters_by_tool() {
         .assert()
         .success()
         .stdout(contains("work"))
-        .stdout(contains("claude"));
+        .stdout(contains("Claude Code"));
 
     // codex profile should NOT appear
     env.cmd()
@@ -107,7 +107,9 @@ fn list_active_profile_marked_with_star() {
         .args(["list"])
         .assert()
         .success()
-        .stdout(contains("*"));
+        .stdout(contains("work"))
+        .stdout(contains("active"))
+        .stdout(contains("yes"));
 }
 
 #[test]

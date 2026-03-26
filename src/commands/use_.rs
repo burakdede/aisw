@@ -7,6 +7,7 @@ use crate::backup::BackupManager;
 use crate::cli::UseArgs;
 use crate::config::{AuthMethod, ConfigStore};
 use crate::next_steps;
+use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -131,11 +132,29 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     config_store.set_active(args.tool, &args.profile_name)?;
 
     if !args.emit_env {
-        println!("Switched {} to profile '{}'.", args.tool, args.profile_name);
-        println!("{}", next_steps::after_use());
+        output::print_title("Switched profile");
+        output::print_kv("Tool", args.tool.display_name());
+        output::print_kv("Active profile", &args.profile_name);
+        output::print_kv("Auth", auth_label(profile_meta.auth_method));
+        output::print_blank_line();
+        output::print_effects_header();
+        output::print_effect("Live tool configuration updated.");
+        output::print_effect("Active profile updated.");
+        if config.settings.backup_on_switch {
+            output::print_effect("Backup created before switching.");
+        }
+        output::print_blank_line();
+        output::print_next_step(next_steps::after_use());
     }
 
     Ok(())
+}
+
+fn auth_label(method: AuthMethod) -> &'static str {
+    match method {
+        AuthMethod::OAuth => "oauth",
+        AuthMethod::ApiKey => "api_key",
+    }
 }
 
 #[cfg(test)]

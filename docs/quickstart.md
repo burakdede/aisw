@@ -141,6 +141,15 @@ aisw remove claude old-work
 A backup of the profile is created before deletion. Use `--force` to remove the currently
 active profile, and `--yes` to skip the confirmation prompt.
 
+## Automation note
+
+If you are scripting `aisw` today:
+
+- use `--yes` for `init`, `remove`, and `backup restore`
+- use `--api-key` for non-interactive `add`
+- use `--json` on `list`, `status`, and `backup list`
+- use `use --emit-env` only when you explicitly want raw shell exports
+
 ---
 
 ## 8. Rename a profile

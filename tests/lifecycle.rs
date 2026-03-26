@@ -74,6 +74,45 @@ fn status_json(env: &TestEnv) -> serde_json::Value {
     serde_json::from_slice(&out).expect("status --json output is not valid JSON")
 }
 
+fn strip_ansi(input: &str) -> String {
+    let mut stripped = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for next in chars.by_ref() {
+                if ('@'..='~').contains(&next) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        stripped.push(ch);
+    }
+
+    stripped
+}
+
+fn first_backup_id(list_output: &str) -> String {
+    list_output
+        .lines()
+        .find_map(|line| {
+            let visible = strip_ansi(line);
+            let candidate = visible.split_whitespace().next()?;
+            if candidate != "Backups"
+                && candidate != "BACKUP"
+                && !candidate.chars().all(|ch| ch == '─')
+            {
+                Some(candidate.to_owned())
+            } else {
+                None
+            }
+        })
+        .expect("expected backup id")
+}
+
 // ---------------------------------------------------------------------------
 // Full per-tool lifecycle: add → use → list → remove
 // ---------------------------------------------------------------------------
@@ -102,9 +141,10 @@ fn claude_full_lifecycle_add_use_list_remove() {
         .args(["list"])
         .assert()
         .success()
-        .stdout(contains("claude"))
+        .stdout(contains("Claude Code"))
         .stdout(contains("work"))
-        .stdout(contains("*"));
+        .stdout(contains("active"))
+        .stdout(contains("yes"));
 
     // 4. remove
     env.cmd()
@@ -296,12 +336,7 @@ fn restore_after_remove_recreates_profile_in_config_and_can_be_used() {
         .get_output()
         .stdout
         .clone();
-    let backup_id = String::from_utf8_lossy(&backup_list)
-        .lines()
-        .nth(1)
-        .and_then(|line| line.split_whitespace().next())
-        .expect("expected backup id")
-        .to_owned();
+    let backup_id = first_backup_id(&String::from_utf8_lossy(&backup_list)).to_owned();
 
     env.cmd()
         .args(["remove", "claude", "work", "--yes", "--force"])
@@ -322,7 +357,9 @@ fn restore_after_remove_recreates_profile_in_config_and_can_be_used() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched claude to profile 'work'."));
+        .stdout(contains("Switched profile"))
+        .stdout(contains("Claude Code"))
+        .stdout(contains("work"));
 }
 
 // ---------------------------------------------------------------------------
@@ -431,6 +468,8 @@ fn status_shows_no_active_before_use_and_active_after() {
         .args(["status"])
         .assert()
         .success()
+        .stdout(contains("Active"))
+        .stdout(contains("none"))
         .stdout(contains("profiles stored, but none is active"));
 
     // After use: profile visible.
@@ -440,6 +479,7 @@ fn status_shows_no_active_before_use_and_active_after() {
         .args(["status"])
         .assert()
         .success()
+        .stdout(contains("State"))
         .stdout(contains("work"))
         .stdout(contains("credentials present"));
 
@@ -531,15 +571,11 @@ fn backup_restore_then_use_completes_successfully() {
         .stdout
         .clone();
     let list_str = String::from_utf8_lossy(&list_out);
-    let backup_id = list_str
-        .lines()
-        .nth(1)
-        .and_then(|l| l.split_whitespace().next())
-        .expect("expected backup list entry");
+    let backup_id = first_backup_id(&list_str);
 
     // Restore the backup.
     env.cmd()
-        .args(["backup", "restore", "--yes", backup_id])
+        .args(["backup", "restore", "--yes", &backup_id])
         .assert()
         .success()
         .stdout(contains("Restored"));
@@ -581,8 +617,15 @@ fn backup_list_grows_with_each_switch() {
     // switches should produce three distinct backup entries.
     let backup_count = list_str
         .lines()
-        .skip(1)
-        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| {
+            let visible = strip_ansi(line);
+            visible.split_whitespace().next().map(ToOwned::to_owned)
+        })
+        .filter(|candidate| {
+            candidate != "Backups"
+                && candidate != "BACKUP"
+                && !candidate.chars().all(|ch| ch == '─')
+        })
         .count();
     assert_eq!(backup_count, 3, "expected 3 backups, got {}", backup_count);
 }

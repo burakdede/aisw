@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::cli::ListArgs;
 use crate::config::{AuthMethod, ConfigStore};
+use crate::output;
 use crate::types::Tool;
 
 pub(crate) struct Row {
@@ -78,51 +79,39 @@ pub fn run(args: ListArgs, home: &Path) -> Result<()> {
 
 fn print_table(rows: &[Row]) {
     if rows.is_empty() {
-        println!("No profiles found. Run 'aisw add <tool> <name>' to add one.");
+        output::print_title("Profiles");
+        output::print_empty_state("No profiles found.");
+        output::print_blank_line();
+        output::print_next_step("Run 'aisw add <tool> <name>' to add one.");
         return;
     }
 
-    let w_tool = rows.iter().map(|r| r.tool.len()).max().unwrap_or(0).max(4);
-    let w_profile = rows
-        .iter()
-        .map(|r| r.profile.len())
-        .max()
-        .unwrap_or(0)
-        .max(7);
-    let w_active = 6;
-    let w_auth = rows
-        .iter()
-        .map(|r| r.auth_method.len())
-        .max()
-        .unwrap_or(0)
-        .max(11);
+    output::print_title("Profiles");
 
-    println!(
-        "{:<w_tool$}  {:<w_profile$}  {:<w_active$}  {:<w_auth$}  LABEL",
-        "TOOL",
-        "PROFILE",
-        "ACTIVE",
-        "AUTH METHOD",
-        w_tool = w_tool,
-        w_profile = w_profile,
-        w_active = w_active,
-        w_auth = w_auth,
-    );
+    let mut current_tool = None;
     for row in rows {
-        let active_marker = if row.active { "*" } else { "" };
-        let label = row.label.as_deref().unwrap_or("");
-        println!(
-            "{:<w_tool$}  {:<w_profile$}  {:<w_active$}  {:<w_auth$}  {}",
-            row.tool,
-            row.profile,
-            active_marker,
-            row.auth_method,
-            label,
-            w_tool = w_tool,
-            w_profile = w_profile,
-            w_active = w_active,
-            w_auth = w_auth,
-        );
+        if current_tool != Some(row.tool) {
+            if current_tool.is_some() {
+                output::print_blank_line();
+            }
+
+            let tool = match row.tool {
+                "claude" => Tool::Claude,
+                "codex" => Tool::Codex,
+                "gemini" => Tool::Gemini,
+                _ => unreachable!(),
+            };
+            output::print_tool_section(tool);
+            current_tool = Some(row.tool);
+        }
+
+        output::print_profile_section(&row.profile, row.active);
+        output::print_kv("Active", if row.active { "yes" } else { "no" });
+        output::print_kv("Auth", row.auth_method);
+        if let Some(label) = row.label.as_deref() {
+            output::print_kv("Label", label);
+        }
+        output::print_blank_line();
     }
 }
 

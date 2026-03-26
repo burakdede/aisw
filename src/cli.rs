@@ -11,6 +11,10 @@ use crate::types::Tool;
     propagate_version = true,
 )]
 pub struct Cli {
+    /// Disable colored output
+    #[arg(long, global = true)]
+    pub no_color: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -154,10 +158,17 @@ pub struct BackupArgs {
     pub command: BackupCommand,
 }
 
+#[derive(Args, Debug)]
+pub struct BackupListArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum BackupCommand {
     /// List all credential backups
-    List,
+    List(BackupListArgs),
 
     /// Restore a backup by id
     Restore {
@@ -181,6 +192,7 @@ mod tests {
     #[test]
     fn add_api_key() {
         let cli = parse(&["add", "claude", "work", "--api-key", "sk-ant-test"]).unwrap();
+        assert!(!cli.no_color);
         let Command::Add(args) = cli.command else {
             panic!("wrong command")
         };
@@ -316,7 +328,22 @@ mod tests {
         let Command::Backup(args) = cli.command else {
             panic!("wrong command")
         };
-        assert!(matches!(args.command, BackupCommand::List));
+        let BackupCommand::List(list_args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert!(!list_args.json);
+    }
+
+    #[test]
+    fn backup_list_json() {
+        let cli = parse(&["backup", "list", "--json"]).unwrap();
+        let Command::Backup(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let BackupCommand::List(list_args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert!(list_args.json);
     }
 
     #[test]
@@ -329,6 +356,13 @@ mod tests {
             panic!("wrong subcommand")
         };
         assert_eq!(backup_id, "2026-03-25T10-00-00.123Z-0001");
+    }
+
+    #[test]
+    fn global_no_color_flag() {
+        let cli = parse(&["--no-color", "status"]).unwrap();
+        assert!(cli.no_color);
+        assert!(matches!(cli.command, Command::Status(_)));
     }
 
     #[test]

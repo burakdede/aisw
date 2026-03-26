@@ -27,6 +27,36 @@ aisw backup restore 20260325T114502Z-claude-work
 aisw use claude work
 ```
 
+## Automation and prompts
+
+`aisw` does not yet provide a global `--non-interactive` or `--quiet` flag.
+
+Current behavior:
+
+- `aisw init`, `aisw remove`, and `aisw backup restore` prompt unless you pass `--yes`.
+- `aisw add` is interactive unless you pass `--api-key`.
+- `aisw list --json`, `aisw status --json`, and `aisw backup list --json` are the supported machine-readable inventory/status interfaces.
+- `aisw use --emit-env` and `aisw shell-hook` intentionally emit raw shell text.
+
+For CI or automation, use `--yes` where available, use `--api-key` for profile creation, and prefer the JSON output modes above.
+
+## Stdout, stderr, and JSON stability
+
+Use these rules when integrating `aisw` into scripts:
+
+- Human-readable command results are printed to stdout.
+- Errors are printed to stderr and return a non-zero exit code.
+- Interactive prompts are printed during prompt-driven flows such as `init`, `remove`, and `backup restore` when you do not pass `--yes`.
+- `aisw use --emit-env` and `aisw shell-hook` intentionally print raw shell code to stdout.
+
+Supported machine-readable outputs:
+
+- `aisw list --json`
+- `aisw status --json`
+- `aisw backup list --json`
+
+These JSON outputs are the supported automation interface and are intended to remain stable within a released major version. Human-readable stdout should be treated as presentation output and may change between releases.
+
 ## aisw add
 
 Add a new account profile for a tool.
@@ -238,15 +268,20 @@ Manage credential backups. Backups are created automatically before every profil
 ### aisw backup list
 
 ```
-aisw backup list
+aisw backup list [--json]
 ```
 
 Lists all backups with their unique backup id, tool, and profile name. Sorted newest-first.
+
+| Flag | Description |
+|---|---|
+| `--json` | Output as a JSON array for scripting |
 
 Examples:
 
 ```
 aisw backup list
+aisw backup list --json
 ```
 
 ### aisw backup restore
