@@ -11,7 +11,7 @@ Section: overview
 Summary: Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.
 Source: https://github.com/burakdede/aisw/blob/main/docs/index.md
 Headings: Install | Shell installer | Cargo | Watch aisw work | What aisw helps with | Start here | Setup and operation | Common questions | What does aisw actually change when I switch accounts? | Does aisw send credentials or prompts over the network? | Where are profiles stored, and how are they protected? | Can I use this for work, personal, and backup accounts across different tools?
-Common queries: AI Switcher | aisw AI Switcher | AI CLI account switcher | Claude Code account switcher | Codex CLI account switcher | Gemini CLI account switcher | manage multiple AI CLI accounts
+Common queries: AI Switcher | aisw AI Switcher | AI CLI account switcher | AI CLI account manager | AI account manager | coding agent account manager | Claude Code account switcher | Claude Code account manager | Codex CLI account switcher | Codex CLI account manager | Gemini CLI account switcher | Gemini CLI account manager | manage multiple AI CLI accounts
 
 ## Quickstart
 
@@ -19,7 +19,7 @@ URL: https://burakdede.github.io/aisw/quickstart/
 Section: getting-started
 Summary: Install aisw, run first-time setup, add profiles, and switch accounts quickly.
 Source: https://github.com/burakdede/aisw/blob/main/docs/quickstart.md
-Headings: 1. Install aisw | 2. Run the first-run wizard | Shell hook | 3. Add a profile | 4. Switch profiles | 5. Check status | 6. List profiles | 7. Remove a profile | 8. Rename a profile
+Headings: 1. Install aisw | 2. Run the first-run wizard | Shell hook | 3. Add a profile | 4. Switch profiles | 5. Check status | 6. List profiles | 7. Remove a profile | Automation note | 8. Rename a profile
 Common queries: install aisw | quickstart for Claude Code account switching | quickstart for Codex CLI account switching | quickstart for Gemini CLI account switching
 
 ## Commands
@@ -28,8 +28,17 @@ URL: https://burakdede.github.io/aisw/commands/
 Section: reference
 Summary: Full command reference for aisw commands, flags, and usage patterns.
 Source: https://github.com/burakdede/aisw/blob/main/docs/commands.md
-Headings: Common workflows | Add and activate a profile | List profiles as JSON | Restore a backup and re-apply it | aisw add | aisw use | aisw list | aisw remove | aisw rename | aisw status | aisw init | aisw shell-hook | aisw backup | aisw backup list | aisw backup restore
+Headings: Common workflows | Add and activate a profile | List profiles as JSON | Restore a backup and re-apply it | Automation and scripting | aisw add | aisw use | aisw list | aisw remove | aisw rename | aisw status | aisw init | aisw shell-hook | aisw backup | aisw backup list | aisw backup restore
 Common queries: aisw command reference | aisw add use list status
+
+## Automation and Scripting
+
+URL: https://burakdede.github.io/aisw/automation/
+Section: reference
+Summary: Understand prompt behavior, JSON output, stdout/stderr expectations, and safe scripting patterns for aisw.
+Source: https://github.com/burakdede/aisw/blob/main/docs/automation.md
+Headings: Prompt behavior | Output contract | Practical patterns | Create a profile without prompts | Remove a profile non-interactively | Read profile inventory from a script | Export shell variables for the selected profile | Recommended references
+Common queries: aisw automation | aisw json output | aisw scripting | aisw stdout stderr
 
 ## Shell Integration
 

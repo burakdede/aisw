@@ -19,7 +19,7 @@ const siteSchema = {
 			name: 'aisw AI Switcher for Claude Code, Codex CLI, and Gemini CLI',
 			url: siteUrl,
 			description:
-				'aisw is an AI account switcher for Claude Code, Codex CLI, and Gemini CLI, with docs for installation, profile management, and secure local switching.',
+				'aisw is an AI and coding agent account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI, with docs for installation, profile management, and secure local switching.',
 			image: `${siteOrigin}${logoPath}`,
 			publisher: {
 				'@type': 'Organization',
@@ -38,7 +38,7 @@ const siteSchema = {
 			operatingSystem: 'macOS, Linux, Windows',
 			softwareVersion: currentVersion,
 			description:
-				'AI Switcher CLI for switching between Claude Code, Codex CLI, and Gemini CLI accounts.',
+				'AI and coding agent account manager and switcher CLI for Claude Code, Codex CLI, and Gemini CLI accounts.',
 			url: 'https://github.com/burakdede/aisw',
 			image: `${siteOrigin}${logoPath}`,
 		},
@@ -54,7 +54,7 @@ export default defineConfig({
 		starlight({
 			title: 'aisw',
 			description:
-				'AI account switcher for Claude Code, Codex CLI, and Gemini CLI. Install aisw, manage multiple profiles, and switch accounts locally.',
+				'AI and coding agent account manager and switcher for Claude Code, Codex CLI, and Gemini CLI. Install aisw, manage multiple profiles, and switch accounts locally.',
 			logo: {
 				light: './public/aisw-mark-light.svg',
 				dark: './public/aisw-mark-dark.svg',
@@ -153,6 +153,10 @@ export default defineConfig({
 						{ label: 'Supported Tools', slug: 'supported-tools' },
 						{ label: 'Configuration', slug: 'configuration' },
 					],
+				},
+				{
+					label: 'Automation',
+					items: [{ label: 'Automation and Scripting', slug: 'automation' }],
 				},
 			],
 			editLink: {

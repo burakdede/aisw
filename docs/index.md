@@ -54,6 +54,7 @@ If you were searching for an AI CLI account switcher, a multi-account CLI manage
 | [Quickstart](quickstart.md) | Install aisw, run first-time setup, and switch accounts quickly |
 | [Commands](commands.md) | Full reference for all subcommands and flags |
 | [Adding Profiles](adding-profiles.md) | OAuth and API key auth flows per tool |
+| [Automation and Scripting](automation.md) | Prompt behavior, JSON output, stdout/stderr expectations, and scripting patterns |
 
 ## Setup and operation
 

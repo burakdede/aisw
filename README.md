@@ -7,22 +7,15 @@
   </picture>
 </p>
 
-Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI.
+<p align="center">AI and coding agent account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI.</p>
 
 ## The problem
 
 AI coding CLI tools have daily and weekly usage quotas. When a quota runs out, work stops. There is no unified tool for switching between accounts across Claude Code, Codex CLI, and Gemini CLI.
 
-## Terminal demo
-
-See the main workflows before installing:
-
-- Embedded player on the website homepage: <https://burakdede.github.io/aisw/>
-- Raw Asciinema cast: <https://burakdede.github.io/aisw/demos/aisw-important-workflows.cast>
-
-The demo covers `aisw init`, importing an existing login, adding profiles, switching with `aisw use`, checking `aisw status`, and viewing automatic backups.
-
 ## Install
+
+Full install options and setup notes: [Quickstart](https://burakdede.github.io/aisw/quickstart/).
 
 **curl (Linux, macOS):**
 
@@ -67,6 +60,8 @@ aisw init
 It detects installed tools, installs the shell hook, and offers to import your existing credentials with sensible defaults: profile name `default` and label `imported`. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool.
 When `init` marks an imported profile active, it also applies that profile to the live tool config right away.
 
+For the full first-run flow, examples, and supported auth modes, see [Quickstart](https://burakdede.github.io/aisw/quickstart/) and [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/).
+
 ## Command reference
 
 | Command | Description |
@@ -82,45 +77,11 @@ When `init` marks an imported profile active, it also applies that profile to th
 | `aisw init` | First-run setup wizard |
 | `aisw shell-hook <shell>` | Print the shell integration snippet |
 
-See the command reference at <https://burakdede.github.io/aisw/commands/> for full flag reference and examples.
+See the full [Commands](https://burakdede.github.io/aisw/commands/) reference for flags and examples.
 
 Successful `init`, `add`, `use`, and `backup restore` commands also print a short next-step hint to help move through the common workflow without adding noise to inventory or status commands.
 
-## Automation and prompts
-
-`aisw` does not currently have a global `--non-interactive` or `--quiet` flag.
-
-Current automation-safe usage:
-
-- Use `--yes` for commands that otherwise prompt for confirmation:
-  - `aisw init --yes`
-  - `aisw remove ... --yes`
-  - `aisw backup restore ... --yes`
-- Use `aisw add ... --api-key ...` when you need non-interactive profile creation. Without `--api-key`, `aisw add` uses an interactive auth flow.
-- Use `--json` for machine-readable inventory/status output:
-  - `aisw list --json`
-  - `aisw status --json`
-  - `aisw backup list --json`
-- `aisw use --emit-env` and `aisw shell-hook` intentionally print raw shell output for scripting and shell integration.
-
-If you need fully non-interactive automation today, prefer API-key-based `add`, explicit `--yes` flags, and the JSON output modes above.
-
-## Output contract
-
-`aisw` uses this output model:
-
-- Human-oriented command results and status output go to stdout.
-- Errors, warnings tied to failures, and interactive prompts go to stderr where appropriate.
-- `--json` modes are the supported machine-readable interface for scripting.
-- `aisw use --emit-env` and `aisw shell-hook` intentionally emit raw shell text to stdout.
-
-Supported JSON interfaces:
-
-- `aisw list --json`
-- `aisw status --json`
-- `aisw backup list --json`
-
-JSON output is intended to be stable for automation within a released major version. Human-readable stdout should be treated as presentation output and may change between releases.
+Automation, prompt behavior, JSON output, and stdout/stderr expectations are documented in [Automation and Scripting](https://burakdede.github.io/aisw/automation/).
 
 ## How it works
 
@@ -152,7 +113,7 @@ aisw shell-hook fish | source
 
 Or run `aisw init` — it adds the line automatically.
 
-See <https://burakdede.github.io/aisw/shell-integration/> for details.
+See [Shell Integration](https://burakdede.github.io/aisw/shell-integration/) for details.
 
 ## Supported tools
 
@@ -161,6 +122,8 @@ See <https://burakdede.github.io/aisw/shell-integration/> for details.
 | Claude Code | `claude` | OAuth (browser), API key |
 | Codex CLI | `codex` | OAuth (ChatGPT), API key |
 | Gemini CLI | `gemini` | OAuth (Google), API key |
+
+More detail: [Supported Tools](https://burakdede.github.io/aisw/supported-tools/) and [Configuration](https://burakdede.github.io/aisw/configuration/).
 
 ## License
 

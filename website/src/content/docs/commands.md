@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, AI Switcher, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Commands, reference, aisw command reference, aisw add use list status
+      content: aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Commands, reference, aisw command reference, aisw add use list status
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Commands","headline":"Commands","description":"Full command reference for aisw commands, flags, and usage patterns.","url":"https://burakdede.github.io/aisw/commands/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, aisw command reference, aisw add use list status","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Commands","item":"https://burakdede.github.io/aisw/commands/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Commands","headline":"Commands","description":"Full command reference for aisw commands, flags, and usage patterns.","url":"https://burakdede.github.io/aisw/commands/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, aisw command reference, aisw add use list status","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.0","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Commands","item":"https://burakdede.github.io/aisw/commands/"}]}]}
 ---
 
 ## Common workflows
@@ -48,6 +48,10 @@ Restoring a backup puts files back into the stored profile directory. Run `aisw 
 aisw backup restore 20260325T114502Z-claude-work
 aisw use claude work
 ```
+
+## Automation and scripting
+
+For prompt behavior, JSON interfaces, stdout/stderr expectations, and automation-safe usage patterns, see [Automation and Scripting](/aisw/automation/).
 
 ## aisw add
 
@@ -260,15 +264,20 @@ Manage credential backups. Backups are created automatically before every profil
 ### aisw backup list
 
 ```
-aisw backup list
+aisw backup list [--json]
 ```
 
 Lists all backups with their unique backup id, tool, and profile name. Sorted newest-first.
+
+| Flag | Description |
+|---|---|
+| `--json` | Output as a JSON array for scripting |
 
 Examples:
 
 ```
 aisw backup list
+aisw backup list --json
 ```
 
 ### aisw backup restore

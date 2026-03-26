@@ -16,6 +16,10 @@ const docsKeywords = [
   'aisw',
   'AI Switcher',
   'AI CLI account switcher',
+  'AI account manager',
+  'AI CLI account manager',
+  'coding agent account manager',
+  'coding agent account switcher',
   'Claude Code',
   'Codex CLI',
   'Gemini CLI',
@@ -34,9 +38,15 @@ const DOCS = [
       'AI Switcher',
       'aisw AI Switcher',
       'AI CLI account switcher',
+      'AI CLI account manager',
+      'AI account manager',
+      'coding agent account manager',
       'Claude Code account switcher',
+      'Claude Code account manager',
       'Codex CLI account switcher',
+      'Codex CLI account manager',
       'Gemini CLI account switcher',
+      'Gemini CLI account manager',
       'manage multiple AI CLI accounts',
     ],
   },
@@ -62,6 +72,19 @@ const DOCS = [
     queries: [
       'aisw command reference',
       'aisw add use list status',
+    ],
+  },
+  {
+    source: 'automation.md',
+    output: 'automation.md',
+    title: 'Automation and Scripting',
+    description: 'Understand prompt behavior, JSON output, stdout/stderr expectations, and safe scripting patterns for aisw.',
+    section: 'reference',
+    queries: [
+      'aisw automation',
+      'aisw json output',
+      'aisw scripting',
+      'aisw stdout stderr',
     ],
   },
   {
@@ -381,7 +404,7 @@ function buildHeroFrontmatter(doc, currentVersion) {
   if (doc.source !== 'index.md') {
     return '';
   }
-  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "AI / Coding Agent account manager and switcher for Claude Code, Codex CLI, and Gemini CLI."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Watch Demo\n      link: ${withBasePath('/#watch-aisw-work')}\n      variant: secondary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: minimal\n`;
+  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "AI / Coding Agent account manager and switcher for Claude Code, Codex CLI, and Gemini CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Watch Demo\n      link: ${withBasePath('/#watch-aisw-work')}\n      variant: secondary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: minimal\n`;
 }
 
 function injectVersionContext(doc, body, currentVersion) {
