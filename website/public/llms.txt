@@ -14,6 +14,8 @@ Current version: 0.1.1
 - [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/): Understand OAuth and API key profile flows for each supported tool.
 - [Supported Tools](https://burakdede.github.io/aisw/supported-tools/): See which tools aisw supports and how authentication works for each one.
 - [Configuration](https://burakdede.github.io/aisw/configuration/): Reference the aisw config file, active profile state, and stored settings.
+- [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Why you need an AI agent account manager to bypass quotas and manage credentials securely.
+- [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/): Common issues and solutions for aisw shell hooks, tool detection, and permissions.
 
 ## Project
 

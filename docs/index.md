@@ -63,10 +63,18 @@ If you were searching for an AI CLI account switcher, a multi-account CLI manage
 
 | Document | Description |
 |---|---|
+| [Why aisw?](why-aisw.md) | Why you need an AI agent account manager |
 | [Quickstart](quickstart.md) | Install aisw, run first-time setup, and switch accounts quickly |
 | [Commands](commands.md) | Full reference for all subcommands and flags |
 | [Adding Profiles](adding-profiles.md) | OAuth and API key auth flows per tool |
 | [Automation and Scripting](automation.md) | Prompt behavior, JSON output, stdout/stderr expectations, and scripting patterns |
+
+## Value at a glance
+
+- **Zero Manual File Copying:** Switch profiles with one command. No more searching for hidden `.env` or `.credentials.json` files.
+- **Safety First:** Automatic backups before every switch and enforced `0600` permissions.
+- **Identity Awareness:** Prevent duplicate aliases by automatically resolving account emails and IDs.
+- **Seamless Setup:** `aisw init` imports your existing credentials in seconds.
 
 ## Setup and operation
 
@@ -77,6 +85,11 @@ If you were searching for an AI CLI account switcher, a multi-account CLI manage
 | [Configuration](config.md) | `~/.aisw/config.json` schema and settings |
 
 ## Common questions
+
+- [Troubleshooting](troubleshooting.md): Issues with shell hooks, tool detection, or permissions.
+- [What aisw actually changes when I switch accounts?](#what-aisw-actually-changes-when-i-switch-accounts)
+- [Does aisw send credentials or prompts over the network?](#does-aisw-send-credentials-or-prompts-over-the-network)
+- [Where are profiles stored, and how are they protected?](#where-are-profiles-stored-and-how-are-they-protected)
 
 ### What does aisw actually change when I switch accounts?
 

@@ -136,6 +136,33 @@ const DOCS = [
       'aisw configuration file',
     ],
   },
+  {
+    source: 'why-aisw.md',
+    output: 'why-aisw.md',
+    title: 'Why aisw?',
+    description: 'Why you need an AI agent account manager to bypass quotas and manage credentials securely.',
+    section: 'overview',
+    queries: [
+      'why use aisw',
+      'AI agent quota management',
+      'Claude Code quota switcher',
+      'Codex CLI quota switcher',
+      'Gemini CLI quota switcher',
+    ],
+  },
+  {
+    source: 'troubleshooting.md',
+    output: 'troubleshooting.md',
+    title: 'Troubleshooting',
+    description: 'Common issues and solutions for aisw shell hooks, tool detection, and permissions.',
+    section: 'reference',
+    queries: [
+      'aisw troubleshooting',
+      'aisw shell hook not working',
+      'aisw tool not found',
+      'aisw gemini oauth fail',
+    ],
+  },
 ];
 
 const docRouteBySource = new Map(

@@ -1,0 +1,105 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for aisw shell hooks, tool detection, and permissions.
+editUrl: https://github.com/burakdede/aisw/edit/main/docs/troubleshooting.md
+head:
+  - tag: meta
+    attrs:
+      name: robots
+      content: index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1
+  - tag: meta
+    attrs:
+      name: keywords
+      content: aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Troubleshooting, reference, aisw troubleshooting, aisw shell hook not working, aisw tool not found, aisw gemini oauth fail
+  - tag: meta
+    attrs:
+      property: article:section
+      content: reference
+  - tag: script
+    attrs:
+      type: application/ld+json
+    content: >-
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Common issues and solutions for aisw shell hooks, tool detection, and permissions.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, aisw troubleshooting, aisw shell hook not working, aisw tool not found, aisw gemini oauth fail","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.1.1","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
+---
+
+Common issues and solutions for `aisw`.
+
+---
+
+## 1. Shell integration not working
+
+If running `aisw use` updates the profile list but doesn't change the active environment variable for a tool (like `ANTHROPIC_API_KEY`), the shell hook might not be loaded.
+
+### Diagnosis
+Run:
+```sh
+echo $AISW_SHELL_HOOK
+```
+If it's empty, the hook is not loaded.
+
+### Solution
+1. Verify the hook line is in your RC file (`.zshrc`, `.bashrc`, or `config.fish`).
+2. Restart your terminal or source the RC file manually:
+   ```sh
+   source ~/.zshrc
+   ```
+3. Check for shell-specific issues in [Shell Integration](/aisw/shell-integration/).
+
+---
+
+## 2. "Tool not installed" error
+
+If `aisw status` reports a tool as not installed, `aisw` cannot find the binary on your PATH.
+
+### Solution
+1. Verify the tool is installed and its binary is on your PATH.
+   ```sh
+   which claude
+   which codex
+   which gemini
+   ```
+2. If you installed a tool *after* starting your terminal, try `hash -r` (bash) or `rehash` (zsh) to update the binary cache.
+
+---
+
+## 3. Gemini OAuth Capture Fails
+
+Gemini's OAuth flow captures a token cache by overriding the `HOME` directory to a temporary "scratch" location. 
+
+### Symptom
+`aisw add gemini` completes the login in the browser, but `aisw` reports:
+`Gemini login completed but no credential files were found in the token cache.`
+
+### Solution
+- Ensure `aisw` has permission to create and write to the system temporary directory (usually `/tmp` or `$TMPDIR`).
+- Try using an API key instead: `aisw add gemini work --api-key <key>`.
+
+---
+
+## 4. Permission Denied errors
+
+`aisw` strictly enforces `0600` permissions for your security.
+
+### Symptom
+Errors when writing to `~/.aisw/` or `~/.claude/`.
+
+### Solution
+1. Ensure your user owns the `~/.aisw` directory and its contents.
+2. Check if another process or a different version of the tool has locked the credential files.
+3. On macOS, ensure your terminal has "Full Disk Access" if you are trying to manage files in protected system directories.
+
+---
+
+## 5. Duplicate Identity Warning
+
+If you get a warning that an account identity already exists under a different profile name, it means `aisw` detected the same email or account ID in the credentials.
+
+### Solution
+- Use the existing profile name reported in the warning.
+- If you genuinely want a second alias for the same account, you may need to rename or remove the existing profile first.
+
+---
+
+## Need more help?
+
+If you encounter an issue not listed here, please [report it on GitHub](https://github.com/burakdede/aisw/issues).
