@@ -30,6 +30,7 @@ If you need fully non-interactive automation today, prefer API-key-based `add`, 
 - Interactive prompts appear during prompt-driven flows such as `init`, `remove`, and `backup restore` when you do not pass `--yes`.
 - `--json` modes are the supported machine-readable interface for scripting.
 - `aisw use --emit-env` and `aisw shell-hook` intentionally emit raw shell text to stdout.
+- Commands that mutate `~/.aisw/config.json` take an exclusive config lock. If another `aisw` command is already updating config state, the later command waits briefly and then exits with a clear lock-timeout error instead of risking a lost update or partial overwrite.
 
 Supported JSON interfaces:
 

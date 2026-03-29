@@ -1,16 +1,24 @@
 use std::collections::HashMap;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 use crate::types::Tool;
 
 const CURRENT_VERSION: u32 = 1;
 const CONFIG_FILE: &str = "config.json";
+const CONFIG_LOCK_FILE: &str = "config.json.lock";
 const AISW_HOME_ENV: &str = "AISW_HOME";
+const CONFIG_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
+const CONFIG_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -76,12 +84,14 @@ impl Default for Settings {
 
 pub struct ConfigStore {
     path: PathBuf,
+    lock_path: PathBuf,
 }
 
 impl ConfigStore {
     pub fn new(home: &Path) -> Self {
         Self {
             path: home.join(CONFIG_FILE),
+            lock_path: home.join(CONFIG_LOCK_FILE),
         }
     }
 
@@ -95,31 +105,185 @@ impl ConfigStore {
     }
 
     pub fn load(&self) -> Result<Config> {
-        if !self.path.exists() {
-            let config = Config::default();
-            self.save(&config)?;
-            return Ok(config);
+        if self.path.exists() {
+            return self.load_existing();
         }
 
+        let _lock = self.acquire_lock()?;
+        if self.path.exists() {
+            return self.load_existing();
+        }
+
+        let config = Config::default();
+        self.save_unlocked(&config)?;
+        Ok(config)
+    }
+
+    pub fn save(&self, config: &Config) -> Result<()> {
+        let _lock = self.acquire_lock()?;
+        self.save_unlocked(config)
+    }
+
+    pub fn add_profile(&self, tool: Tool, name: &str, meta: ProfileMeta) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            let profiles = tool_profiles_mut(config, tool);
+
+            if profiles.contains_key(name) {
+                bail!(
+                    "profile '{}' already exists for {}.\n  \
+                     Use 'aisw list {}' to see existing profiles.",
+                    name,
+                    tool,
+                    tool
+                );
+            }
+
+            profiles.insert(name.to_owned(), meta);
+            Ok(())
+        })
+    }
+
+    pub fn upsert_profile(&self, tool: Tool, name: &str, meta: ProfileMeta) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            tool_profiles_mut(config, tool).insert(name.to_owned(), meta);
+            Ok(())
+        })
+    }
+
+    pub fn remove_profile(&self, tool: Tool, name: &str) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            let profiles = tool_profiles_mut(config, tool);
+
+            if profiles.remove(name).is_none() {
+                bail!(
+                    "profile '{}' not found for {}.\n  \
+                     Run 'aisw list {}' to see available profiles.",
+                    name,
+                    tool,
+                    tool
+                );
+            }
+
+            Ok(())
+        })
+    }
+
+    pub fn rename_profile(&self, tool: Tool, old_name: &str, new_name: &str) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            let profiles = tool_profiles_mut(config, tool);
+
+            if old_name == new_name {
+                bail!("profile '{}' is already named '{}'.", old_name, new_name);
+            }
+
+            let meta = profiles.remove(old_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "profile '{}' not found for {}.\n  \
+                     Run 'aisw list {}' to see available profiles.",
+                    old_name,
+                    tool,
+                    tool
+                )
+            })?;
+
+            if profiles.contains_key(new_name) {
+                profiles.insert(old_name.to_owned(), meta);
+                bail!(
+                    "profile '{}' already exists for {}.\n  \
+                     Use 'aisw list {}' to see existing profiles.",
+                    new_name,
+                    tool,
+                    tool
+                );
+            }
+
+            profiles.insert(new_name.to_owned(), meta);
+
+            if tool_active(config, tool).as_deref() == Some(old_name) {
+                *tool_active_mut(config, tool) = Some(new_name.to_owned());
+            }
+
+            Ok(())
+        })
+    }
+
+    pub fn set_active(&self, tool: Tool, name: &str) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            if !tool_profiles(config, tool).contains_key(name) {
+                bail!(
+                    "profile '{}' not found for {}.\n  \
+                     Run 'aisw list {}' to see available profiles.",
+                    name,
+                    tool,
+                    tool
+                );
+            }
+
+            *tool_active_mut(config, tool) = Some(name.to_owned());
+            Ok(())
+        })
+    }
+
+    pub fn clear_active(&self, tool: Tool) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            *tool_active_mut(config, tool) = None;
+            Ok(())
+        })
+    }
+
+    pub fn get_active<'c>(&self, config: &'c Config, tool: Tool) -> Option<&'c str> {
+        tool_active(config, tool).as_deref()
+    }
+
+    fn with_mutating_config<F>(&self, mutate: F) -> Result<Config>
+    where
+        F: FnOnce(&mut Config) -> Result<()>,
+    {
+        let _lock = self.acquire_lock()?;
+        let mut config = self.load_unlocked()?;
+        mutate(&mut config)?;
+        self.save_unlocked(&config)?;
+        Ok(config)
+    }
+
+    #[cfg(test)]
+    fn with_mutating_config_timeout_for_test<F>(
+        &self,
+        timeout: Duration,
+        mutate: F,
+    ) -> Result<Config>
+    where
+        F: FnOnce(&mut Config) -> Result<()>,
+    {
+        let _lock = self.acquire_lock_with_timeout(timeout)?;
+        let mut config = self.load_unlocked()?;
+        mutate(&mut config)?;
+        self.save_unlocked(&config)?;
+        Ok(config)
+    }
+
+    fn load_existing(&self) -> Result<Config> {
         let contents = fs::read_to_string(&self.path)
             .with_context(|| format!("could not read {}", self.path.display()))?;
 
         let config: Config = serde_json::from_str(&contents)
             .with_context(|| format!("could not parse {}", self.path.display()))?;
 
-        if config.version > CURRENT_VERSION {
-            bail!(
-                "config version {} is newer than this version of aisw supports (max: {}).\n  \
-                 Upgrade aisw to continue: https://github.com/burakdede/aisw#install",
-                config.version,
-                CURRENT_VERSION
-            );
-        }
-
+        validate_config_version(&config)?;
         Ok(config)
     }
 
-    pub fn save(&self, config: &Config) -> Result<()> {
+    fn load_unlocked(&self) -> Result<Config> {
+        if !self.path.exists() {
+            let config = Config::default();
+            self.save_unlocked(&config)?;
+            return Ok(config);
+        }
+
+        self.load_existing()
+    }
+
+    fn save_unlocked(&self, config: &Config) -> Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("could not create directory {}", parent.display()))?;
@@ -143,117 +307,71 @@ impl ConfigStore {
         Ok(())
     }
 
-    pub fn add_profile(&self, tool: Tool, name: &str, meta: ProfileMeta) -> Result<Config> {
-        let mut config = self.load()?;
-        let profiles = tool_profiles_mut(&mut config, tool);
+    fn acquire_lock(&self) -> Result<ConfigLockGuard> {
+        self.acquire_lock_with_timeout(CONFIG_LOCK_WAIT_TIMEOUT)
+    }
 
-        if profiles.contains_key(name) {
-            bail!(
-                "profile '{}' already exists for {}.\n  \
-                 Use 'aisw list {}' to see existing profiles.",
-                name,
-                tool,
-                tool
-            );
+    fn acquire_lock_with_timeout(&self, timeout: Duration) -> Result<ConfigLockGuard> {
+        if let Some(parent) = self.lock_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("could not create directory {}", parent.display()))?;
         }
 
-        profiles.insert(name.to_owned(), meta);
-        self.save(&config)?;
-        Ok(config)
-    }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&self.lock_path)
+            .with_context(|| format!("could not open {}", self.lock_path.display()))?;
 
-    pub fn upsert_profile(&self, tool: Tool, name: &str, meta: ProfileMeta) -> Result<Config> {
-        let mut config = self.load()?;
-        tool_profiles_mut(&mut config, tool).insert(name.to_owned(), meta);
-        self.save(&config)?;
-        Ok(config)
-    }
+        set_file_permissions_600(&self.lock_path)?;
 
-    pub fn remove_profile(&self, tool: Tool, name: &str) -> Result<Config> {
-        let mut config = self.load()?;
-        let profiles = tool_profiles_mut(&mut config, tool);
-
-        if profiles.remove(name).is_none() {
-            bail!(
-                "profile '{}' not found for {}.\n  \
-                 Run 'aisw list {}' to see available profiles.",
-                name,
-                tool,
-                tool
-            );
+        let started_at = Instant::now();
+        loop {
+            match file.try_lock_exclusive() {
+                Ok(()) => return Ok(ConfigLockGuard { file }),
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    if started_at.elapsed() >= timeout {
+                        bail!(
+                            "timed out waiting for config lock at {}.\n  \
+                             Another aisw command is updating configuration. Wait for it to \
+                             finish, then retry.",
+                            self.lock_path.display()
+                        );
+                    }
+                    thread::sleep(CONFIG_LOCK_RETRY_INTERVAL);
+                }
+                Err(err) => {
+                    return Err(err)
+                        .with_context(|| format!("could not lock {}", self.lock_path.display()));
+                }
+            }
         }
+    }
+}
 
-        self.save(&config)?;
-        Ok(config)
+struct ConfigLockGuard {
+    file: fs::File,
+}
+
+impl Drop for ConfigLockGuard {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
+fn validate_config_version(config: &Config) -> Result<()> {
+    if config.version > CURRENT_VERSION {
+        bail!(
+            "config version {} is newer than this version of aisw supports (max: {}).\n  \
+             Upgrade aisw to continue: https://github.com/burakdede/aisw#install",
+            config.version,
+            CURRENT_VERSION
+        );
     }
 
-    pub fn rename_profile(&self, tool: Tool, old_name: &str, new_name: &str) -> Result<Config> {
-        let mut config = self.load()?;
-        let profiles = tool_profiles_mut(&mut config, tool);
-
-        if old_name == new_name {
-            bail!("profile '{}' is already named '{}'.", old_name, new_name);
-        }
-
-        let meta = profiles.remove(old_name).ok_or_else(|| {
-            anyhow::anyhow!(
-                "profile '{}' not found for {}.\n  \
-                 Run 'aisw list {}' to see available profiles.",
-                old_name,
-                tool,
-                tool
-            )
-        })?;
-
-        if profiles.contains_key(new_name) {
-            profiles.insert(old_name.to_owned(), meta);
-            bail!(
-                "profile '{}' already exists for {}.\n  \
-                 Use 'aisw list {}' to see existing profiles.",
-                new_name,
-                tool,
-                tool
-            );
-        }
-
-        profiles.insert(new_name.to_owned(), meta);
-
-        if tool_active(&config, tool).as_deref() == Some(old_name) {
-            *tool_active_mut(&mut config, tool) = Some(new_name.to_owned());
-        }
-
-        self.save(&config)?;
-        Ok(config)
-    }
-
-    pub fn set_active(&self, tool: Tool, name: &str) -> Result<Config> {
-        let mut config = self.load()?;
-
-        if !tool_profiles(&config, tool).contains_key(name) {
-            bail!(
-                "profile '{}' not found for {}.\n  \
-                 Run 'aisw list {}' to see available profiles.",
-                name,
-                tool,
-                tool
-            );
-        }
-
-        *tool_active_mut(&mut config, tool) = Some(name.to_owned());
-        self.save(&config)?;
-        Ok(config)
-    }
-
-    pub fn clear_active(&self, tool: Tool) -> Result<Config> {
-        let mut config = self.load()?;
-        *tool_active_mut(&mut config, tool) = None;
-        self.save(&config)?;
-        Ok(config)
-    }
-
-    pub fn get_active<'c>(&self, config: &'c Config, tool: Tool) -> Option<&'c str> {
-        tool_active(config, tool).as_deref()
-    }
+    Ok(())
 }
 
 fn tool_profiles(config: &Config, tool: Tool) -> &HashMap<String, ProfileMeta> {
@@ -303,6 +421,10 @@ fn set_file_permissions_600(_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+    use std::thread;
+    use std::time::Duration;
+
     use tempfile::tempdir;
 
     fn store(dir: &Path) -> ConfigStore {
@@ -568,5 +690,113 @@ mod tests {
             Some("Work subscription")
         );
         assert_eq!(config.active.claude.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn concurrent_process_writers_do_not_lose_updates() {
+        let dir = tempdir().unwrap();
+        let signal_path = dir.path().join("lock-held.signal");
+        let mut child = spawn_lock_helper(dir.path(), &signal_path, 450, "child");
+
+        wait_for_file(&signal_path);
+
+        let started_at = Instant::now();
+        store(dir.path())
+            .add_profile(Tool::Claude, "parent", meta(AuthMethod::ApiKey))
+            .unwrap();
+        let elapsed = started_at.elapsed();
+
+        let status = child.wait().unwrap();
+        assert!(status.success(), "lock helper exited with {status}");
+        assert!(
+            elapsed >= Duration::from_millis(300),
+            "expected parent writer to wait for child-held lock, only waited {elapsed:?}"
+        );
+
+        let config = store(dir.path()).load().unwrap();
+        assert!(config.profiles.claude.contains_key("child"));
+        assert!(config.profiles.claude.contains_key("parent"));
+
+        let contents = fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap();
+        serde_json::from_str::<serde_json::Value>(&contents).unwrap();
+    }
+
+    #[test]
+    fn config_mutations_fail_with_clear_error_after_lock_timeout() {
+        let dir = tempdir().unwrap();
+        let signal_path = dir.path().join("lock-timeout.signal");
+        let mut child = spawn_lock_helper(dir.path(), &signal_path, 500, "child");
+
+        wait_for_file(&signal_path);
+        let err = store(dir.path())
+            .with_mutating_config_timeout_for_test(Duration::from_millis(100), |config| {
+                tool_profiles_mut(config, Tool::Claude)
+                    .insert("parent".to_owned(), meta(AuthMethod::ApiKey));
+                Ok(())
+            })
+            .unwrap_err();
+
+        let status = child.wait().unwrap();
+        assert!(status.success(), "lock helper exited with {status}");
+        assert!(err
+            .to_string()
+            .contains("timed out waiting for config lock"));
+        assert!(err
+            .to_string()
+            .contains("Another aisw command is updating configuration"));
+    }
+
+    #[test]
+    fn lock_helper_process() {
+        let Some(home) = std::env::var_os("AISW_CONFIG_LOCK_HELPER_HOME") else {
+            return;
+        };
+
+        let signal_path =
+            PathBuf::from(std::env::var_os("AISW_CONFIG_LOCK_HELPER_SIGNAL").unwrap());
+        let hold_ms = std::env::var("AISW_CONFIG_LOCK_HELPER_HOLD_MS")
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let profile_name = std::env::var("AISW_CONFIG_LOCK_HELPER_PROFILE").unwrap();
+
+        let store = store(Path::new(&home));
+        let _lock = store.acquire_lock().unwrap();
+        fs::write(&signal_path, b"locked").unwrap();
+        thread::sleep(Duration::from_millis(hold_ms));
+
+        let mut config = store.load_unlocked().unwrap();
+        tool_profiles_mut(&mut config, Tool::Claude).insert(profile_name, meta(AuthMethod::OAuth));
+        store.save_unlocked(&config).unwrap();
+    }
+
+    fn spawn_lock_helper(
+        home: &Path,
+        signal_path: &Path,
+        hold_ms: u64,
+        profile_name: &str,
+    ) -> std::process::Child {
+        Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("config::tests::lock_helper_process")
+            .arg("--nocapture")
+            .env("AISW_CONFIG_LOCK_HELPER_HOME", home)
+            .env("AISW_CONFIG_LOCK_HELPER_SIGNAL", signal_path)
+            .env("AISW_CONFIG_LOCK_HELPER_HOLD_MS", hold_ms.to_string())
+            .env("AISW_CONFIG_LOCK_HELPER_PROFILE", profile_name)
+            .spawn()
+            .unwrap()
+    }
+
+    fn wait_for_file(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if path.exists() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        panic!("timed out waiting for {}", path.display());
     }
 }
