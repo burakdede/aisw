@@ -7,6 +7,7 @@ use chrono::Utc;
 
 use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -102,9 +103,7 @@ pub fn apply_env_file(
     dest: &std::path::Path,
 ) -> Result<()> {
     let bytes = profile_store.read_file(Tool::Gemini, name, ENV_FILE)?;
-    std::fs::write(dest, &bytes)
-        .map_err(|e| anyhow::anyhow!("could not write {}: {}", dest.display(), e))?;
-    set_permissions_600(dest)
+    crate::live_apply::apply_transaction(vec![LiveFileChange::write(dest.to_path_buf(), bytes)])
 }
 
 pub fn live_env_matches(profile_store: &ProfileStore, name: &str, dest: &Path) -> Result<bool> {
@@ -286,6 +285,7 @@ pub fn apply_token_cache(
         .with_context(|| format!("could not create {}", gemini_dir.display()))?;
 
     let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
+    let mut changes = Vec::new();
     for entry in std::fs::read_dir(&profile_dir)
         .with_context(|| format!("could not read {}", profile_dir.display()))?
     {
@@ -299,17 +299,15 @@ pub fn apply_token_cache(
             continue;
         }
         let dst = gemini_dir.join(entry.file_name());
-        std::fs::copy(&src, &dst)
-            .with_context(|| format!("could not copy {} to {}", src.display(), dst.display()))?;
-        set_permissions_600(&dst)?;
+        let contents =
+            std::fs::read(&src).with_context(|| format!("could not read {}", src.display()))?;
+        changes.push(LiveFileChange::write(dst, contents));
     }
 
     let env_file = gemini_dir.join(ENV_FILE);
-    if env_file.exists() {
-        std::fs::remove_file(&env_file)
-            .with_context(|| format!("could not remove {}", env_file.display()))?;
-    }
-    Ok(())
+    changes.push(LiveFileChange::delete(env_file));
+
+    crate::live_apply::apply_transaction(changes)
 }
 
 pub fn live_token_cache_matches(

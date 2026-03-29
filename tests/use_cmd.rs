@@ -6,7 +6,9 @@ use common::TestEnv;
 use predicates::str::contains;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const VALID_CLAUDE_KEY_ALT: &str = "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
+const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 
 fn add_claude_profile(env: &TestEnv, name: &str) {
@@ -31,6 +33,14 @@ fn add_codex_profile(env: &TestEnv, name: &str) {
         .args(["add", "codex", name, "--api-key", VALID_CODEX_KEY])
         .assert()
         .success();
+}
+
+fn write_config_json(env: &TestEnv, json: serde_json::Value) {
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::to_string_pretty(&json).unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]
@@ -305,6 +315,169 @@ fn use_codex_writes_live_auth_files() {
     let config = std::fs::read_to_string(env.fake_home.join(".codex").join("config.toml")).unwrap();
     assert!(config.contains("model = \"gpt-5.4\""));
     assert!(config.contains("cli_auth_credentials_store = \"file\""));
+}
+
+#[test]
+fn failed_codex_switch_does_not_advance_active_profile_when_first_write_fails() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    env.cmd()
+        .args(["add", "codex", "old", "--api-key", VALID_CODEX_KEY])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "codex", "new", "--api-key", VALID_CODEX_KEY_ALT])
+        .assert()
+        .success();
+    env.cmd().args(["use", "codex", "old"]).assert().success();
+
+    let auth_path = env.fake_home.join(".codex").join("auth.json");
+    let config_path = env.fake_home.join(".codex").join("config.toml");
+    let auth_before = std::fs::read(&auth_path).unwrap();
+    let config_before = std::fs::read(&config_path).unwrap();
+
+    env.cmd()
+        .env("AISW_FAULT_INJECTION", "live_apply.commit_write:1")
+        .args(["use", "codex", "new"])
+        .assert()
+        .failure()
+        .stderr(contains("injected live-apply failure"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["codex"], "old");
+    assert_eq!(std::fs::read(&auth_path).unwrap(), auth_before);
+    assert_eq!(std::fs::read(&config_path).unwrap(), config_before);
+}
+
+#[test]
+fn failed_codex_switch_rolls_back_partial_live_writes() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    env.cmd()
+        .args(["add", "codex", "old", "--api-key", VALID_CODEX_KEY])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "codex", "new", "--api-key", VALID_CODEX_KEY_ALT])
+        .assert()
+        .success();
+    env.cmd().args(["use", "codex", "old"]).assert().success();
+
+    let auth_path = env.fake_home.join(".codex").join("auth.json");
+    let config_path = env.fake_home.join(".codex").join("config.toml");
+    let auth_before = std::fs::read(&auth_path).unwrap();
+    let config_before = std::fs::read(&config_path).unwrap();
+
+    env.cmd()
+        .env("AISW_FAULT_INJECTION", "live_apply.commit_write:2")
+        .args(["use", "codex", "new"])
+        .assert()
+        .failure()
+        .stderr(contains("injected live-apply failure"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["codex"], "old");
+    assert_eq!(std::fs::read(&auth_path).unwrap(), auth_before);
+    assert_eq!(std::fs::read(&config_path).unwrap(), config_before);
+}
+
+#[test]
+fn failed_claude_switch_does_not_advance_active_profile_or_live_credentials() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    env.cmd()
+        .args(["add", "claude", "old", "--api-key", VALID_CLAUDE_KEY])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "claude", "new", "--api-key", VALID_CLAUDE_KEY_ALT])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "old"]).assert().success();
+
+    let live_path = env.fake_home.join(".claude").join(".credentials.json");
+    let live_before = std::fs::read(&live_path).unwrap();
+
+    env.cmd()
+        .env("AISW_FAULT_INJECTION", "live_apply.commit_write:1")
+        .args(["use", "claude", "new"])
+        .assert()
+        .failure()
+        .stderr(contains("injected live-apply failure"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["claude"], "old");
+    assert_eq!(std::fs::read(&live_path).unwrap(), live_before);
+}
+
+#[test]
+fn failed_gemini_oauth_switch_rolls_back_partial_live_writes() {
+    let env = TestEnv::new();
+
+    let old_dir = env.aisw_home.join("profiles").join("gemini").join("old");
+    let new_dir = env.aisw_home.join("profiles").join("gemini").join("new");
+    std::fs::create_dir_all(&old_dir).unwrap();
+    std::fs::create_dir_all(&new_dir).unwrap();
+    std::fs::write(old_dir.join("oauth_creds.json"), r#"{"token":"old"}"#).unwrap();
+    std::fs::write(old_dir.join("state.json"), r#"{"account":"old"}"#).unwrap();
+    std::fs::write(new_dir.join("oauth_creds.json"), r#"{"token":"new"}"#).unwrap();
+    std::fs::write(new_dir.join("state.json"), r#"{"account":"new"}"#).unwrap();
+
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 1,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {},
+                "gemini": {
+                    "old": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    },
+                    "new": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    }
+                }
+            },
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        }),
+    );
+
+    env.cmd().args(["use", "gemini", "old"]).assert().success();
+
+    let gemini_dir = env.fake_home.join(".gemini");
+    let oauth_before = std::fs::read(gemini_dir.join("oauth_creds.json")).unwrap();
+    let state_before = std::fs::read(gemini_dir.join("state.json")).unwrap();
+
+    env.cmd()
+        .env("AISW_FAULT_INJECTION", "live_apply.commit_write:2")
+        .args(["use", "gemini", "new"])
+        .assert()
+        .failure()
+        .stderr(contains("injected live-apply failure"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["gemini"], "old");
+    assert_eq!(
+        std::fs::read(gemini_dir.join("oauth_creds.json")).unwrap(),
+        oauth_before
+    );
+    assert_eq!(
+        std::fs::read(gemini_dir.join("state.json")).unwrap(),
+        state_before
+    );
 }
 
 #[test]

@@ -7,6 +7,7 @@ use chrono::Utc;
 
 use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -243,11 +244,13 @@ pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Pa
 
     let auth_bytes = profile_store.read_file(Tool::Codex, name, AUTH_FILE)?;
     let auth_dest = live_auth_path(user_home);
-    std::fs::write(&auth_dest, &auth_bytes)
-        .with_context(|| format!("could not write {}", auth_dest.display()))?;
-    set_auth_permissions(&auth_dest)?;
+    let config_dest = live_config_path(user_home);
+    let config_bytes = desired_live_file_store_config(user_home)?.into_bytes();
 
-    ensure_live_file_store_config(user_home)
+    crate::live_apply::apply_transaction(vec![
+        LiveFileChange::write(auth_dest, auth_bytes),
+        LiveFileChange::write(config_dest, config_bytes),
+    ])
 }
 
 pub fn live_files_match(
@@ -275,19 +278,15 @@ pub fn live_files_match(
     Ok(config_uses_file_store(&config))
 }
 
-fn ensure_live_file_store_config(user_home: &Path) -> Result<()> {
+fn desired_live_file_store_config(user_home: &Path) -> Result<String> {
     let config_dest = live_config_path(user_home);
-    let updated = if config_dest.exists() {
+    if config_dest.exists() {
         let current = std::fs::read_to_string(&config_dest)
             .with_context(|| format!("could not read {}", config_dest.display()))?;
-        merge_file_store_config(&current)
+        Ok(merge_file_store_config(&current))
     } else {
-        CONFIG_TOML_CONTENTS.to_owned()
-    };
-
-    std::fs::write(&config_dest, updated.as_bytes())
-        .with_context(|| format!("could not write {}", config_dest.display()))?;
-    set_auth_permissions(&config_dest)
+        Ok(CONFIG_TOML_CONTENTS.to_owned())
+    }
 }
 
 fn merge_file_store_config(current: &str) -> String {

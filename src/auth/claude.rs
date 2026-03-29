@@ -7,6 +7,7 @@ use chrono::Utc;
 
 use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -225,13 +226,8 @@ pub fn apply_live_credentials(
     user_home: &Path,
 ) -> Result<()> {
     let dest = live_credentials_path(user_home);
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("could not create {}", parent.display()))?;
-    }
     let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
-    std::fs::write(&dest, &bytes).with_context(|| format!("could not write {}", dest.display()))?;
-    set_credentials_permissions(&dest)
+    crate::live_apply::apply_transaction(vec![LiveFileChange::write(dest, bytes)])
 }
 
 pub fn live_credentials_match(
