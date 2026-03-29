@@ -4,23 +4,31 @@ use std::ffi::OsString;
 use anyhow::Error;
 use console::style;
 
+use crate::runtime;
 use crate::types::Tool;
 
 const KV_LABEL_WIDTH: usize = 14;
 
-pub fn configure_color(no_color_flag: bool) {
+pub fn configure(no_color_flag: bool, quiet: bool) {
+    let _ = quiet;
     let enabled = should_enable_color(no_color_flag, std::env::var_os("NO_COLOR"));
     console::set_colors_enabled(enabled);
     console::set_colors_enabled_stderr(enabled);
 }
 
 pub fn print_title(title: &str) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style(title).bold().cyan());
     println!("{}", style("─".repeat(title.chars().count().max(12))).dim());
     println!();
 }
 
 pub fn print_section(title: &str) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style(title).bold());
 }
 
@@ -29,6 +37,9 @@ pub fn print_tool_section(tool: Tool) {
 }
 
 pub fn print_profile_section(name: &str, active: bool) {
+    if runtime::is_quiet() {
+        return;
+    }
     if active {
         println!(
             "{} {}",
@@ -41,6 +52,9 @@ pub fn print_profile_section(name: &str, active: bool) {
 }
 
 pub fn print_kv(label: &str, value: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!(
         "  {} {}",
         style(format!("{label:<KV_LABEL_WIDTH$}:",)).dim(),
@@ -49,48 +63,123 @@ pub fn print_kv(label: &str, value: impl AsRef<str>) {
 }
 
 pub fn print_blank_line() {
+    if runtime::is_quiet() {
+        return;
+    }
     println!();
 }
 
 pub fn print_next_step(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style("Next").bold().cyan());
     println!("  {}", style(message.as_ref()).cyan());
 }
 
 pub fn print_fix(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style("Fix").bold().yellow());
     println!("  {}", style(message.as_ref()).yellow());
 }
 
 pub fn print_info(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("  {}", style(message.as_ref()).dim());
 }
 
 pub fn print_effects_header() {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style("Effects").bold().green());
 }
 
 pub fn print_effect(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("  {}", style(message.as_ref()).green());
 }
 
 pub fn print_success(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style(message.as_ref()).green().bold());
 }
 
 pub fn print_warning(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style(message.as_ref()).yellow().bold());
 }
 
 pub fn print_empty_state(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     println!("{}", style(message.as_ref()).dim());
 }
 
+pub fn print_table_header(columns: &[(&str, usize)]) {
+    if runtime::is_quiet() {
+        return;
+    }
+
+    let mut line = String::new();
+    for (idx, (label, width)) in columns.iter().enumerate() {
+        if idx > 0 {
+            line.push(' ');
+        }
+
+        if *width == 0 {
+            line.push_str(label);
+        } else {
+            line.push_str(&format!("{label:<width$}"));
+        }
+    }
+
+    println!("{}", style(line).bold().dim());
+}
+
+pub fn print_table_row(cells: &[(&str, usize)]) {
+    if runtime::is_quiet() {
+        return;
+    }
+
+    let mut line = String::new();
+    for (idx, (value, width)) in cells.iter().enumerate() {
+        if idx > 0 {
+            line.push(' ');
+        }
+
+        if *width == 0 {
+            line.push_str(value);
+        } else {
+            line.push_str(&format!("{value:<width$}"));
+        }
+    }
+
+    println!("{line}");
+}
+
 pub fn print_warning_stderr(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     eprintln!("{}", style(message.as_ref()).yellow().bold());
 }
 
 pub fn print_info_stderr(message: impl AsRef<str>) {
+    if runtime::is_quiet() {
+        return;
+    }
     eprintln!("  {}", style(message.as_ref()).dim());
 }
 

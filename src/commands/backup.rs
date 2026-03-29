@@ -8,6 +8,7 @@ use crate::config::ConfigStore;
 use crate::next_steps;
 use crate::output;
 use crate::profile::ProfileStore;
+use crate::runtime;
 
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
     match command {
@@ -68,6 +69,12 @@ fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
     }
 
     if !yes {
+        if runtime::is_non_interactive() {
+            bail!(
+                "backup restore requires confirmation.\n  \
+                 Re-run with --yes, or omit --non-interactive."
+            );
+        }
         let names: Vec<String> = matching
             .iter()
             .map(|e| format!("{}/{}", e.tool, e.profile))
@@ -82,8 +89,7 @@ fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
             .read_line(&mut line)
             .context("could not read confirmation from stdin")?;
         if !matches!(line.trim(), "y" | "Y") {
-            output::print_warning("Aborted.");
-            return Ok(());
+            bail!("operation cancelled by user.");
         }
     }
 

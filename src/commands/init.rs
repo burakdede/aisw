@@ -11,6 +11,7 @@ use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::next_steps;
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
+use crate::runtime;
 use crate::tool_detection::{self, DetectedTool};
 use crate::types::Tool;
 
@@ -156,6 +157,9 @@ fn install_shell_hook(user_home: &Path, shell: &str, confirmed: bool) -> Result<
 }
 
 fn prompt_yes_no(prompt: &str) -> bool {
+    if runtime::is_non_interactive() {
+        return false;
+    }
     eprint!("{}", prompt);
     let mut line = String::new();
     std::io::stdin().read_line(&mut line).unwrap_or(0);
@@ -163,6 +167,9 @@ fn prompt_yes_no(prompt: &str) -> bool {
 }
 
 fn prompt_line(prompt: &str) -> String {
+    if runtime::is_non_interactive() {
+        return String::new();
+    }
     eprint!("{}", prompt);
     let mut line = String::new();
     std::io::stdin().read_line(&mut line).unwrap_or(0);

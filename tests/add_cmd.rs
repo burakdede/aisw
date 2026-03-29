@@ -293,3 +293,37 @@ fn add_distinct_gemini_api_keys_under_different_names_succeeds() {
         .stdout(contains("Added profile"))
         .stdout(contains("personal"));
 }
+
+#[test]
+fn add_oauth_in_non_interactive_mode_fails_clearly() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    env.cmd()
+        .args(["--non-interactive", "add", "claude", "work"])
+        .assert()
+        .failure()
+        .stderr(contains("requires interactive authentication"))
+        .stderr(contains("--api-key"));
+}
+
+#[test]
+fn add_quiet_suppresses_human_summary_output() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    let output = env.output(&[
+        "--quiet",
+        "add",
+        "claude",
+        "work",
+        "--api-key",
+        VALID_CLAUDE_KEY,
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.trim().is_empty(),
+        "expected quiet add to be silent: {stdout}"
+    );
+}

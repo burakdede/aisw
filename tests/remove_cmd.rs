@@ -113,3 +113,29 @@ fn remove_creates_backup_before_deletion() {
         .collect();
     assert!(!entries.is_empty(), "at least one backup expected");
 }
+
+#[test]
+fn remove_non_interactive_without_yes_fails_clearly() {
+    let env = TestEnv::new();
+    add_claude(&env, "work");
+
+    env.cmd()
+        .args(["--non-interactive", "remove", "claude", "work"])
+        .assert()
+        .failure()
+        .stderr(contains("requires confirmation"))
+        .stderr(contains("--yes"));
+}
+
+#[test]
+fn remove_decline_prompt_exits_nonzero() {
+    let env = TestEnv::new();
+    add_claude(&env, "work");
+
+    env.cmd()
+        .args(["remove", "claude", "work"])
+        .write_stdin("n\n")
+        .assert()
+        .failure()
+        .stderr(contains("operation cancelled by user"));
+}

@@ -25,6 +25,12 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Init(args) => {
             let user_home = dirs::home_dir().context("could not determine home directory")?;
             let shell_env = std::env::var("SHELL").ok();
+            if crate::runtime::is_non_interactive() && !args.yes {
+                anyhow::bail!(
+                    "init requires confirmation and prompt input.\n  \
+                     Re-run with --yes, or omit --non-interactive."
+                );
+            }
             init::run_inner(&home, &user_home, shell_env.as_deref(), args.yes)?;
         }
         Command::ShellHook(args) => shell_hook::run(args)?,

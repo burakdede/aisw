@@ -7,10 +7,17 @@ use crate::cli::RemoveArgs;
 use crate::config::{Config, ConfigStore};
 use crate::output;
 use crate::profile::ProfileStore;
+use crate::runtime;
 use crate::types::Tool;
 
 pub fn run(args: RemoveArgs, home: &Path) -> Result<()> {
     if !args.yes {
+        if runtime::is_non_interactive() {
+            bail!(
+                "remove requires confirmation.\n  \
+                 Re-run with --yes, or omit --non-interactive."
+            );
+        }
         // Validate before prompting — better UX to fail fast on invalid ops.
         precheck(&args, home)?;
         eprint!(
@@ -22,8 +29,7 @@ pub fn run(args: RemoveArgs, home: &Path) -> Result<()> {
             .read_line(&mut line)
             .context("could not read confirmation from stdin")?;
         if !matches!(line.trim(), "y" | "Y") {
-            output::print_warning("Aborted.");
-            return Ok(());
+            bail!("operation cancelled by user.");
         }
     }
     run_inner(args, home, true)
@@ -55,8 +61,7 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     }
 
     if !confirmed {
-        output::print_warning("Aborted.");
-        return Ok(());
+        bail!("operation cancelled by user.");
     }
 
     // Final backup before deleting.
@@ -233,12 +238,13 @@ mod tests {
         let tmp = tempdir().unwrap();
         add_claude(tmp.path(), "work");
 
-        run_inner(
+        let err = run_inner(
             remove_args(Tool::Claude, "work", false, false),
             tmp.path(),
             false,
         )
-        .unwrap();
+        .unwrap_err();
+        assert!(err.to_string().contains("cancelled"));
 
         let ps = ProfileStore::new(tmp.path());
         assert!(

@@ -20,6 +20,17 @@ fn init_creates_config_json() {
 }
 
 #[test]
+fn init_non_interactive_without_yes_fails_clearly() {
+    let env = TestEnv::new();
+    env.cmd()
+        .args(["--non-interactive", "init"])
+        .assert()
+        .failure()
+        .stderr(contains("init requires confirmation"))
+        .stderr(contains("--yes"));
+}
+
+#[test]
 fn init_prints_setup_complete() {
     let env = TestEnv::new();
     run_init(&env)

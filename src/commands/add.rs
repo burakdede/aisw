@@ -9,6 +9,7 @@ use crate::config::ConfigStore;
 use crate::next_steps;
 use crate::output;
 use crate::profile::ProfileStore;
+use crate::runtime;
 use crate::tool_detection;
 use crate::types::Tool;
 
@@ -48,6 +49,13 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
             )?,
         }
     } else {
+        if runtime::is_non_interactive() {
+            anyhow::bail!(
+                "{} requires interactive authentication when --api-key is not provided.\n  \
+                 Re-run without --non-interactive, or pass --api-key.",
+                args.tool.display_name()
+            );
+        }
         match args.tool {
             Tool::Claude => auth::claude::add_oauth(
                 &profile_store,

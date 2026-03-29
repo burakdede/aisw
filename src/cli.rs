@@ -1,4 +1,6 @@
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::ffi::{OsStr, OsString};
+
+use clap::{Args, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 use crate::types::Tool;
 
@@ -15,8 +17,37 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub no_color: bool,
 
+    /// Disable all interactive prompting; commands must be fully specified
+    #[arg(long, global = true)]
+    pub non_interactive: bool,
+
+    /// Suppress human-oriented presentation output
+    #[arg(long, global = true)]
+    pub quiet: bool,
+
     #[command(subcommand)]
     pub command: Command,
+}
+
+#[allow(dead_code)]
+pub fn parse_from<I, T>(args: I, no_color: bool) -> Result<Cli, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let mut command = Cli::command();
+    command = command.color(if no_color {
+        ColorChoice::Never
+    } else {
+        ColorChoice::Auto
+    });
+    let matches = command.try_get_matches_from(args)?;
+    Cli::from_arg_matches(&matches)
+}
+
+#[allow(dead_code)]
+pub fn preparse_no_color(args: &[OsString]) -> bool {
+    args.iter().any(|arg| arg == OsStr::new("--no-color"))
 }
 
 #[derive(Subcommand, Debug)]
@@ -193,6 +224,8 @@ mod tests {
     fn add_api_key() {
         let cli = parse(&["add", "claude", "work", "--api-key", "sk-ant-test"]).unwrap();
         assert!(!cli.no_color);
+        assert!(!cli.non_interactive);
+        assert!(!cli.quiet);
         let Command::Add(args) = cli.command else {
             panic!("wrong command")
         };
@@ -363,6 +396,18 @@ mod tests {
         let cli = parse(&["--no-color", "status"]).unwrap();
         assert!(cli.no_color);
         assert!(matches!(cli.command, Command::Status(_)));
+    }
+
+    #[test]
+    fn global_non_interactive_flag() {
+        let cli = parse(&["--non-interactive", "status"]).unwrap();
+        assert!(cli.non_interactive);
+    }
+
+    #[test]
+    fn global_quiet_flag() {
+        let cli = parse(&["--quiet", "status"]).unwrap();
+        assert!(cli.quiet);
     }
 
     #[test]

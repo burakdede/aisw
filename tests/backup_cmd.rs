@@ -230,3 +230,51 @@ fn backup_restore_prints_next_step_hint() {
         .stdout(contains("Next"))
         .stdout(contains("aisw use claude work"));
 }
+
+#[test]
+fn backup_restore_non_interactive_without_yes_fails_clearly() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    let key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
+    let list_str = String::from_utf8_lossy(&list_out);
+    let backup_id = first_backup_id(&list_str);
+
+    env.cmd()
+        .args(["--non-interactive", "backup", "restore", &backup_id])
+        .assert()
+        .failure()
+        .stderr(contains("requires confirmation"))
+        .stderr(contains("--yes"));
+}
+
+#[test]
+fn backup_restore_decline_prompt_exits_nonzero() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    let key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let list_out = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
+    let list_str = String::from_utf8_lossy(&list_out);
+    let backup_id = first_backup_id(&list_str);
+
+    env.cmd()
+        .args(["backup", "restore", &backup_id])
+        .write_stdin("n\n")
+        .assert()
+        .failure()
+        .stderr(contains("operation cancelled by user"));
+}

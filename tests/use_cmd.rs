@@ -308,6 +308,20 @@ fn use_codex_writes_live_auth_files() {
 }
 
 #[test]
+fn use_quiet_suppresses_human_summary_output() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+
+    let output = env.output(&["--quiet", "use", "claude", "work"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.trim().is_empty(),
+        "expected quiet use to be silent: {stdout}"
+    );
+}
+
+#[test]
 fn failing_claude_use_does_not_leak_api_key() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");

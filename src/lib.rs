@@ -7,6 +7,7 @@ pub mod config;
 pub mod next_steps;
 pub mod output;
 pub mod profile;
+pub mod runtime;
 pub mod tool_detection;
 pub mod types;
 
@@ -25,10 +26,12 @@ pub mod types;
 pub(crate) static SPAWN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use anyhow::Result;
-use clap::Parser;
 
 pub fn run() -> Result<()> {
-    let cli = cli::Cli::parse();
-    output::configure_color(cli.no_color);
+    let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let clap_no_color = cli::preparse_no_color(&argv);
+    let cli = cli::parse_from(argv, clap_no_color).unwrap_or_else(|err| err.exit());
+    runtime::configure(cli.non_interactive, cli.quiet);
+    output::configure(cli.no_color, cli.quiet);
     commands::dispatch(cli)
 }
