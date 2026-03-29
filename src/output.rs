@@ -95,7 +95,10 @@ pub fn print_info_stderr(message: impl AsRef<str>) {
 }
 
 pub fn print_error_chain(error: &Error) {
-    let chain: Vec<String> = error.chain().map(|c| c.to_string()).collect();
+    let chain: Vec<String> = error
+        .chain()
+        .map(|c| redact_sensitive_text(&c.to_string()))
+        .collect();
     if let Some((first, rest)) = chain.split_first() {
         eprintln!("{} {}", style("Error:").red().bold(), style(first).red());
         for msg in rest {
@@ -106,6 +109,84 @@ pub fn print_error_chain(error: &Error) {
             }
         }
     }
+}
+
+fn redact_sensitive_text(text: &str) -> String {
+    let mut redacted = text.to_owned();
+
+    for (prefix, terminator) in [
+        ("\"apiKey\":\"", '"'),
+        ("\"token\":\"", '"'),
+        ("ANTHROPIC_API_KEY=", '\n'),
+        ("OPENAI_API_KEY=", '\n'),
+        ("GEMINI_API_KEY=", '\n'),
+    ] {
+        redacted = redact_after_prefix(&redacted, prefix, terminator);
+    }
+
+    for prefix in ["sk-ant-", "sk-codex-", "sk-proj-", "sk-", "AIza"] {
+        redacted = redact_prefixed_token(&redacted, prefix);
+    }
+
+    redacted
+}
+
+fn redact_after_prefix(text: &str, prefix: &str, terminator: char) -> String {
+    let mut redacted = String::with_capacity(text.len());
+    let mut cursor = 0;
+
+    while let Some(offset) = text[cursor..].find(prefix) {
+        let start = cursor + offset;
+        let value_start = start + prefix.len();
+
+        redacted.push_str(&text[cursor..value_start]);
+
+        let value_end = if terminator == '\n' {
+            text[value_start..]
+                .find('\n')
+                .map(|end| value_start + end)
+                .unwrap_or(text.len())
+        } else {
+            text[value_start..]
+                .find(terminator)
+                .map(|end| value_start + end)
+                .unwrap_or(text.len())
+        };
+
+        if value_end > value_start {
+            redacted.push_str("[REDACTED]");
+        }
+
+        cursor = value_end;
+    }
+
+    redacted.push_str(&text[cursor..]);
+    redacted
+}
+
+fn redact_prefixed_token(text: &str, prefix: &str) -> String {
+    let mut redacted = String::with_capacity(text.len());
+    let mut cursor = 0;
+
+    while let Some(offset) = text[cursor..].find(prefix) {
+        let start = cursor + offset;
+        redacted.push_str(&text[cursor..start]);
+        redacted.push_str("[REDACTED]");
+
+        let token_end = text[start + prefix.len()..]
+            .char_indices()
+            .find_map(|(idx, ch)| (!is_secret_char(ch)).then_some(start + prefix.len() + idx))
+            .unwrap_or(text.len());
+
+        cursor = token_end;
+    }
+
+    redacted.push_str(&text[cursor..]);
+    redacted
+}
+
+fn is_secret_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-')
 }
 
 pub fn active_value(active: Option<&str>) -> &str {
@@ -153,7 +234,7 @@ fn should_enable_color(no_color_flag: bool, no_color_env: Option<OsString>) -> b
 
 #[cfg(test)]
 mod tests {
-    use super::should_enable_color;
+    use super::{redact_sensitive_text, should_enable_color};
 
     #[test]
     fn color_enabled_by_default() {
@@ -168,5 +249,34 @@ mod tests {
     #[test]
     fn no_color_env_disables_color() {
         assert!(!should_enable_color(false, Some("1".into())));
+    }
+
+    #[test]
+    fn redacts_json_secret_values() {
+        let text = r#"auth file contents: {"token":"sk-codex-test-key-12345","apiKey":"sk-ant-api03-AAAAAAAAAA"}"#;
+        let redacted = redact_sensitive_text(text);
+        assert!(!redacted.contains("sk-codex-test-key-12345"));
+        assert!(!redacted.contains("sk-ant-api03-AAAAAAAAAA"));
+        assert!(redacted.contains(r#""token":"[REDACTED]""#));
+        assert!(redacted.contains(r#""apiKey":"[REDACTED]""#));
+    }
+
+    #[test]
+    fn redacts_env_style_secret_values() {
+        let text = "export OPENAI_API_KEY=sk-proj-secret123\nGEMINI_API_KEY=AIzaSecret123";
+        let redacted = redact_sensitive_text(text);
+        assert!(!redacted.contains("sk-proj-secret123"));
+        assert!(!redacted.contains("AIzaSecret123"));
+        assert!(redacted.contains("OPENAI_API_KEY=[REDACTED]"));
+        assert!(redacted.contains("GEMINI_API_KEY=[REDACTED]"));
+    }
+
+    #[test]
+    fn redacts_bare_secret_tokens() {
+        let text = "failure while handling sk-ant-api03-AAAAAAAAAAAAAAAA and AIzaToken123";
+        let redacted = redact_sensitive_text(text);
+        assert!(!redacted.contains("sk-ant-api03-AAAAAAAAAAAAAAAA"));
+        assert!(!redacted.contains("AIzaToken123"));
+        assert_eq!(redacted.matches("[REDACTED]").count(), 2);
     }
 }

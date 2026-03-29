@@ -1,6 +1,7 @@
 // Integration tests for `aisw add` across all tools.
 mod common;
 
+use common::assert_output_redacts_secret;
 use common::TestEnv;
 use predicates::str::contains;
 
@@ -128,11 +129,11 @@ fn add_duplicate_claude_api_key_under_different_name_fails() {
         .assert()
         .success();
 
-    env.cmd()
-        .args(["add", "claude", "backup", "--api-key", VALID_CLAUDE_KEY])
-        .assert()
-        .failure()
-        .stderr(contains("API key already exists as profile 'work'"));
+    let output = env.output(&["add", "claude", "backup", "--api-key", VALID_CLAUDE_KEY]);
+    assert!(!output.status.success(), "duplicate add should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("API key already exists as profile 'work'"));
+    assert_output_redacts_secret(&output, VALID_CLAUDE_KEY);
 }
 
 #[test]
@@ -198,11 +199,11 @@ fn add_duplicate_codex_api_key_under_different_name_fails() {
         .assert()
         .success();
 
-    env.cmd()
-        .args(["add", "codex", "backup", "--api-key", VALID_CODEX_KEY])
-        .assert()
-        .failure()
-        .stderr(contains("API key already exists as profile 'work'"));
+    let output = env.output(&["add", "codex", "backup", "--api-key", VALID_CODEX_KEY]);
+    assert!(!output.status.success(), "duplicate add should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("API key already exists as profile 'work'"));
+    assert_output_redacts_secret(&output, VALID_CODEX_KEY);
 }
 
 #[test]
@@ -262,11 +263,11 @@ fn add_duplicate_gemini_api_key_under_different_name_fails() {
         .assert()
         .success();
 
-    env.cmd()
-        .args(["add", "gemini", "backup", "--api-key", VALID_GEMINI_KEY])
-        .assert()
-        .failure()
-        .stderr(contains("API key already exists as profile 'work'"));
+    let output = env.output(&["add", "gemini", "backup", "--api-key", VALID_GEMINI_KEY]);
+    assert!(!output.status.success(), "duplicate add should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("API key already exists as profile 'work'"));
+    assert_output_redacts_secret(&output, VALID_GEMINI_KEY);
 }
 
 #[test]

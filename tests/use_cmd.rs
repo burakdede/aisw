@@ -1,10 +1,12 @@
 // Integration tests for `aisw use`.
 mod common;
 
+use common::assert_output_redacts_secret;
 use common::TestEnv;
 use predicates::str::contains;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 
 fn add_claude_profile(env: &TestEnv, name: &str) {
@@ -19,6 +21,14 @@ fn add_gemini_profile(env: &TestEnv, name: &str) {
     env.add_fake_tool("gemini", "gemini 0.9.0");
     env.cmd()
         .args(["add", "gemini", name, "--api-key", VALID_GEMINI_KEY])
+        .assert()
+        .success();
+}
+
+fn add_codex_profile(env: &TestEnv, name: &str) {
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd()
+        .args(["add", "codex", name, "--api-key", VALID_CODEX_KEY])
         .assert()
         .success();
 }
@@ -285,13 +295,7 @@ fn use_codex_writes_live_auth_files() {
     .unwrap();
 
     env.cmd()
-        .args([
-            "add",
-            "codex",
-            "work",
-            "--api-key",
-            "sk-codex-test-key-12345",
-        ])
+        .args(["add", "codex", "work", "--api-key", VALID_CODEX_KEY])
         .assert()
         .success();
 
@@ -301,4 +305,58 @@ fn use_codex_writes_live_auth_files() {
     let config = std::fs::read_to_string(env.fake_home.join(".codex").join("config.toml")).unwrap();
     assert!(config.contains("model = \"gpt-5.4\""));
     assert!(config.contains("cli_auth_credentials_store = \"file\""));
+}
+
+#[test]
+fn failing_claude_use_does_not_leak_api_key() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+
+    let live_dir = env.fake_home.join(".claude");
+    std::fs::create_dir_all(&live_dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&live_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    }
+
+    let output = env.output(&["use", "claude", "work"]);
+    assert!(!output.status.success(), "use should fail");
+    assert_output_redacts_secret(&output, VALID_CLAUDE_KEY);
+}
+
+#[test]
+fn failing_codex_use_does_not_leak_api_key() {
+    let env = TestEnv::new();
+    add_codex_profile(&env, "work");
+
+    let live_dir = env.fake_home.join(".codex");
+    std::fs::create_dir_all(&live_dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&live_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    }
+
+    let output = env.output(&["use", "codex", "work"]);
+    assert!(!output.status.success(), "use should fail");
+    assert_output_redacts_secret(&output, VALID_CODEX_KEY);
+}
+
+#[test]
+fn failing_gemini_use_does_not_leak_api_key() {
+    let env = TestEnv::new();
+    add_gemini_profile(&env, "work");
+
+    let live_dir = env.fake_home.join(".gemini");
+    std::fs::create_dir_all(&live_dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&live_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    }
+
+    let output = env.output(&["use", "gemini", "work"]);
+    assert!(!output.status.success(), "use should fail");
+    assert_output_redacts_secret(&output, VALID_GEMINI_KEY);
 }

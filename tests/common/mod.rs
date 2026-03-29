@@ -63,6 +63,13 @@ impl TestEnv {
         cmd
     }
 
+    pub fn output(&self, args: &[&str]) -> std::process::Output {
+        self.cmd()
+            .args(args)
+            .output()
+            .unwrap_or_else(|_| panic!("command failed to launch: {}", args.join(" ")))
+    }
+
     /// Convenience: path to a file inside AISW_HOME.
     pub fn home_file(&self, rel: &str) -> PathBuf {
         self.aisw_home.join(rel)
@@ -94,4 +101,29 @@ impl TestEnv {
             mode & 0o777
         );
     }
+}
+
+pub fn assert_output_redacts_secret(output: &std::process::Output, secret: &str) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}\n{stderr}");
+
+    assert!(
+        !combined.contains(secret),
+        "full secret leaked in output\nstdout:\n{stdout}\n\nstderr:\n{stderr}"
+    );
+
+    let fragment = secret_fragment(secret);
+    if !fragment.is_empty() {
+        assert!(
+            !combined.contains(fragment),
+            "recognizable secret fragment leaked in output: {fragment}\nstdout:\n{stdout}\n\nstderr:\n{stderr}"
+        );
+    }
+}
+
+fn secret_fragment(secret: &str) -> &str {
+    let start = secret.len() / 3;
+    let end = (start + 10).min(secret.len());
+    &secret[start..end]
 }
