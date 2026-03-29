@@ -357,7 +357,7 @@ struct ConfigLockGuard {
 
 impl Drop for ConfigLockGuard {
     fn drop(&mut self) {
-        let _ = self.file.unlock();
+        let _ = FileExt::unlock(&self.file);
     }
 }
 
