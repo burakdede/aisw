@@ -30,10 +30,15 @@ fn run_list(args: BackupListArgs, home: &Path) -> Result<()> {
         );
         return Ok(());
     }
+
     output::print_title("Backups");
-    println!("{:<31} {:<8} PROFILE", "BACKUP ID", "TOOL");
+    output::print_table_header(&[("BACKUP ID", 31), ("TOOL", 8), ("PROFILE", 0)]);
     for e in &entries {
-        println!("{:<31} {:<8} {}", e.backup_id, e.tool, e.profile);
+        output::print_table_row(&[
+            (e.backup_id.as_str(), 31),
+            (e.tool.binary_name(), 8),
+            (e.profile.as_str(), 0),
+        ]);
     }
     Ok(())
 }

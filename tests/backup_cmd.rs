@@ -83,6 +83,7 @@ fn backup_list_empty_shows_no_backups_message() {
         .args(["backup", "list"])
         .assert()
         .success()
+        .stdout(contains("Backups"))
         .stdout(contains("No backups found"));
 }
 
@@ -106,9 +107,34 @@ fn backup_list_shows_entry_after_use() {
         .args(["backup", "list"])
         .assert()
         .success()
+        .stdout(contains("Backups"))
         .stdout(contains("BACKUP ID"))
+        .stdout(contains("TOOL"))
+        .stdout(contains("PROFILE"))
         .stdout(contains("claude"))
         .stdout(contains("work"));
+}
+
+#[test]
+fn backup_list_table_still_starts_rows_with_backup_id() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    let key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let output = env.cmd().args(["backup", "list"]).output().unwrap().stdout;
+    let rendered = String::from_utf8_lossy(&output);
+    let backup_id = first_backup_id(&rendered);
+
+    assert!(
+        backup_id.contains('T') && backup_id.contains('Z'),
+        "expected first visible column to remain the backup id, got {backup_id}"
+    );
 }
 
 #[test]
