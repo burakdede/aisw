@@ -70,7 +70,9 @@ fn auth_storage(user_home: &Path) -> ClaudeAuthStorage {
 
     if live_credentials_path(user_home).exists() {
         ClaudeAuthStorage::File
-    } else if cfg!(target_os = "macos") && read_keychain_credentials().ok().flatten().is_some() {
+    } else if super::system_keyring::is_available()
+        && read_keychain_credentials().ok().flatten().is_some()
+    {
         ClaudeAuthStorage::Keychain
     } else {
         ClaudeAuthStorage::File
@@ -86,14 +88,15 @@ fn forced_auth_storage() -> Option<ClaudeAuthStorage> {
 }
 
 pub fn keychain_import_supported() -> bool {
-    forced_auth_storage() == Some(ClaudeAuthStorage::Keychain) || cfg!(target_os = "macos")
+    forced_auth_storage() == Some(ClaudeAuthStorage::Keychain)
+        || super::system_keyring::is_available()
 }
 
 fn watch_keychain_during_oauth() -> bool {
     match forced_auth_storage() {
         Some(ClaudeAuthStorage::File) => false,
         Some(ClaudeAuthStorage::Keychain) => true,
-        None => cfg!(target_os = "macos"),
+        None => super::system_keyring::is_available(),
     }
 }
 
@@ -107,7 +110,7 @@ fn keychain_account() -> String {
 
 fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
     secure_backend::read_generic_password(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE, None)
-        .context("could not query macOS Keychain for Claude Code credentials")
+        .context("could not query the system keyring for Claude Code credentials")
 }
 
 pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
@@ -152,7 +155,7 @@ fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
         &keychain_account(),
         bytes,
     )
-    .context("could not write Claude Code credentials into macOS Keychain")
+    .context("could not write Claude Code credentials into the system keyring")
 }
 
 fn capture_keychain_credentials(profile_dir: &Path, bytes: &[u8]) -> Result<PathBuf> {

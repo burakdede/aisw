@@ -351,7 +351,7 @@ fn init_imports_claude_credentials_from_keychain() {
         .stdout(contains("Local state"))
         .stdout(contains("found"))
         .stdout(contains(".claude"))
-        .stdout(contains("found macOS Keychain"))
+        .stdout(contains("found system keyring"))
         .stdout(contains(
             "Imported Claude Code credentials as profile 'default' and marked it active.",
         ));
@@ -425,7 +425,7 @@ fn init_reports_codex_local_state_without_importable_auth() {
         .stdout(contains("Auth storage"))
         .stdout(contains("keyring"))
         .stdout(contains("keyring-backed auth"))
-        .stdout(contains("does not import yet"));
+        .stdout(contains("could not locate a readable credential there"));
 
     assert!(!env
         .aisw_home
@@ -457,7 +457,7 @@ fn init_imports_codex_credentials_from_keychain() {
         .stdout(contains("Codex CLI"))
         .stdout(contains("Local state"))
         .stdout(contains(".codex"))
-        .stdout(contains("found macOS Keychain"))
+        .stdout(contains("found system keyring"))
         .stdout(contains(
             "Imported Codex CLI credentials as profile 'default' and marked it active.",
         ));
@@ -488,7 +488,7 @@ fn init_reports_codex_auto_backend_without_importable_auth() {
         .stdout(contains("not found in auth.json"))
         .stdout(contains("Auth storage"))
         .stdout(contains("auto"))
-        .stdout(contains("may be using the OS credential store"));
+        .stdout(contains("may be using the system keyring"));
 
     assert!(!env
         .aisw_home

@@ -187,7 +187,7 @@ fn claude_secure_backend_import_use_and_rename_work_end_to_end() {
         .args(["init", "--yes"])
         .assert()
         .success()
-        .stdout(contains("found macOS Keychain"))
+        .stdout(contains("found system keyring"))
         .stdout(contains(
             "Imported Claude Code credentials as profile 'default'",
         ));
@@ -280,7 +280,7 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
         .args(["init", "--yes"])
         .assert()
         .success()
-        .stdout(contains("found macOS Keychain"))
+        .stdout(contains("found system keyring"))
         .stdout(contains(
             "Imported Codex CLI credentials as profile 'default'",
         ));

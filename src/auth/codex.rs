@@ -157,12 +157,12 @@ fn forced_auth_storage() -> Option<LiveAuthStorage> {
 }
 
 pub fn keychain_import_supported() -> bool {
-    forced_auth_storage() == Some(LiveAuthStorage::Keyring) || cfg!(target_os = "macos")
+    forced_auth_storage() == Some(LiveAuthStorage::Keyring) || super::system_keyring::is_available()
 }
 
 fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
     secure_backend::read_generic_password(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE, None)
-        .context("could not query macOS Keychain for Codex credentials")
+        .context("could not query the system keyring for Codex credentials")
 }
 
 pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
@@ -417,7 +417,7 @@ fn oauth_stored_backend() -> CredentialBackend {
         Some(LiveAuthStorage::File) => CredentialBackend::File,
         Some(LiveAuthStorage::Keyring) => CredentialBackend::SystemKeyring,
         Some(LiveAuthStorage::Auto | LiveAuthStorage::Unknown) | None => {
-            if cfg!(target_os = "macos") {
+            if super::system_keyring::is_available() {
                 CredentialBackend::SystemKeyring
             } else {
                 CredentialBackend::File

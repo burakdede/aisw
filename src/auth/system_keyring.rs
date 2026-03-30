@@ -6,6 +6,27 @@ use anyhow::{anyhow, Context, Result};
 use super::macos_keychain;
 use super::test_overrides;
 
+pub fn is_available() -> bool {
+    fake_root().is_some()
+        || cfg!(any(
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows"
+        ))
+}
+
+pub fn display_name() -> &'static str {
+    if fake_root().is_some() {
+        "system keyring"
+    } else if cfg!(target_os = "macos") {
+        "macOS Keychain"
+    } else if cfg!(target_os = "windows") {
+        "Windows Credential Manager"
+    } else {
+        "system keyring"
+    }
+}
+
 pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Option<Vec<u8>>> {
     if let Some(root) = fake_root() {
         return read_fake_password(&root, service, account);

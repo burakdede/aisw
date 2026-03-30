@@ -397,7 +397,7 @@ fn import_claude(
             output::print_kv("Credentials", "not found in file or Keychain");
             output::print_info(
                 "Claude local state exists, but aisw could not find importable auth in \
-                 ~/.claude/.credentials.json or macOS Keychain.",
+                 ~/.claude/.credentials.json or the system keyring.",
             );
         } else {
             output::print_kv("Credentials", "not found");
@@ -418,9 +418,10 @@ fn import_claude(
         auth::claude::LiveCredentialSource::File(path) => {
             (format!("found {}", path.display()), snapshot.bytes)
         }
-        auth::claude::LiveCredentialSource::Keychain => {
-            ("found macOS Keychain".to_owned(), snapshot.bytes)
-        }
+        auth::claude::LiveCredentialSource::Keychain => (
+            format!("found {}", auth::system_keyring::display_name()),
+            snapshot.bytes,
+        ),
     };
     let imported_method = if extract_json_string_field(&source_bytes, "apiKey").is_some() {
         AuthMethod::ApiKey
@@ -576,13 +577,13 @@ fn import_codex(
             match storage {
                 auth::codex::LiveAuthStorage::Keyring => output::print_info(
                     "Codex local state exists, but aisw could not find importable auth in \
-                     ~/.codex/auth.json. This install appears to use keyring-backed auth, \
-                     which init does not import yet.",
+                     ~/.codex/auth.json or the system keyring. This install appears to use \
+                     keyring-backed auth, but aisw could not locate a readable credential there.",
                 ),
                 auth::codex::LiveAuthStorage::Auto => output::print_info(
                     "Codex local state exists, but aisw could not find importable auth in \
                      ~/.codex/auth.json. Codex defaults to its auto auth-storage mode here, \
-                     which may be using the OS credential store instead of a file backend.",
+                     which may be using the system keyring instead of a file backend.",
                 ),
                 auth::codex::LiveAuthStorage::File => output::print_info(
                     "Codex local state exists, but aisw could not find importable auth in \
@@ -614,9 +615,10 @@ fn import_codex(
             let bytes = snapshot.bytes;
             (format!("found {}", path.display()), bytes)
         }
-        auth::codex::LiveCredentialSource::Keychain => {
-            ("found macOS Keychain".to_owned(), snapshot.bytes)
-        }
+        auth::codex::LiveCredentialSource::Keychain => (
+            format!("found {}", auth::system_keyring::display_name()),
+            snapshot.bytes,
+        ),
     };
     if let Some(secret) = extract_json_string_field(&source_bytes, "token") {
         if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
