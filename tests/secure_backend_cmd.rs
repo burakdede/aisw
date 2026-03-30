@@ -195,7 +195,7 @@ fn claude_secure_backend_import_use_and_rename_work_end_to_end() {
     let config = read_json(&env.home_file("config.json"));
     assert_eq!(
         config["profiles"]["claude"]["default"]["credential_backend"],
-        "macos_keychain"
+        "system_keyring"
     );
     assert!(!env
         .home_file("profiles/claude/default/.credentials.json")
@@ -207,7 +207,7 @@ fn claude_secure_backend_import_use_and_rename_work_end_to_end() {
         .assert()
         .success()
         .stdout(contains("Backend"))
-        .stdout(contains("macos_keychain"));
+        .stdout(contains("system_keyring"));
 
     let live_secret = fs::read_to_string(keychain_secret_path(
         &env,
@@ -235,7 +235,7 @@ fn claude_secure_backend_import_use_and_rename_work_end_to_end() {
         .find(|entry| entry["tool"] == "claude")
         .unwrap();
     assert_eq!(claude["active_profile"], "default");
-    assert_eq!(claude["credential_backend"], "macos_keychain");
+    assert_eq!(claude["credential_backend"], "system_keyring");
     assert_eq!(claude["active_profile_applied"], true);
     assert_eq!(claude["credentials_present"], true);
 
@@ -252,7 +252,7 @@ fn claude_secure_backend_import_use_and_rename_work_end_to_end() {
         .args(["list", "--json"])
         .assert()
         .success()
-        .stdout(contains("\"credential_backend\": \"macos_keychain\""))
+        .stdout(contains("\"credential_backend\": \"system_keyring\""))
         .stdout(contains("\"profile\": \"work\""));
 }
 
@@ -288,7 +288,7 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
     let config = read_json(&env.home_file("config.json"));
     assert_eq!(
         config["profiles"]["codex"]["default"]["credential_backend"],
-        "macos_keychain"
+        "system_keyring"
     );
     assert!(!env.home_file("profiles/codex/default/auth.json").exists());
     assert!(env.home_file("profiles/codex/default/config.toml").exists());
@@ -299,7 +299,7 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
         .assert()
         .success()
         .stdout(contains("Backend"))
-        .stdout(contains("macos_keychain"));
+        .stdout(contains("system_keyring"));
 
     let live_secret =
         fs::read_to_string(keychain_secret_path(&env, "Codex Auth", "tester")).unwrap();
@@ -326,7 +326,7 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
         .find(|entry| entry["tool"] == "codex")
         .unwrap();
     assert_eq!(codex["active_profile"], "default");
-    assert_eq!(codex["credential_backend"], "macos_keychain");
+    assert_eq!(codex["credential_backend"], "system_keyring");
     assert_eq!(codex["active_profile_applied"], true);
 
     secure_cmd_for_tool(&env, "codex")
@@ -352,7 +352,7 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
     let restored_config = read_json(&env.home_file("config.json"));
     assert_eq!(
         restored_config["profiles"]["codex"]["default"]["credential_backend"],
-        "macos_keychain"
+        "system_keyring"
     );
     assert!(keychain_secret_path(&env, "aisw", "profile:codex:default").exists());
 

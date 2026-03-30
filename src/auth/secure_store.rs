@@ -4,7 +4,7 @@ use super::secure_backend::{self, SecureBackend};
 use crate::types::Tool;
 
 const SERVICE: &str = "aisw";
-const BACKEND: SecureBackend = SecureBackend::MacosKeychain;
+const BACKEND: SecureBackend = SecureBackend::SystemKeyring;
 
 pub fn read_profile_secret(tool: Tool, profile_name: &str) -> Result<Option<Vec<u8>>> {
     secure_backend::read_generic_password(
@@ -30,7 +30,7 @@ pub fn delete_profile_secret(tool: Tool, profile_name: &str) -> Result<()> {
 pub fn rename_profile_secret(tool: Tool, old_name: &str, new_name: &str) -> Result<()> {
     let Some(bytes) = read_profile_secret(tool, old_name)? else {
         bail!(
-            "secure credentials for {} profile '{}' are missing from macOS Keychain",
+            "secure credentials for {} profile '{}' are missing from the system keyring",
             tool,
             old_name
         );
@@ -42,7 +42,7 @@ pub fn rename_profile_secret(tool: Tool, old_name: &str, new_name: &str) -> Resu
 pub fn snapshot_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) -> Result<()> {
     let Some(bytes) = read_profile_secret(tool, profile_name)? else {
         bail!(
-            "secure credentials for {} profile '{}' are missing from macOS Keychain",
+            "secure credentials for {} profile '{}' are missing from the system keyring",
             tool,
             profile_name
         );

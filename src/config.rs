@@ -55,22 +55,23 @@ pub enum AuthMethod {
 pub enum CredentialBackend {
     #[default]
     File,
-    MacosKeychain,
+    #[serde(alias = "macos_keychain")]
+    SystemKeyring,
 }
 
 impl CredentialBackend {
     pub fn display_name(self) -> &'static str {
         match self {
             CredentialBackend::File => "file",
-            CredentialBackend::MacosKeychain => "macos_keychain",
+            CredentialBackend::SystemKeyring => "system_keyring",
         }
     }
 
     pub fn validate_for_tool(self, tool: Tool) -> Result<()> {
         match (self, tool) {
             (CredentialBackend::File, _) => Ok(()),
-            (CredentialBackend::MacosKeychain, Tool::Claude | Tool::Codex) => Ok(()),
-            (CredentialBackend::MacosKeychain, Tool::Gemini) => bail!(
+            (CredentialBackend::SystemKeyring, Tool::Claude | Tool::Codex) => Ok(()),
+            (CredentialBackend::SystemKeyring, Tool::Gemini) => bail!(
                 "credential backend '{}' is not supported for {}.\n  \
                  Gemini CLI auth remains file-managed because its local ~/.gemini state mixes \
                  credentials with broader tool state.",
@@ -757,13 +758,13 @@ mod tests {
     }
 
     #[test]
-    fn macos_keychain_backend_is_rejected_for_gemini() {
-        let err = CredentialBackend::MacosKeychain
+    fn system_keyring_backend_is_rejected_for_gemini() {
+        let err = CredentialBackend::SystemKeyring
             .validate_for_tool(Tool::Gemini)
             .unwrap_err();
         assert!(err
             .to_string()
-            .contains("credential backend 'macos_keychain' is not supported for gemini"));
+            .contains("credential backend 'system_keyring' is not supported for gemini"));
     }
 
     #[test]

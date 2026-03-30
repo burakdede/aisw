@@ -12,17 +12,46 @@ fn add_fake_claude_security_tool(env: &TestEnv) {
     env.add_script_tool(
         "security",
         "#!/bin/sh\n\
-         store=\"$HOME/claude-keychain.json\"\n\
+         store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
+         item_dir() {\n\
+           printf '%s/%s/%s' \"$store_root\" \"$1\" \"$2\"\n\
+         }\n\
+         first_item_dir() {\n\
+           dir=\"$store_root/$1\"\n\
+           [ -d \"$dir\" ] || return 1\n\
+           for item in \"$dir\"/*; do\n\
+             [ -d \"$item\" ] || continue\n\
+             printf '%s' \"$item\"\n\
+             return 0\n\
+           done\n\
+           return 1\n\
+         }\n\
          cmd=\"$1\"\n\
          shift\n\
+         service=''\n\
+         account=''\n\
          case \"$cmd\" in\n\
            find-generic-password)\n\
-             if [ -f \"$store\" ]; then\n\
-               value=''\n\
-               while IFS= read -r line || [ -n \"$line\" ]; do\n\
-                 value=\"$value$line\"\n\
-               done < \"$store\"\n\
-               printf '%s' \"$value\"\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             if [ -n \"$account\" ]; then\n\
+               item=\"$(item_dir \"$service\" \"$account\")\"\n\
+             else\n\
+               item=\"$(first_item_dir \"$service\")\" || item=''\n\
+             fi\n\
+             if [ -f \"$item/secret\" ]; then\n\
+               /bin/cat \"$item/secret\"\n\
                exit 0\n\
              fi\n\
              echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
@@ -31,14 +60,25 @@ fn add_fake_claude_security_tool(env: &TestEnv) {
            add-generic-password)\n\
              while [ \"$#\" -gt 0 ]; do\n\
                case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
                  -w)\n\
                    shift\n\
+                   item=\"$(item_dir \"$service\" \"$account\")\"\n\
+                   /bin/mkdir -p \"$item\"\n\
+                   printf '%s' \"$account\" > \"$item/account\"\n\
                    if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
-                     printf '%s' \"$1\" > \"$store\"\n\
+                     printf '%s' \"$1\" > \"$item/secret\"\n\
                      exit 0\n\
                    else\n\
                      IFS= read -r secret || true\n\
-                     printf '%s' \"$secret\" > \"$store\"\n\
+                     printf '%s' \"$secret\" > \"$item/secret\"\n\
                      exit 0\n\
                    fi\n\
                    ;;\n\
@@ -62,31 +102,46 @@ fn add_fake_codex_security_tool(env: &TestEnv) {
     env.add_script_tool(
         "security",
         "#!/bin/sh\n\
+         store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
+         item_dir() {\n\
+           printf '%s/%s/%s' \"$store_root\" \"$1\" \"$2\"\n\
+         }\n\
+         first_item_dir() {\n\
+           dir=\"$store_root/$1\"\n\
+           [ -d \"$dir\" ] || return 1\n\
+           for item in \"$dir\"/*; do\n\
+             [ -d \"$item\" ] || continue\n\
+             printf '%s' \"$item\"\n\
+             return 0\n\
+           done\n\
+           return 1\n\
+         }\n\
          cmd=\"$1\"\n\
          shift\n\
          case \"$cmd\" in\n\
            find-generic-password)\n\
              service=''\n\
+             account=''\n\
              while [ \"$#\" -gt 0 ]; do\n\
                case \"$1\" in\n\
                  -s)\n\
                    shift\n\
                    service=\"$1\"\n\
                    ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
                esac\n\
                shift\n\
              done\n\
-             case \"$service\" in\n\
-               \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
-               \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
-               *) store=\"$HOME/unknown-keychain.json\" ;;\n\
-             esac\n\
-             if [ -f \"$store\" ]; then\n\
-               value=''\n\
-               while IFS= read -r line || [ -n \"$line\" ]; do\n\
-                 value=\"$value$line\"\n\
-               done < \"$store\"\n\
-               printf '%s' \"$value\"\n\
+             if [ -n \"$account\" ]; then\n\
+               item=\"$(item_dir \"$service\" \"$account\")\"\n\
+             else\n\
+               item=\"$(first_item_dir \"$service\")\" || item=''\n\
+             fi\n\
+             if [ -f \"$item/secret\" ]; then\n\
+               /bin/cat \"$item/secret\"\n\
                exit 0\n\
              fi\n\
              echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
@@ -94,30 +149,28 @@ fn add_fake_codex_security_tool(env: &TestEnv) {
              ;;\n\
            add-generic-password)\n\
              service=''\n\
+             account=''\n\
              while [ \"$#\" -gt 0 ]; do\n\
                case \"$1\" in\n\
                  -s)\n\
                    shift\n\
                    service=\"$1\"\n\
                    ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
                  -w)\n\
                    shift\n\
+                   item=\"$(item_dir \"$service\" \"$account\")\"\n\
+                   /bin/mkdir -p \"$item\"\n\
+                   printf '%s' \"$account\" > \"$item/account\"\n\
                    if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
-                     case \"$service\" in\n\
-                       \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
-                       \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
-                       *) store=\"$HOME/unknown-keychain.json\" ;;\n\
-                     esac\n\
-                     printf '%s' \"$1\" > \"$store\"\n\
+                     printf '%s' \"$1\" > \"$item/secret\"\n\
                      exit 0\n\
                    fi\n\
                    IFS= read -r secret || true\n\
-                   case \"$service\" in\n\
-                     \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
-                     \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
-                     *) store=\"$HOME/unknown-keychain.json\" ;;\n\
-                   esac\n\
-                   printf '%s' \"$secret\" > \"$store\"\n\
+                   printf '%s' \"$secret\" > \"$item/secret\"\n\
                    exit 0\n\
                    ;;\n\
                  *)\n\
@@ -138,6 +191,13 @@ fn add_fake_codex_security_tool(env: &TestEnv) {
 
 fn run_init(env: &TestEnv) -> assert_cmd::assert::Assert {
     env.cmd().args(["init", "--yes"]).assert()
+}
+
+fn seed_keyring_item(env: &TestEnv, service: &str, account: &str, secret: &[u8]) {
+    let item = env.fake_home.join("keychain").join(service).join(account);
+    fs::create_dir_all(&item).unwrap();
+    fs::write(item.join("account"), account).unwrap();
+    fs::write(item.join("secret"), secret).unwrap();
 }
 
 #[test]
@@ -274,11 +334,12 @@ fn init_imports_claude_credentials_from_keychain() {
     let claude_dir = env.fake_home.join(".claude");
     fs::create_dir_all(&claude_dir).unwrap();
     fs::write(claude_dir.join("settings.json"), b"{\"theme\":\"dark\"}").unwrap();
-    fs::write(
-        env.fake_home.join("claude-keychain.json"),
+    seed_keyring_item(
+        &env,
+        "Claude Code-credentials",
+        "tester",
         b"{\"token\":\"oauth\"}",
-    )
-    .unwrap();
+    );
 
     env.cmd()
         .args(["init", "--yes"])
@@ -303,7 +364,7 @@ fn init_imports_claude_credentials_from_keychain() {
     );
     assert_eq!(
         config["profiles"]["claude"]["default"]["credential_backend"],
-        "macos_keychain"
+        "system_keyring"
     );
     assert_eq!(config["active"]["claude"], "default");
     assert!(!env
@@ -385,11 +446,7 @@ fn init_imports_codex_credentials_from_keychain() {
         b"cli_auth_credentials_store = \"keyring\"\n",
     )
     .unwrap();
-    fs::write(
-        env.fake_home.join("codex-keychain.json"),
-        b"{\"token\":\"tok\"}",
-    )
-    .unwrap();
+    seed_keyring_item(&env, "Codex Auth", "tester", b"{\"token\":\"tok\"}");
 
     env.cmd()
         .args(["init", "--yes"])
@@ -410,7 +467,7 @@ fn init_imports_codex_credentials_from_keychain() {
         serde_json::from_str(&env.read_home_file("config.json")).unwrap();
     assert_eq!(
         config["profiles"]["codex"]["default"]["credential_backend"],
-        "macos_keychain"
+        "system_keyring"
     );
     assert!(!profile_dir.join("auth.json").exists());
     assert!(profile_dir.join("config.toml").exists());

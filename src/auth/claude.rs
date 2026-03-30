@@ -17,7 +17,7 @@ const CREDENTIALS_FILE: &str = ".credentials.json";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
-const KEYCHAIN_BACKEND: SecureBackend = SecureBackend::MacosKeychain;
+const KEYCHAIN_BACKEND: SecureBackend = SecureBackend::SystemKeyring;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClaudeAuthStorage {
@@ -471,7 +471,7 @@ fn read_stored_credentials(
 ) -> Result<Vec<u8>> {
     match backend {
         CredentialBackend::File => profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE),
-        CredentialBackend::MacosKeychain => secure_store::read_profile_secret(Tool::Claude, name)?
+        CredentialBackend::SystemKeyring => secure_store::read_profile_secret(Tool::Claude, name)?
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "secure credentials for Claude Code profile '{}' are missing from macOS Keychain",
@@ -588,7 +588,7 @@ mod tests {
     }
 
     impl EnvVarGuard {
-        fn set(key: &'static str, value: &str) -> Self {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let previous = std::env::var_os(key);
             // Tests that mutate this hold SPAWN_LOCK, so process-wide env access stays serialized.
             unsafe {
@@ -967,6 +967,7 @@ mod tests {
         write_security_mock(&security_bin);
 
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
         let _security = EnvVarGuard::set(
             "AISW_SECURITY_BIN",
             security_bin
@@ -978,10 +979,10 @@ mod tests {
         ps.create(Tool::Claude, "work").unwrap();
         secure_store::write_profile_secret(Tool::Claude, "work", br#"{"token":"tok"}"#).unwrap();
 
-        apply_live_credentials(&ps, "work", CredentialBackend::MacosKeychain, &user_home).unwrap();
+        apply_live_credentials(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
 
         assert!(
-            live_credentials_match(&ps, "work", CredentialBackend::MacosKeychain, &user_home)
+            live_credentials_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home)
                 .unwrap()
         );
     }

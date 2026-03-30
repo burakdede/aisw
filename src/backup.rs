@@ -61,7 +61,7 @@ impl BackupManager {
         fs::create_dir_all(&dest)
             .with_context(|| format!("could not create backup directory {}", dest.display()))?;
 
-        if profile_meta.credential_backend == CredentialBackend::MacosKeychain {
+        if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
             secure_store::snapshot_profile_secret(tool, name, &backup_id)?;
         }
 
@@ -182,7 +182,7 @@ impl BackupManager {
                 profile_meta.credential_backend.validate_for_tool(tool)?;
                 config_store.upsert_profile(tool, &profile_name, profile_meta.clone())?;
 
-                if profile_meta.credential_backend == CredentialBackend::MacosKeychain {
+                if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
                     secure_store::restore_profile_secret(tool, &profile_name, backup_id)?;
                     restored += 1;
                 }
@@ -419,7 +419,7 @@ mod tests {
     }
 
     impl EnvVarGuard {
-        fn set(key: &'static str, value: &str) -> Self {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let previous = std::env::var_os(key);
             unsafe {
                 std::env::set_var(key, value);
@@ -873,6 +873,7 @@ mod tests {
         fs::create_dir_all(&bin_dir).unwrap();
         let security_bin = bin_dir.join("security");
         write_security_mock(&security_bin);
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
         let _security = EnvVarGuard::set(
             "AISW_SECURITY_BIN",
             security_bin
@@ -887,7 +888,7 @@ mod tests {
         let meta = ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
-            credential_backend: CredentialBackend::MacosKeychain,
+            credential_backend: CredentialBackend::SystemKeyring,
             label: None,
         };
         cs.add_profile(Tool::Claude, "work", meta.clone()).unwrap();

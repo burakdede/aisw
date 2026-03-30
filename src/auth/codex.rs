@@ -18,7 +18,7 @@ use crate::types::{StateMode, Tool};
 const AUTH_FILE: &str = "auth.json";
 const CONFIG_FILE: &str = "config.toml";
 const KEYCHAIN_SERVICE: &str = "Codex Auth";
-const KEYCHAIN_BACKEND: SecureBackend = SecureBackend::MacosKeychain;
+const KEYCHAIN_BACKEND: SecureBackend = SecureBackend::SystemKeyring;
 
 // Codex reads credentials from a file rather than the OS keyring when this is set.
 const CONFIG_TOML_CONTENTS: &str = "cli_auth_credentials_store = \"file\"\n";
@@ -368,7 +368,7 @@ fn store_oauth_profile(
         name,
     )
     .inspect_err(|_| {
-        if stored_backend == CredentialBackend::MacosKeychain {
+        if stored_backend == CredentialBackend::SystemKeyring {
             let _ = secure_store::delete_profile_secret(Tool::Codex, name);
         }
     })?;
@@ -385,7 +385,7 @@ fn store_oauth_profile(
             },
         )
         .inspect_err(|_| {
-            if stored_backend == CredentialBackend::MacosKeychain {
+            if stored_backend == CredentialBackend::SystemKeyring {
                 let _ = secure_store::delete_profile_secret(Tool::Codex, name);
             }
             let _ = profile_store.delete(Tool::Codex, name);
@@ -405,7 +405,7 @@ fn persist_oauth_storage(
             write_file_store_config(profile_store, name)?;
             profile_store.write_file(Tool::Codex, name, AUTH_FILE, auth_bytes)
         }
-        CredentialBackend::MacosKeychain => {
+        CredentialBackend::SystemKeyring => {
             write_keyring_store_config(profile_store, name)?;
             secure_store::write_profile_secret(Tool::Codex, name, auth_bytes)
         }
@@ -415,10 +415,10 @@ fn persist_oauth_storage(
 fn oauth_stored_backend() -> CredentialBackend {
     match forced_auth_storage() {
         Some(LiveAuthStorage::File) => CredentialBackend::File,
-        Some(LiveAuthStorage::Keyring) => CredentialBackend::MacosKeychain,
+        Some(LiveAuthStorage::Keyring) => CredentialBackend::SystemKeyring,
         Some(LiveAuthStorage::Auto | LiveAuthStorage::Unknown) | None => {
             if cfg!(target_os = "macos") {
-                CredentialBackend::MacosKeychain
+                CredentialBackend::SystemKeyring
             } else {
                 CredentialBackend::File
             }
@@ -522,7 +522,7 @@ pub fn apply_live_files(
                 LiveFileChange::write(config_dest, config_bytes),
             ])
         }
-        CredentialBackend::MacosKeychain => {
+        CredentialBackend::SystemKeyring => {
             let bytes = secure_store::read_profile_secret(Tool::Codex, name)?.ok_or_else(|| {
                 anyhow::anyhow!(
                     "secure credentials for Codex CLI profile '{}' are missing from macOS Keychain",
@@ -591,7 +591,7 @@ pub fn live_files_match(
             }
             Ok(config_uses_file_store(&config))
         }
-        CredentialBackend::MacosKeychain => {
+        CredentialBackend::SystemKeyring => {
             let Some(live) = read_keychain_credentials()? else {
                 return Ok(false);
             };
@@ -777,7 +777,7 @@ mod tests {
     }
 
     impl EnvVarGuard {
-        fn set(key: &'static str, value: &str) -> Self {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let previous = std::env::var_os(key);
             unsafe {
                 std::env::set_var(key, value);
@@ -904,42 +904,12 @@ mod tests {
         )
         .unwrap();
 
-        let security_bin = bin_dir.join("security");
-        std::fs::write(
-            &security_bin,
-            format!(
-                "#!/bin/sh\n\
-                 if [ \"$1\" = \"find-generic-password\" ] && [ \"$2\" = \"-s\" ] && [ \"$3\" = \"{}\" ] && [ \"$4\" = \"-w\" ]; then\n\
-                   printf '%s' '{{\"token\":\"tok\"}}'\n\
-                   exit 0\n\
-                 fi\n\
-                 echo \"unexpected security invocation: $@\" >&2\n\
-                 exit 1\n",
-                KEYCHAIN_SERVICE
-            ),
-        )
-        .unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&security_bin, std::fs::Permissions::from_mode(0o755))
-                .unwrap();
-        }
-
         let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "keychain");
-        let _security = EnvVarGuard::set(
-            "AISW_SECURITY_BIN",
-            security_bin
-                .to_str()
-                .expect("security path should be utf-8"),
-        );
-        let _keychain = EnvVarGuard::set(
-            "AISW_SECURITY_KEYCHAIN",
-            user_home
-                .join("Library/Keychains/login.keychain-db")
-                .to_str()
-                .expect("keychain path should be utf-8"),
-        );
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", user_home.join("keychain"));
+        let item_dir = user_home.join("keychain").join(KEYCHAIN_SERVICE).join("tester");
+        std::fs::create_dir_all(&item_dir).unwrap();
+        std::fs::write(item_dir.join("account"), b"tester").unwrap();
+        std::fs::write(item_dir.join("secret"), br#"{"token":"tok"}"#).unwrap();
 
         let snapshot = live_credentials_snapshot_for_import(&user_home)
             .unwrap()
@@ -1266,6 +1236,7 @@ mod tests {
         write_security_mock(&security_bin);
 
         let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
         let _security = EnvVarGuard::set(
             "AISW_SECURITY_BIN",
             security_bin
@@ -1278,10 +1249,10 @@ mod tests {
         write_keyring_store_config(&ps, "work").unwrap();
         secure_store::write_profile_secret(Tool::Codex, "work", br#"{"token":"tok"}"#).unwrap();
 
-        apply_live_files(&ps, "work", CredentialBackend::MacosKeychain, &user_home).unwrap();
+        apply_live_files(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
 
         assert!(
-            live_files_match(&ps, "work", CredentialBackend::MacosKeychain, &user_home).unwrap()
+            live_files_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap()
         );
     }
 }

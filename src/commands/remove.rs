@@ -81,7 +81,7 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
         .validate_for_tool(args.tool)?;
     BackupManager::new(home).snapshot(args.tool, &args.profile_name, &profile_dir, profile_meta)?;
 
-    if profile_meta.credential_backend == crate::config::CredentialBackend::MacosKeychain {
+    if profile_meta.credential_backend == crate::config::CredentialBackend::SystemKeyring {
         auth::secure_store::delete_profile_secret(args.tool, &args.profile_name)?;
     }
     profile_store.delete(args.tool, &args.profile_name)?;
@@ -155,7 +155,7 @@ mod tests {
     }
 
     impl EnvVarGuard {
-        fn set(key: &'static str, value: &str) -> Self {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
             let previous = std::env::var_os(key);
             unsafe {
                 std::env::set_var(key, value);
@@ -374,6 +374,7 @@ mod tests {
         fs::create_dir_all(&bin_dir).unwrap();
         let security_bin = bin_dir.join("security");
         write_security_mock(&security_bin);
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", tmp.path().join("keychain"));
         let _security = EnvVarGuard::set(
             "AISW_SECURITY_BIN",
             security_bin
@@ -392,7 +393,7 @@ mod tests {
             ProfileMeta {
                 added_at: chrono::Utc::now(),
                 auth_method: AuthMethod::OAuth,
-                credential_backend: CredentialBackend::MacosKeychain,
+                credential_backend: CredentialBackend::SystemKeyring,
                 label: None,
             },
         )

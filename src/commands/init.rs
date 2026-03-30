@@ -412,7 +412,7 @@ fn import_claude(
 
     let imported_backend = match snapshot.source {
         auth::claude::LiveCredentialSource::File(_) => CredentialBackend::File,
-        auth::claude::LiveCredentialSource::Keychain => CredentialBackend::MacosKeychain,
+        auth::claude::LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
     };
     let (source_desc, source_bytes) = match snapshot.source {
         auth::claude::LiveCredentialSource::File(path) => {
@@ -495,7 +495,7 @@ fn import_claude(
             ".credentials.json",
             &source_bytes,
         )?,
-        CredentialBackend::MacosKeychain => {
+        CredentialBackend::SystemKeyring => {
             auth::secure_store::write_profile_secret(Tool::Claude, &profile_name, &source_bytes)?
         }
     }
@@ -508,7 +508,7 @@ fn import_claude(
             imported_backend,
         )
         .inspect_err(|_| {
-            if imported_backend == CredentialBackend::MacosKeychain {
+            if imported_backend == CredentialBackend::SystemKeyring {
                 let _ = auth::secure_store::delete_profile_secret(Tool::Claude, &profile_name);
             }
             let _ = profile_store.delete(Tool::Claude, &profile_name);
@@ -607,7 +607,7 @@ fn import_codex(
 
     let imported_backend = match snapshot.source {
         auth::codex::LiveCredentialSource::File(_) => CredentialBackend::File,
-        auth::codex::LiveCredentialSource::Keychain => CredentialBackend::MacosKeychain,
+        auth::codex::LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
     };
     let (src_desc, source_bytes) = match snapshot.source {
         auth::codex::LiveCredentialSource::File(path) => {
@@ -677,7 +677,7 @@ fn import_codex(
             auth::codex::write_file_store_config(&profile_store, &profile_name)?;
             profile_store.write_file(Tool::Codex, &profile_name, "auth.json", &source_bytes)?;
         }
-        CredentialBackend::MacosKeychain => {
+        CredentialBackend::SystemKeyring => {
             auth::codex::write_keyring_store_config(&profile_store, &profile_name)?;
             auth::secure_store::write_profile_secret(Tool::Codex, &profile_name, &source_bytes)?;
         }
@@ -690,7 +690,7 @@ fn import_codex(
         imported_backend,
     )
     .inspect_err(|_| {
-        if imported_backend == CredentialBackend::MacosKeychain {
+        if imported_backend == CredentialBackend::SystemKeyring {
             let _ = auth::secure_store::delete_profile_secret(Tool::Codex, &profile_name);
         }
         let _ = profile_store.delete(Tool::Codex, &profile_name);

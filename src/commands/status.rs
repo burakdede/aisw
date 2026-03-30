@@ -218,7 +218,7 @@ fn check_profile_storage(
     }
     let credentials_present = match credential_backend {
         CredentialBackend::File => found_file,
-        CredentialBackend::MacosKeychain => {
+        CredentialBackend::SystemKeyring => {
             auth::secure_store::read_profile_secret(tool, profile_name)
                 .ok()
                 .flatten()

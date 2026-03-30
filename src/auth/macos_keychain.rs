@@ -1,96 +1,9 @@
-use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 
 use super::test_overrides;
-
-pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Option<Vec<u8>>> {
-    ensure_available()?;
-    let mut command = Command::new(security_bin());
-    command.args(["find-generic-password", "-s", service, "-w"]);
-    if let Some(account) = account {
-        command.args(["-a", account]);
-    }
-    if let Some(path) = explicit_keychain_path() {
-        command.arg(path);
-    }
-
-    let output = command
-        .output()
-        .context("could not query macOS Keychain generic password")?;
-
-    if output.status.success() {
-        let mut bytes = output.stdout;
-        if bytes.last() == Some(&b'\n') {
-            bytes.pop();
-            if bytes.last() == Some(&b'\r') {
-                bytes.pop();
-            }
-        }
-        return Ok(Some(bytes));
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.status.code() == Some(44)
-        || stderr.contains("could not be found")
-        || stderr.contains("not found in the keychain")
-    {
-        Ok(None)
-    } else {
-        bail!(
-            "could not read macOS Keychain generic password: {}",
-            stderr.trim()
-        )
-    }
-}
-
-pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> Result<()> {
-    ensure_available()?;
-    let secret = std::str::from_utf8(secret).context("keychain secret is not valid UTF-8")?;
-
-    let mut command = Command::new(security_bin());
-    command
-        .args([
-            "add-generic-password",
-            "-U",
-            "-a",
-            account,
-            "-s",
-            service,
-            "-w",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = command
-        .spawn()
-        .context("could not write macOS Keychain generic password")?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .context("could not open stdin for macOS Keychain password prompt")?;
-    stdin
-        .write_all(secret.as_bytes())
-        .and_then(|_| stdin.write_all(b"\n"))
-        .context("could not send secret to macOS Keychain password prompt")?;
-    drop(stdin);
-    let output = child
-        .wait_with_output()
-        .context("could not write macOS Keychain generic password")?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "could not update macOS Keychain generic password: {}",
-            stderr.trim()
-        )
-    }
-}
 
 pub fn find_generic_password_account(service: &str) -> Result<Option<String>> {
     ensure_available()?;
@@ -124,36 +37,6 @@ pub fn find_generic_password_account(service: &str) -> Result<Option<String>> {
         String::from_utf8_lossy(&output.stderr)
     );
     Ok(parse_attribute_value(&combined, "acct"))
-}
-
-pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
-    ensure_available()?;
-    let mut command = Command::new(security_bin());
-    command.args(["delete-generic-password", "-s", service, "-a", account]);
-    if let Some(path) = explicit_keychain_path() {
-        command.arg(path);
-    }
-
-    let output = command
-        .output()
-        .context("could not delete macOS Keychain generic password")?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.status.code() == Some(44)
-        || stderr.contains("could not be found")
-        || stderr.contains("not found in the keychain")
-    {
-        Ok(())
-    } else {
-        bail!(
-            "could not delete macOS Keychain generic password: {}",
-            stderr.trim()
-        )
-    }
 }
 
 pub fn is_available() -> bool {

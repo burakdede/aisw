@@ -150,7 +150,7 @@ fn resolve_oauth_identity(
     profile_name: &str,
     backend: CredentialBackend,
 ) -> Result<Option<String>> {
-    if backend == CredentialBackend::MacosKeychain {
+    if backend == CredentialBackend::SystemKeyring {
         let bytes = match tool {
             Tool::Claude | Tool::Codex => secure_store::read_profile_secret(tool, profile_name)?,
             Tool::Gemini => None,
