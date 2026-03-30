@@ -304,3 +304,151 @@ struct FaultRule {
     label: String,
     fail_on_hit: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Mutex, OnceLock};
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    fn fault_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn reset_fault_state() {
+        let mut hits = fault_hits()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        hits.clear();
+        // SAFETY: fault-injection tests serialize all environment mutation through
+        // `fault_env_lock`, so there is no concurrent env access within this process.
+        unsafe {
+            std::env::remove_var("AISW_FAULT_INJECTION");
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_targets_in_one_transaction() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("auth.json");
+
+        let err = apply_transaction(vec![
+            LiveFileChange::write(target.clone(), b"one".to_vec()),
+            LiveFileChange::write(target.clone(), b"two".to_vec()),
+        ])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("duplicate target"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn refuses_to_modify_symlink_targets() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("auth.json");
+        let symlink_path = dir.path().join("auth-link.json");
+        std::fs::write(&target, "token").unwrap();
+        std::os::unix::fs::symlink(&target, &symlink_path).unwrap();
+
+        let err = apply_transaction(vec![LiveFileChange::write(
+            symlink_path.clone(),
+            b"new-token".to_vec(),
+        )])
+        .unwrap_err();
+
+        assert!(!err.to_string().is_empty());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "token");
+    }
+
+    #[test]
+    fn delete_rollback_restores_original_contents() {
+        let _guard = fault_env_lock().lock().unwrap();
+        reset_fault_state();
+
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("state.json");
+        std::fs::write(&target, "original").unwrap();
+
+        // SAFETY: serialized by `fault_env_lock`.
+        unsafe {
+            std::env::set_var("AISW_FAULT_INJECTION", "live_apply.commit_delete");
+        }
+
+        let err = apply_transaction(vec![LiveFileChange::delete(target.clone())]).unwrap_err();
+        assert!(err.to_string().contains("injected live-apply failure"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "original");
+
+        reset_fault_state();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rollback_restores_previous_contents_and_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = fault_env_lock().lock().unwrap();
+        reset_fault_state();
+
+        let dir = tempdir().unwrap();
+        let first = dir.path().join("auth.json");
+        let second = dir.path().join("config.toml");
+        std::fs::write(&first, "old-auth").unwrap();
+        std::fs::write(&second, "old-config").unwrap();
+        std::fs::set_permissions(&first, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        // SAFETY: serialized by `fault_env_lock`.
+        unsafe {
+            std::env::set_var("AISW_FAULT_INJECTION", "live_apply.commit_write:2");
+        }
+
+        let err = apply_transaction(vec![
+            LiveFileChange::write(first.clone(), b"new-auth".to_vec()),
+            LiveFileChange::write(second.clone(), b"new-config".to_vec()),
+        ])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("injected live-apply failure"));
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "old-auth");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "old-config");
+        let mode = std::fs::metadata(&first).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+
+        reset_fault_state();
+    }
+
+    #[test]
+    fn cleans_up_staged_files_after_failed_write() {
+        let _guard = fault_env_lock().lock().unwrap();
+        reset_fault_state();
+
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("auth.json");
+
+        // SAFETY: serialized by `fault_env_lock`.
+        unsafe {
+            std::env::set_var("AISW_FAULT_INJECTION", "live_apply.commit_write");
+        }
+
+        let err = apply_transaction(vec![LiveFileChange::write(
+            target.clone(),
+            b"new-auth".to_vec(),
+        )])
+        .unwrap_err();
+        assert!(err.to_string().contains("injected live-apply failure"));
+        assert!(!target.exists());
+
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            entries.iter().all(|name| !name.contains(".aisw-stage-")),
+            "staged files should be removed after failure: {entries:?}"
+        );
+
+        reset_fault_state();
+    }
+}

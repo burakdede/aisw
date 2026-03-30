@@ -133,6 +133,74 @@ printf 'gemini_oauth=%s\n' "${{GEMINI_API_KEY-__unset__}}"
     );
 }
 
+fn assert_real_fish_shell_hook_behavior() {
+    let env = TestEnv::new();
+    add_codex_profile(&env, "work", VALID_CODEX_KEY);
+    add_codex_profile(&env, "oss", VALID_CODEX_KEY_ALT);
+    add_gemini_api_key_profile(&env, "api");
+    add_gemini_oauth_profile(&env, "oauth");
+
+    let script = r#"
+command aisw shell-hook fish | source
+printf 'sentinel=%s\n' "$AISW_SHELL_HOOK"
+aisw use codex work >/dev/null
+printf 'codex_isolated=%s\n' "$CODEX_HOME"
+aisw use codex oss --state-mode shared >/dev/null
+if set -q CODEX_HOME
+    printf 'codex_shared=%s\n' "$CODEX_HOME"
+else
+    printf 'codex_shared=__unset__\n'
+end
+aisw use gemini api >/dev/null
+printf 'gemini_api=%s\n' "$GEMINI_API_KEY"
+aisw use gemini oauth >/dev/null
+if set -q GEMINI_API_KEY
+    printf 'gemini_oauth=%s\n' "$GEMINI_API_KEY"
+else
+    printf 'gemini_oauth=__unset__\n'
+end
+"#;
+
+    let Some(output) = env.run_shell_script("fish", script) else {
+        return;
+    };
+    assert!(
+        output.status.success(),
+        "fish sourced hook script failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected_codex_home = env
+        .aisw_home
+        .join("profiles")
+        .join("codex")
+        .join("work")
+        .display()
+        .to_string();
+    assert!(
+        stdout.contains("sentinel=1"),
+        "hook sentinel should be exported in fish\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("codex_isolated={expected_codex_home}")),
+        "isolated codex use should export CODEX_HOME in fish\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("codex_shared=__unset__"),
+        "shared codex use should unset CODEX_HOME in fish\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("gemini_api={VALID_GEMINI_KEY}")),
+        "gemini API key use should export GEMINI_API_KEY in fish\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("gemini_oauth=__unset__"),
+        "gemini OAuth use should unset GEMINI_API_KEY in fish\nstdout:\n{stdout}"
+    );
+}
+
 #[test]
 fn shell_hook_bash_exits_zero_with_expected_content() {
     TestEnv::new()
@@ -229,4 +297,9 @@ fn shell_hook_fish_is_valid_syntax() {
     if let Some(ok) = try_syntax_check("fish", &output) {
         assert!(ok, "fish --no-execute reported syntax errors in the hook");
     }
+}
+
+#[test]
+fn shell_hook_fish_updates_environment_in_real_shell() {
+    assert_real_fish_shell_hook_behavior();
 }

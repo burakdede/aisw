@@ -54,6 +54,12 @@ impl TestEnv {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    pub fn add_script_tool(&self, name: &str, script: &str) {
+        let path = self.bin_dir.join(name);
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     /// Returns an `assert_cmd::Command` for `aisw` pre-configured with the
     /// sandboxed AISW_HOME and PATH.
     pub fn cmd(&self) -> Command {
@@ -99,6 +105,11 @@ impl TestEnv {
             "zsh" => {
                 let mut cmd = StdCommand::new("zsh");
                 cmd.arg("-f");
+                cmd
+            }
+            "fish" => {
+                let mut cmd = StdCommand::new("fish");
+                cmd.arg("--no-config");
                 cmd
             }
             _ => panic!("unsupported shell: {shell}"),

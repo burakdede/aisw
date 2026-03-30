@@ -160,6 +160,35 @@ fn add_distinct_claude_api_keys_under_different_names_succeeds() {
         .stdout(contains("personal"));
 }
 
+#[test]
+fn add_claude_oauth_succeeds_with_mocked_binary() {
+    let env = TestEnv::new();
+    env.add_script_tool(
+        "claude",
+        "#!/bin/sh\n\
+         if [ \"$1\" = \"--version\" ]; then\n\
+           echo 'claude 2.3.0'\n\
+           exit 0\n\
+         fi\n\
+         /bin/mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+         printf '%s' '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+    );
+
+    env.cmd()
+        .args(["add", "claude", "work"])
+        .assert()
+        .success()
+        .stdout(contains("Added profile"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["work"]["auth_method"],
+        "o_auth"
+    );
+    env.assert_home_file_exists("profiles/claude/work/.credentials.json");
+}
+
 // ---- Codex ----
 
 #[test]
@@ -222,6 +251,37 @@ fn add_distinct_codex_api_keys_under_different_names_succeeds() {
         .success()
         .stdout(contains("Added profile"))
         .stdout(contains("personal"));
+}
+
+#[test]
+fn add_codex_oauth_succeeds_with_mocked_binary() {
+    let env = TestEnv::new();
+    env.add_script_tool(
+        "codex",
+        "#!/bin/sh\n\
+         if [ \"$1\" = \"--version\" ]; then\n\
+           echo 'codex 1.0.0'\n\
+           exit 0\n\
+         fi\n\
+         if [ \"$1\" = \"login\" ]; then\n\
+           /bin/mkdir -p \"$CODEX_HOME\"\n\
+           printf '%s' '{\"token\":\"tok\"}' > \"$CODEX_HOME/auth.json\"\n\
+           exit 0\n\
+         fi\n\
+         exit 1\n",
+    );
+
+    env.cmd()
+        .args(["add", "codex", "work"])
+        .assert()
+        .success()
+        .stdout(contains("Added profile"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["profiles"]["codex"]["work"]["auth_method"], "o_auth");
+    env.assert_home_file_exists("profiles/codex/work/auth.json");
+    env.assert_home_file_exists("profiles/codex/work/config.toml");
 }
 
 // ---- Gemini ----
@@ -292,6 +352,37 @@ fn add_distinct_gemini_api_keys_under_different_names_succeeds() {
         .success()
         .stdout(contains("Added profile"))
         .stdout(contains("personal"));
+}
+
+#[test]
+fn add_gemini_oauth_succeeds_with_mocked_binary() {
+    let env = TestEnv::new();
+    env.add_script_tool(
+        "gemini",
+        "#!/bin/sh\n\
+         if [ \"$1\" = \"--version\" ]; then\n\
+           echo 'gemini 0.9.0'\n\
+           exit 0\n\
+         fi\n\
+         /bin/mkdir -p \"$HOME/.gemini\"\n\
+         printf '%s' '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+         printf '%s' '{\"account\":\"work\"}' > \"$HOME/.gemini/settings.json\"\n",
+    );
+
+    env.cmd()
+        .args(["add", "gemini", "work"])
+        .assert()
+        .success()
+        .stdout(contains("Added profile"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["gemini"]["work"]["auth_method"],
+        "o_auth"
+    );
+    env.assert_home_file_exists("profiles/gemini/work/oauth_creds.json");
+    env.assert_home_file_exists("profiles/gemini/work/settings.json");
 }
 
 #[test]
