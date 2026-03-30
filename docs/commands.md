@@ -52,6 +52,11 @@ aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active]
 
 Without `--api-key`, aisw presents an interactive menu to choose between browser OAuth login and API key entry.
 
+For OAuth capture, `aisw` uses the narrowest upstream login flow it can:
+- Claude: `claude auth login` with `CLAUDE_CODE_SIMPLE=1`
+- Codex: `codex login --device-auth`
+- Gemini: remains interactive for Google-account login because upstream headless mode requires preconfigured cached auth or env-based auth
+
 On success, `aisw add` prints a short next-step hint for activating or verifying the new profile.
 
 For OAuth profiles, aisw prevents duplicate aliases for the same resolved account identity when the stored credentials expose a reliable identifier. If identity cannot be resolved, the add still succeeds with a warning.

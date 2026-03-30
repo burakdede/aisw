@@ -466,6 +466,7 @@ fn run_oauth_flow(
 ) -> Result<PathBuf> {
     let mut child = Command::new(codex_bin)
         .arg("login")
+        .arg("--device-auth")
         .env("CODEX_HOME", capture_dir)
         .spawn()
         .with_context(|| format!("could not spawn {}", codex_bin.display()))?;
@@ -478,6 +479,23 @@ fn run_oauth_flow(
             let _ = child.kill();
             let _ = child.wait();
             return Ok(auth_path);
+        }
+
+        if let Some(status) = child
+            .try_wait()
+            .with_context(|| format!("could not poll {}", codex_bin.display()))?
+        {
+            let exit_note = if status.success() {
+                "Codex exited"
+            } else {
+                "Codex exited with an error"
+            };
+            bail!(
+                "{} before aisw could capture credentials.\n  \
+                 Codex add uses device-auth login to avoid launching the full interactive agent.\n  \
+                 If your Codex build does not support that flow, update Codex or use an API key instead.",
+                exit_note
+            );
         }
 
         if Instant::now() >= deadline {
@@ -1043,9 +1061,15 @@ mod tests {
 
         let bin = dir.join("codex");
         let body = if write_auth {
-            "echo '{\"token\":\"tok\"}' > \"$CODEX_HOME/auth.json\"\n"
+            "[ \"$1\" = \"login\" ] || exit 9\n\
+             [ \"$2\" = \"--device-auth\" ] || exit 8\n\
+             mkdir -p \"$CODEX_HOME\"\n\
+             echo '{\"token\":\"tok\"}' > \"$CODEX_HOME/auth.json\"\n\
+             exit 0\n"
         } else {
-            "exit 0\n" // exits without writing auth; poll loop times out naturally
+            "[ \"$1\" = \"login\" ] || exit 9\n\
+             [ \"$2\" = \"--device-auth\" ] || exit 8\n\
+             exit 0\n"
         };
         fs::write(&bin, format!("#!/bin/sh\n{}", body)).unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -1068,8 +1092,12 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
+             [ \"$1\" = \"login\" ] || exit 9\n\
+             [ \"$2\" = \"--device-auth\" ] || exit 8\n\
+             mkdir -p \"$CODEX_HOME\"\n\
              [ -f \"$CODEX_HOME/config.toml\" ] && touch \"$CODEX_HOME/../config_was_present\"\n\
-             echo '{}' > \"$CODEX_HOME/auth.json\"\n",
+             echo '{}' > \"$CODEX_HOME/auth.json\"\n\
+             exit 0\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -1150,7 +1178,12 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("timed out"));
+        let message = err.to_string();
+        assert!(
+            message.contains("exited before aisw could capture credentials")
+                || message.contains("timed out"),
+            "unexpected error: {message}"
+        );
         assert!(!ps.exists(Tool::Codex, "main"));
     }
 
@@ -1181,6 +1214,48 @@ mod tests {
         let path = ps.profile_dir(Tool::Codex, "main").join(AUTH_FILE);
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_uses_device_auth_login() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let bin = bin_dir.join("codex");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             mkdir -p \"$CODEX_HOME\"\n\
+             printf '%s %s' \"$1\" \"$2\" > \"$CODEX_HOME/../login_args\"\n\
+             echo '{}' > \"$CODEX_HOME/auth.json\"\n\
+             exit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "main",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let sentinel = ps.profile_dir(Tool::Codex, "main").join("login_args");
+        assert_eq!(
+            fs::read_to_string(&sentinel).unwrap(),
+            "login --device-auth"
+        );
     }
 
     #[test]

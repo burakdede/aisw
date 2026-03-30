@@ -261,6 +261,9 @@ fn add_claude_oauth_succeeds_with_mocked_binary() {
            echo 'claude 2.3.0'\n\
            exit 0\n\
          fi\n\
+         [ \"$1\" = \"auth\" ] || exit 9\n\
+         [ \"$2\" = \"login\" ] || exit 8\n\
+         [ \"$CLAUDE_CODE_SIMPLE\" = \"1\" ] || exit 7\n\
          /bin/mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
          printf '%s' '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
     );
@@ -291,6 +294,9 @@ fn add_claude_oauth_succeeds_with_keychain_backed_credentials() {
            echo 'claude 2.3.0'\n\
            exit 0\n\
          fi\n\
+         [ \"$1\" = \"auth\" ] || exit 9\n\
+         [ \"$2\" = \"login\" ] || exit 8\n\
+         [ \"$CLAUDE_CODE_SIMPLE\" = \"1\" ] || exit 7\n\
          item=\"$AISW_KEYRING_TEST_DIR/Claude Code-credentials/${USER:-tester}\"\n\
          /bin/mkdir -p \"$item\"\n\
          printf '%s' \"${USER:-tester}\" > \"$item/account\"\n\
@@ -419,6 +425,7 @@ fn add_codex_oauth_succeeds_with_mocked_binary() {
            exit 0\n\
          fi\n\
          if [ \"$1\" = \"login\" ]; then\n\
+           [ \"$2\" = \"--device-auth\" ] || exit 8\n\
            /bin/mkdir -p \"$CODEX_HOME\"\n\
            printf '%s' '{\"token\":\"tok\"}' > \"$CODEX_HOME/auth.json\"\n\
            exit 0\n\
@@ -452,6 +459,7 @@ fn add_codex_oauth_stores_secure_backend_when_supported() {
            exit 0\n\
          fi\n\
          if [ \"$1\" = \"login\" ]; then\n\
+           [ \"$2\" = \"--device-auth\" ] || exit 8\n\
            /bin/mkdir -p \"$CODEX_HOME\"\n\
            printf '%s' '{\"token\":\"tok\",\"email\":\"work@example.com\"}' > \"$CODEX_HOME/auth.json\"\n\
            exit 0\n\
