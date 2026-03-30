@@ -53,6 +53,7 @@ Important limits:
 - Claude Linux and Windows secure-storage behavior is still more weakly documented upstream than Codex
 
 For the vendor storage details behind this policy, see [Auth Storage Matrix](../AUTH_STORAGE_MATRIX.md).
+For the current verified end-to-end behavior, see [Acceptance Matrix](./acceptance-matrix.md).
 
 ## Typical search intents this page answers
 
