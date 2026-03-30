@@ -1,4 +1,6 @@
 use anyhow::{bail, Result};
+use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
+use base64::Engine;
 use serde_json::Value;
 
 use super::{claude, codex, gemini};
@@ -283,31 +285,10 @@ fn decode_jwt_payload(token: &str) -> Result<Option<Value>> {
 }
 
 fn decode_base64_url(input: &str) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    let mut buffer: u32 = 0;
-    let mut bits = 0;
-
-    for ch in input.chars() {
-        let value = match ch {
-            'A'..='Z' => ch as u32 - 'A' as u32,
-            'a'..='z' => ch as u32 - 'a' as u32 + 26,
-            '0'..='9' => ch as u32 - '0' as u32 + 52,
-            '-' => 62,
-            '_' => 63,
-            '=' => break,
-            _ => bail!("invalid base64url character"),
-        };
-
-        buffer = (buffer << 6) | value;
-        bits += 6;
-
-        while bits >= 8 {
-            bits -= 8;
-            bytes.push(((buffer >> bits) & 0xff) as u8);
-        }
-    }
-
-    Ok(bytes)
+    URL_SAFE_NO_PAD
+        .decode(input)
+        .or_else(|_| URL_SAFE.decode(input))
+        .map_err(|_| anyhow::anyhow!("invalid base64url payload"))
 }
 
 #[cfg(test)]
@@ -337,5 +318,27 @@ mod tests {
     #[test]
     fn ignores_non_json_payloads() {
         assert_eq!(resolve_identity_from_json_bytes(b"not-json").unwrap(), None);
+    }
+
+    #[test]
+    fn resolves_subject_from_padded_jwt_payload() {
+        let payload = URL_SAFE.encode(br#"{"sub":"USER-1234"}"#);
+        assert!(
+            payload.ends_with('='),
+            "test fixture should exercise padded base64url decoding"
+        );
+        let token = format!("eyJhbGciOiJub25lIn0.{payload}.sig");
+        let value: Value = serde_json::from_str(&format!(r#"{{"id_token":"{}"}}"#, token)).unwrap();
+        assert_eq!(
+            resolve_identity_from_value(&value),
+            Some("user-1234".to_owned())
+        );
+    }
+
+    #[test]
+    fn invalid_base64url_payload_is_ignored() {
+        let value: Value =
+            serde_json::from_str(r#"{"id_token":"eyJhbGciOiJub25lIn0.bad$payload.sig"}"#).unwrap();
+        assert_eq!(resolve_identity_from_value(&value), None);
     }
 }

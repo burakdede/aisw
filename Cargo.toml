@@ -40,6 +40,7 @@ chrono = { version = "0.4", features = ["serde"] }
 which = "7"
 anyhow = "1"
 fs2 = "0.4"
+base64 = "0.22"
 
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }
