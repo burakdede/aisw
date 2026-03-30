@@ -7,7 +7,7 @@ use chrono::Utc;
 
 use super::files;
 use super::identity;
-use super::macos_keychain;
+use super::secure_backend::{self, SecureBackend};
 use super::secure_store;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::profile::ProfileStore;
@@ -17,6 +17,7 @@ const CREDENTIALS_FILE: &str = ".credentials.json";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+const KEYCHAIN_BACKEND: SecureBackend = SecureBackend::MacosKeychain;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClaudeAuthStorage {
@@ -97,7 +98,7 @@ fn watch_keychain_during_oauth() -> bool {
 }
 
 fn keychain_account() -> String {
-    macos_keychain::find_generic_password_account(KEYCHAIN_SERVICE)
+    secure_backend::find_generic_password_account(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE)
         .ok()
         .flatten()
         .or_else(|| std::env::var("USER").ok())
@@ -105,7 +106,7 @@ fn keychain_account() -> String {
 }
 
 fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
-    macos_keychain::read_generic_password(KEYCHAIN_SERVICE, None)
+    secure_backend::read_generic_password(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE, None)
         .context("could not query macOS Keychain for Claude Code credentials")
 }
 
@@ -145,8 +146,13 @@ pub fn live_credentials_snapshot_for_import(
 }
 
 fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
-    macos_keychain::upsert_generic_password(KEYCHAIN_SERVICE, &keychain_account(), bytes)
-        .context("could not write Claude Code credentials into macOS Keychain")
+    secure_backend::upsert_generic_password(
+        KEYCHAIN_BACKEND,
+        KEYCHAIN_SERVICE,
+        &keychain_account(),
+        bytes,
+    )
+    .context("could not write Claude Code credentials into macOS Keychain")
 }
 
 fn capture_keychain_credentials(profile_dir: &Path, bytes: &[u8]) -> Result<PathBuf> {

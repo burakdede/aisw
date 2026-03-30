@@ -8,7 +8,7 @@ use chrono::Utc;
 
 use super::files;
 use super::identity;
-use super::macos_keychain;
+use super::secure_backend::{self, SecureBackend};
 use super::secure_store;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::live_apply::LiveFileChange;
@@ -18,6 +18,7 @@ use crate::types::{StateMode, Tool};
 const AUTH_FILE: &str = "auth.json";
 const CONFIG_FILE: &str = "config.toml";
 const KEYCHAIN_SERVICE: &str = "Codex Auth";
+const KEYCHAIN_BACKEND: SecureBackend = SecureBackend::MacosKeychain;
 
 // Codex reads credentials from a file rather than the OS keyring when this is set.
 const CONFIG_TOML_CONTENTS: &str = "cli_auth_credentials_store = \"file\"\n";
@@ -159,7 +160,7 @@ pub fn keychain_import_supported() -> bool {
 }
 
 fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
-    macos_keychain::read_generic_password(KEYCHAIN_SERVICE, None)
+    secure_backend::read_generic_password(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE, None)
         .context("could not query macOS Keychain for Codex credentials")
 }
 
@@ -434,13 +435,19 @@ pub fn apply_live_files(
                     name
                 )
             })?;
-            let account = macos_keychain::find_generic_password_account(KEYCHAIN_SERVICE)
-                .ok()
-                .flatten()
-                .or_else(|| std::env::var("USER").ok())
-                .unwrap_or_else(|| "aisw".to_owned());
-            macos_keychain::upsert_generic_password(KEYCHAIN_SERVICE, &account, &bytes)
-                .context("could not write Codex credentials into macOS Keychain")?;
+            let account =
+                secure_backend::find_generic_password_account(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE)
+                    .ok()
+                    .flatten()
+                    .or_else(|| std::env::var("USER").ok())
+                    .unwrap_or_else(|| "aisw".to_owned());
+            secure_backend::upsert_generic_password(
+                KEYCHAIN_BACKEND,
+                KEYCHAIN_SERVICE,
+                &account,
+                &bytes,
+            )
+            .context("could not write Codex credentials into macOS Keychain")?;
             crate::live_apply::apply_transaction(vec![LiveFileChange::write(
                 config_dest,
                 desired_live_keyring_store_config(user_home)?.into_bytes(),

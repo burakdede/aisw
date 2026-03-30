@@ -1,20 +1,30 @@
 use anyhow::{bail, Result};
 
-use super::macos_keychain;
+use super::secure_backend::{self, SecureBackend};
 use crate::types::Tool;
 
 const SERVICE: &str = "aisw";
+const BACKEND: SecureBackend = SecureBackend::MacosKeychain;
 
 pub fn read_profile_secret(tool: Tool, profile_name: &str) -> Result<Option<Vec<u8>>> {
-    macos_keychain::read_generic_password(SERVICE, Some(&profile_account(tool, profile_name)))
+    secure_backend::read_generic_password(
+        BACKEND,
+        SERVICE,
+        Some(&profile_account(tool, profile_name)),
+    )
 }
 
 pub fn write_profile_secret(tool: Tool, profile_name: &str, bytes: &[u8]) -> Result<()> {
-    macos_keychain::upsert_generic_password(SERVICE, &profile_account(tool, profile_name), bytes)
+    secure_backend::upsert_generic_password(
+        BACKEND,
+        SERVICE,
+        &profile_account(tool, profile_name),
+        bytes,
+    )
 }
 
 pub fn delete_profile_secret(tool: Tool, profile_name: &str) -> Result<()> {
-    macos_keychain::delete_generic_password(SERVICE, &profile_account(tool, profile_name))
+    secure_backend::delete_generic_password(BACKEND, SERVICE, &profile_account(tool, profile_name))
 }
 
 pub fn rename_profile_secret(tool: Tool, old_name: &str, new_name: &str) -> Result<()> {
@@ -37,7 +47,8 @@ pub fn snapshot_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) 
             profile_name
         );
     };
-    macos_keychain::upsert_generic_password(
+    secure_backend::upsert_generic_password(
+        BACKEND,
         SERVICE,
         &backup_account(tool, profile_name, backup_id),
         &bytes,
@@ -45,7 +56,8 @@ pub fn snapshot_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) 
 }
 
 pub fn restore_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) -> Result<()> {
-    let Some(bytes) = macos_keychain::read_generic_password(
+    let Some(bytes) = secure_backend::read_generic_password(
+        BACKEND,
         SERVICE,
         Some(&backup_account(tool, profile_name, backup_id)),
     )?
@@ -61,7 +73,11 @@ pub fn restore_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) -
 }
 
 pub fn delete_backup_secret(tool: Tool, profile_name: &str, backup_id: &str) -> Result<()> {
-    macos_keychain::delete_generic_password(SERVICE, &backup_account(tool, profile_name, backup_id))
+    secure_backend::delete_generic_password(
+        BACKEND,
+        SERVICE,
+        &backup_account(tool, profile_name, backup_id),
+    )
 }
 
 fn profile_account(tool: Tool, profile_name: &str) -> String {
