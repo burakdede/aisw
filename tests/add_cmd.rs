@@ -12,6 +12,46 @@ const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 const VALID_GEMINI_KEY_ALT: &str = "AIzaalt0987654321FEDCBA";
 
+fn add_fake_claude_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store=\"$HOME/claude-keychain.json\"\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             if [ -f \"$store\" ]; then\n\
+               cat \"$store\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -w)\n\
+                   shift\n\
+                   printf '%s' \"$1\" > \"$store\"\n\
+                   exit 0\n\
+                   ;;\n\
+                 *)\n\
+                   shift\n\
+                   ;;\n\
+               esac\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
 // ---- Claude ----
 
 #[test]
@@ -187,6 +227,52 @@ fn add_claude_oauth_succeeds_with_mocked_binary() {
         "o_auth"
     );
     env.assert_home_file_exists("profiles/claude/work/.credentials.json");
+}
+
+#[test]
+fn add_claude_oauth_succeeds_with_keychain_backed_credentials() {
+    let env = TestEnv::new();
+    add_fake_claude_security_tool(&env);
+    env.add_script_tool(
+        "claude",
+        "#!/bin/sh\n\
+         if [ \"$1\" = \"--version\" ]; then\n\
+           echo 'claude 2.3.0'\n\
+           exit 0\n\
+         fi\n\
+         security add-generic-password -U -a \"${USER:-tester}\" -s \"Claude Code-credentials\" -w '{\"account\":{\"email\":\"work@example.com\"}}'\n",
+    );
+
+    env.cmd()
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .args(["add", "claude", "work"])
+        .assert()
+        .success()
+        .stdout(contains("Added profile"));
+
+    env.assert_home_file_exists("profiles/claude/work/.credentials.json");
+}
+
+#[test]
+fn add_claude_recovers_from_unmanaged_orphaned_profile_dir() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    std::fs::create_dir_all(env.aisw_home.join("profiles").join("claude").join("work")).unwrap();
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", VALID_CLAUDE_KEY])
+        .assert()
+        .success()
+        .stdout(contains("Added profile"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["work"]["auth_method"],
+        "api_key"
+    );
 }
 
 // ---- Codex ----

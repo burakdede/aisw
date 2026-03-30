@@ -11,6 +11,46 @@ const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 
+fn add_fake_claude_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store=\"$HOME/claude-keychain.json\"\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             if [ -f \"$store\" ]; then\n\
+               cat \"$store\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -w)\n\
+                   shift\n\
+                   printf '%s' \"$1\" > \"$store\"\n\
+                   exit 0\n\
+                   ;;\n\
+                 *)\n\
+                   shift\n\
+                   ;;\n\
+               esac\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
 fn add_claude_profile(env: &TestEnv, name: &str) {
     env.add_fake_tool("claude", "claude 2.3.0");
     env.cmd()
@@ -599,6 +639,25 @@ fn use_quiet_suppresses_human_summary_output() {
         stdout.trim().is_empty(),
         "expected quiet use to be silent: {stdout}"
     );
+}
+
+#[test]
+fn use_claude_writes_keychain_when_keychain_backend_selected() {
+    let env = TestEnv::new();
+    add_fake_claude_security_tool(&env);
+    add_claude_profile(&env, "work");
+
+    env.cmd()
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .args(["use", "claude", "work"])
+        .assert()
+        .success();
+
+    let stored = std::fs::read(env.home_file("profiles/claude/work/.credentials.json")).unwrap();
+    let live = std::fs::read(env.fake_home.join("claude-keychain.json")).unwrap();
+    assert_eq!(live, stored);
 }
 
 #[test]

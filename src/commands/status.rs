@@ -268,6 +268,34 @@ mod tests {
     const CODEX_KEY: &str = "sk-codex-test-key-12345";
     const GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
+
     fn empty_path() -> OsString {
         OsString::from("")
     }
@@ -306,6 +334,7 @@ mod tests {
 
     #[test]
     fn active_profile_reflected_in_status() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let ps = ProfileStore::new(tmp.path());
         let cs = ConfigStore::new(tmp.path());
@@ -399,6 +428,7 @@ mod tests {
 
     #[test]
     fn claude_live_state_is_applied_when_live_credentials_match() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let profile_store = ProfileStore::new(tmp.path());
         let config_store = ConfigStore::new(tmp.path());
@@ -419,6 +449,7 @@ mod tests {
 
     #[test]
     fn claude_live_state_is_not_applied_when_live_credentials_are_missing() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let profile_store = ProfileStore::new(tmp.path());
         let config_store = ConfigStore::new(tmp.path());

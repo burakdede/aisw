@@ -14,6 +14,13 @@ use crate::types::{StateMode, Tool};
 const CREDENTIALS_FILE: &str = ".credentials.json";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClaudeAuthStorage {
+    File,
+    Keychain,
+}
 
 fn live_credentials_path(user_home: &Path) -> PathBuf {
     let primary = user_home.join(".claude").join(CREDENTIALS_FILE);
@@ -27,6 +34,106 @@ fn live_credentials_path(user_home: &Path) -> PathBuf {
     } else {
         primary
     }
+}
+
+fn auth_storage(user_home: &Path) -> ClaudeAuthStorage {
+    if let Some(storage) = forced_auth_storage() {
+        return storage;
+    }
+
+    if live_credentials_path(user_home).exists() {
+        ClaudeAuthStorage::File
+    } else if cfg!(target_os = "macos") && read_keychain_credentials().ok().flatten().is_some() {
+        ClaudeAuthStorage::Keychain
+    } else {
+        ClaudeAuthStorage::File
+    }
+}
+
+fn forced_auth_storage() -> Option<ClaudeAuthStorage> {
+    match std::env::var("AISW_CLAUDE_AUTH_STORAGE").as_deref() {
+        Ok("file") => Some(ClaudeAuthStorage::File),
+        Ok("keychain") => Some(ClaudeAuthStorage::Keychain),
+        _ => None,
+    }
+}
+
+fn watch_keychain_during_oauth() -> bool {
+    match forced_auth_storage() {
+        Some(ClaudeAuthStorage::File) => false,
+        Some(ClaudeAuthStorage::Keychain) => true,
+        None => cfg!(target_os = "macos"),
+    }
+}
+
+fn security_bin() -> String {
+    std::env::var("AISW_SECURITY_BIN").unwrap_or_else(|_| "security".to_owned())
+}
+
+fn keychain_account() -> String {
+    std::env::var("USER").unwrap_or_else(|_| "aisw".to_owned())
+}
+
+fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
+    let output = Command::new(security_bin())
+        .args(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"])
+        .output()
+        .context("could not query macOS Keychain for Claude Code credentials")?;
+
+    if output.status.success() {
+        let mut bytes = output.stdout;
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+            if bytes.last() == Some(&b'\r') {
+                bytes.pop();
+            }
+        }
+        return Ok(Some(bytes));
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("could not be found") || stderr.contains("not found in the keychain") {
+        Ok(None)
+    } else {
+        bail!(
+            "could not read Claude Code credentials from Keychain: {}",
+            stderr.trim()
+        )
+    }
+}
+
+fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
+    let secret = std::str::from_utf8(bytes).context("Claude credentials are not valid UTF-8")?;
+    let output = Command::new(security_bin())
+        .args([
+            "add-generic-password",
+            "-U",
+            "-a",
+            &keychain_account(),
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-w",
+            secret,
+        ])
+        .output()
+        .context("could not write Claude Code credentials into macOS Keychain")?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "could not update Claude Code credentials in Keychain: {}",
+            stderr.trim()
+        )
+    }
+}
+
+fn capture_keychain_credentials(profile_dir: &Path, bytes: &[u8]) -> Result<PathBuf> {
+    let path = profile_dir.join(CREDENTIALS_FILE);
+    std::fs::write(&path, bytes).with_context(|| format!("could not write {}", path.display()))?;
+    files::set_permissions_600(&path)?;
+    Ok(path)
 }
 
 pub fn add_api_key(
@@ -152,6 +259,21 @@ fn run_oauth_flow(
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<PathBuf> {
+    let forced_storage = forced_auth_storage();
+    let mut watch_keychain = watch_keychain_during_oauth();
+    let keychain_before = if watch_keychain {
+        match read_keychain_credentials() {
+            Ok(credentials) => credentials,
+            Err(_err) if forced_storage != Some(ClaudeAuthStorage::Keychain) => {
+                watch_keychain = false;
+                None
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        None
+    };
+
     let mut child = Command::new(claude_bin)
         .env("CLAUDE_CONFIG_DIR", profile_dir)
         .spawn()
@@ -166,6 +288,41 @@ fn run_oauth_flow(
             let _ = child.kill();
             let _ = child.wait();
             return Ok(credentials_path);
+        }
+
+        if watch_keychain {
+            if let Some(current) = read_keychain_credentials()? {
+                let changed = keychain_before.as_deref() != Some(current.as_slice());
+                if changed {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return capture_keychain_credentials(profile_dir, &current);
+                }
+            }
+        }
+
+        if let Some(status) = child
+            .try_wait()
+            .with_context(|| format!("could not poll {}", claude_bin.display()))?
+        {
+            if watch_keychain {
+                if let Some(current) = read_keychain_credentials()? {
+                    if keychain_before.is_none() {
+                        return capture_keychain_credentials(profile_dir, &current);
+                    }
+                }
+            }
+
+            let exit_note = if status.success() {
+                "Claude exited"
+            } else {
+                "Claude exited with an error"
+            };
+            bail!(
+                "{} before aisw could capture credentials.\n  \
+                 On this platform Claude may be storing auth outside CLAUDE_CONFIG_DIR.",
+                exit_note
+            );
         }
 
         if Instant::now() >= deadline {
@@ -216,13 +373,19 @@ pub fn apply_live_credentials(
     name: &str,
     user_home: &Path,
 ) -> Result<()> {
-    files::apply_profile_file(
-        profile_store,
-        Tool::Claude,
-        name,
-        CREDENTIALS_FILE,
-        live_credentials_path(user_home),
-    )
+    match auth_storage(user_home) {
+        ClaudeAuthStorage::File => files::apply_profile_file(
+            profile_store,
+            Tool::Claude,
+            name,
+            CREDENTIALS_FILE,
+            live_credentials_path(user_home),
+        ),
+        ClaudeAuthStorage::Keychain => {
+            let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
+            write_keychain_credentials(&bytes)
+        }
+    }
 }
 
 pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode) {
@@ -245,13 +408,22 @@ pub fn live_credentials_match(
     name: &str,
     user_home: &Path,
 ) -> Result<bool> {
-    files::stored_profile_file_matches_live(
-        profile_store,
-        Tool::Claude,
-        name,
-        CREDENTIALS_FILE,
-        &live_credentials_path(user_home),
-    )
+    match auth_storage(user_home) {
+        ClaudeAuthStorage::File => files::stored_profile_file_matches_live(
+            profile_store,
+            Tool::Claude,
+            name,
+            CREDENTIALS_FILE,
+            &live_credentials_path(user_home),
+        ),
+        ClaudeAuthStorage::Keychain => {
+            let Some(live) = read_keychain_credentials()? else {
+                return Ok(false);
+            };
+            let stored = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
+            Ok(live == stored)
+        }
+    }
 }
 
 fn shell_single_quote(value: &str) -> String {
@@ -261,6 +433,7 @@ fn shell_single_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use tempfile::tempdir;
 
     use super::*;
@@ -273,6 +446,35 @@ mod tests {
 
     fn stores(dir: &std::path::Path) -> (ProfileStore, ConfigStore) {
         (ProfileStore::new(dir), ConfigStore::new(dir))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            // Tests that mutate this hold SPAWN_LOCK, so process-wide env access stays serialized.
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
     }
 
     #[test]
@@ -431,6 +633,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_flow_succeeds_when_credentials_appear() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
@@ -460,6 +663,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_duplicate_identity_is_rejected_and_cleaned_up() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
@@ -512,14 +716,14 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn oauth_flow_times_out_when_no_credentials() {
+    fn oauth_flow_errors_when_claude_exits_without_credentials() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
-        // Mock exits immediately without writing credentials.  The poll loop
-        // checks for the file (not whether the child is running), so it keeps
-        // polling until the timeout fires — no long-lived child processes.
+        // Mock exits immediately without writing credentials so the OAuth flow
+        // reports an actionable capture failure instead of hanging.
         let bin = make_oauth_mock(&bin_dir, false);
 
         let (ps, cs) = stores(dir.path());
@@ -534,8 +738,13 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("timed out"));
-        // Profile dir cleaned up after timeout.
+        let message = err.to_string();
+        assert!(
+            message.contains("exited before aisw could capture credentials")
+                || message.contains("timed out"),
+            "unexpected error: {message}"
+        );
+        // Profile dir cleaned up after the failed OAuth attempt.
         assert!(!ps.exists(Tool::Claude, "work"));
     }
 
@@ -543,6 +752,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_credentials_file_has_600_permissions() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
@@ -571,6 +781,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_sets_claude_config_dir_env() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
