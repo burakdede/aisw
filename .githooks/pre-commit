@@ -7,9 +7,17 @@ if ! command -v cargo &>/dev/null; then
 fi
 
 echo "--- fmt ---"
-cargo fmt
-git add -u
+cargo fmt --check
 echo "--- clippy ---"
 cargo clippy --all-targets -- -D warnings
+echo "--- build (release) ---"
+cargo build --release
+echo "--- test ---"
+cargo test
+
+if command -v bash &>/dev/null; then
+  echo "--- completions smoke ---"
+  bash tests/completions_smoke.sh
+fi
 
 echo "pre-commit: ok"

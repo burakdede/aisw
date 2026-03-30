@@ -39,17 +39,12 @@ impl std::fmt::Display for Tool {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StateMode {
+    #[default]
     Isolated,
     Shared,
-}
-
-impl Default for StateMode {
-    fn default() -> Self {
-        Self::Isolated
-    }
 }
 
 impl StateMode {

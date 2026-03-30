@@ -8,11 +8,23 @@ After cloning, run this once to activate the local git hooks:
 git config core.hooksPath .githooks
 ```
 
+Verify it is active:
+
+```
+git config --get core.hooksPath
+```
+
+Expected output:
+
+```
+.githooks
+```
+
 This installs two hooks:
-- **pre-commit** — runs `cargo fmt --check` and `cargo clippy -D warnings`
+- **pre-commit** — runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo build --release`, `cargo test`, and `bash tests/completions_smoke.sh` when `bash` is available
 - **pre-push** — runs `cargo test` and `cargo build --release`
 
-These mirror the CI checks so failures are caught locally before they hit GitHub Actions.
+These mirror most of the CI checks so failures are caught locally before they hit GitHub Actions. Coverage and GitHub-hosted matrix-only checks still run in CI.
 
 ## Requirements
 
