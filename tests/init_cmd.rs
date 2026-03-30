@@ -52,6 +52,43 @@ fn add_fake_claude_security_tool(env: &TestEnv) {
     );
 }
 
+fn add_fake_codex_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store=\"$HOME/codex-keychain.json\"\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   [ \"$1\" = \"Codex Auth\" ] || exit 44\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             if [ -f \"$store\" ]; then\n\
+               value=''\n\
+               while IFS= read -r line || [ -n \"$line\" ]; do\n\
+                 value=\"$value$line\"\n\
+               done < \"$store\"\n\
+               printf '%s' \"$value\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
 fn run_init(env: &TestEnv) -> assert_cmd::assert::Assert {
     env.cmd().args(["init", "--yes"]).assert()
 }
@@ -286,6 +323,42 @@ fn init_reports_codex_local_state_without_importable_auth() {
         .join("codex")
         .join("default")
         .exists());
+}
+
+#[test]
+fn init_imports_codex_credentials_from_keychain() {
+    let env = TestEnv::new();
+    add_fake_codex_security_tool(&env);
+    let codex_dir = env.fake_home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(
+        codex_dir.join("config.toml"),
+        b"cli_auth_credentials_store = \"keyring\"\n",
+    )
+    .unwrap();
+    fs::write(
+        env.fake_home.join("codex-keychain.json"),
+        b"{\"token\":\"tok\"}",
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("AISW_CODEX_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .assert()
+        .success()
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("Local state"))
+        .stdout(contains(".codex"))
+        .stdout(contains("found macOS Keychain"))
+        .stdout(contains(
+            "Imported Codex CLI credentials as profile 'default' and marked it active.",
+        ));
+
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join("default");
+    assert!(profile_dir.join("auth.json").exists());
+    assert!(profile_dir.join("config.toml").exists());
 }
 
 #[test]

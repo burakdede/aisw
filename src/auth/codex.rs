@@ -15,6 +15,7 @@ use crate::types::{StateMode, Tool};
 
 const AUTH_FILE: &str = "auth.json";
 const CONFIG_FILE: &str = "config.toml";
+const KEYCHAIN_SERVICE: &str = "Codex Auth";
 
 // Codex reads credentials from a file rather than the OS keyring when this is set.
 const CONFIG_TOML_CONTENTS: &str = "cli_auth_credentials_store = \"file\"\n";
@@ -55,6 +56,7 @@ impl LiveAuthStorage {
 
 pub enum LiveCredentialSource {
     File(PathBuf),
+    Keychain,
 }
 
 pub struct LiveCredentialSnapshot {
@@ -87,7 +89,18 @@ pub fn live_credentials_snapshot_for_import(
 ) -> Result<Option<LiveCredentialSnapshot>> {
     let auth_path = live_auth_path(user_home);
     if !auth_path.exists() {
-        return Ok(None);
+        if live_local_state_dir(user_home).is_none() {
+            return Ok(None);
+        }
+
+        let Some(bytes) = read_live_keychain_credentials_for_import()? else {
+            return Ok(None);
+        };
+
+        return Ok(Some(LiveCredentialSnapshot {
+            bytes,
+            source: LiveCredentialSource::Keychain,
+        }));
     }
 
     let bytes =
@@ -127,6 +140,121 @@ fn auth_storage_from_str(raw: &str) -> LiveAuthStorage {
         "file" => LiveAuthStorage::File,
         "keyring" => LiveAuthStorage::Keyring,
         _ => LiveAuthStorage::Unknown,
+    }
+}
+
+fn forced_auth_storage() -> Option<LiveAuthStorage> {
+    match std::env::var("AISW_CODEX_AUTH_STORAGE").as_deref() {
+        Ok("auto") => Some(LiveAuthStorage::Auto),
+        Ok("file") => Some(LiveAuthStorage::File),
+        Ok("keychain") => Some(LiveAuthStorage::Keyring),
+        _ => None,
+    }
+}
+
+pub fn keychain_import_supported() -> bool {
+    forced_auth_storage() == Some(LiveAuthStorage::Keyring) || cfg!(target_os = "macos")
+}
+
+fn security_bin() -> String {
+    std::env::var("AISW_SECURITY_BIN").unwrap_or_else(|_| "security".to_owned())
+}
+
+fn explicit_keychain_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("AISW_SECURITY_KEYCHAIN") {
+        return Some(PathBuf::from(path));
+    }
+
+    let user = std::env::var("USER").ok()?;
+    let home = std::fs::read_to_string("/etc/passwd")
+        .ok()
+        .and_then(|passwd| {
+            passwd.lines().find_map(|line| {
+                let mut fields = line.split(':');
+                let name = fields.next()?;
+                if name != user {
+                    return None;
+                }
+                let _password = fields.next()?;
+                let _uid = fields.next()?;
+                let _gid = fields.next()?;
+                let _gecos = fields.next()?;
+                let home = fields.next()?;
+                Some(home.to_owned())
+            })
+        })
+        .or_else(|| {
+            let output = Command::new("dscl")
+                .args([".", "-read", &format!("/Users/{user}"), "NFSHomeDirectory"])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let stdout = String::from_utf8(output.stdout).ok()?;
+            stdout.lines().find_map(|line| {
+                line.strip_prefix("NFSHomeDirectory: ")
+                    .map(ToOwned::to_owned)
+            })
+        })?;
+    Some(PathBuf::from(home).join("Library/Keychains/login.keychain-db"))
+}
+
+fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
+    let mut command = Command::new(security_bin());
+    command.args(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
+    if let Some(path) = explicit_keychain_path() {
+        command.arg(path);
+    }
+
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(err) => {
+            return Err(err).context("could not query macOS Keychain for Codex credentials");
+        }
+    };
+
+    if output.status.success() {
+        let mut bytes = output.stdout;
+        if bytes.last() == Some(&b'\n') {
+            bytes.pop();
+            if bytes.last() == Some(&b'\r') {
+                bytes.pop();
+            }
+        }
+        return Ok(Some(bytes));
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("could not be found") || stderr.contains("not found in the keychain") {
+        Ok(None)
+    } else {
+        bail!(
+            "could not read Codex credentials from Keychain: {}",
+            stderr.trim()
+        )
+    }
+}
+
+pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
+    if !keychain_import_supported() {
+        return Ok(None);
+    }
+
+    match read_keychain_credentials() {
+        Ok(credentials) => Ok(credentials),
+        Err(err) if forced_auth_storage() != Some(LiveAuthStorage::Keyring) => {
+            if err.chain().any(|cause| {
+                cause
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
+            }) {
+                Ok(None)
+            } else {
+                Err(err)
+            }
+        }
+        Err(err) => Err(err),
     }
 }
 
@@ -434,6 +562,8 @@ fn shell_single_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use tempfile::tempdir;
 
     use super::*;
@@ -446,6 +576,34 @@ mod tests {
 
     fn stores(dir: &std::path::Path) -> (ProfileStore, ConfigStore) {
         (ProfileStore::new(dir), ConfigStore::new(dir))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
     }
 
     #[test]
@@ -535,6 +693,69 @@ mod tests {
             LiveCredentialSource::File(path) => {
                 assert_eq!(path, user_home.join(".codex").join(AUTH_FILE));
             }
+            LiveCredentialSource::Keychain => panic!("expected file-backed snapshot"),
+        }
+    }
+
+    #[test]
+    fn live_credentials_snapshot_reads_keychain_when_enabled() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        std::fs::write(
+            user_home.join(".codex").join(CONFIG_FILE),
+            "model = \"gpt-5.4\"\n",
+        )
+        .unwrap();
+
+        let security_bin = bin_dir.join("security");
+        std::fs::write(
+            &security_bin,
+            format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = \"find-generic-password\" ] && [ \"$2\" = \"-s\" ] && [ \"$3\" = \"{}\" ] && [ \"$4\" = \"-w\" ]; then\n\
+                   printf '%s' '{{\"token\":\"tok\"}}'\n\
+                   exit 0\n\
+                 fi\n\
+                 echo \"unexpected security invocation: $@\" >&2\n\
+                 exit 1\n",
+                KEYCHAIN_SERVICE
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&security_bin, std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "keychain");
+        let _security = EnvVarGuard::set(
+            "AISW_SECURITY_BIN",
+            security_bin
+                .to_str()
+                .expect("security path should be utf-8"),
+        );
+        let _keychain = EnvVarGuard::set(
+            "AISW_SECURITY_KEYCHAIN",
+            user_home
+                .join("Library/Keychains/login.keychain-db")
+                .to_str()
+                .expect("keychain path should be utf-8"),
+        );
+
+        let snapshot = live_credentials_snapshot_for_import(&user_home)
+            .unwrap()
+            .expect("snapshot should exist");
+
+        assert_eq!(snapshot.bytes, br#"{"token":"tok"}"#);
+        match snapshot.source {
+            LiveCredentialSource::Keychain => {}
+            LiveCredentialSource::File(_) => panic!("expected keychain-backed snapshot"),
         }
     }
 

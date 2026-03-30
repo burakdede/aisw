@@ -584,6 +584,9 @@ fn import_codex(
             let bytes = snapshot.bytes;
             (format!("found {}", path.display()), bytes)
         }
+        auth::codex::LiveCredentialSource::Keychain => {
+            ("found macOS Keychain".to_owned(), snapshot.bytes)
+        }
     };
     if let Some(secret) = extract_json_string_field(&source_bytes, "token") {
         if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
