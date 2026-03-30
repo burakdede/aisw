@@ -84,6 +84,7 @@ For the full first-run flow, examples, and supported auth modes, see [Quickstart
 | `aisw backup list` | List credential backups |
 | `aisw backup restore <backup_id>` | Restore credentials from a backup |
 | `aisw init` | First-run setup wizard |
+| `aisw uninstall [--dry-run] [--remove-data]` | Remove shell integration and optionally delete `~/.aisw` |
 | `aisw shell-hook <shell>` | Print the shell integration snippet |
 
 See the full [Commands](https://burakdede.github.io/aisw/commands/) reference for flags and examples.

@@ -45,6 +45,12 @@ If it's empty, the hook is not loaded.
    ```
 3. Check for shell-specific issues in [Shell Integration](/aisw/shell-integration/).
 
+If you want to remove the hook cleanly instead of editing rc files by hand:
+```sh
+aisw uninstall --dry-run
+aisw uninstall --yes
+```
+
 ---
 
 ## 2. "Tool not installed" error

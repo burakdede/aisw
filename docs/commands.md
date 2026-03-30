@@ -225,6 +225,36 @@ aisw init --yes
 
 ---
 
+## aisw uninstall
+
+Safely remove `aisw` shell integration and optionally delete `~/.aisw`.
+
+```
+aisw uninstall [--dry-run] [--remove-data] [--yes]
+```
+
+By default, `aisw uninstall` removes only the `aisw`-managed shell hook block from supported rc files and keeps `~/.aisw` intact. It does not modify upstream tool directories such as `~/.claude`, `~/.codex`, or `~/.gemini`.
+
+Use `--dry-run` first to preview what will change. Use `--remove-data` if you also want to delete `~/.aisw` after shell integration is removed.
+
+| Flag | Description |
+|---|---|
+| `--dry-run` | Preview the uninstall plan without changing any files |
+| `--remove-data` | Delete `~/.aisw` after removing shell integration |
+| `--yes` | Skip the confirmation prompt |
+
+Examples:
+
+```
+aisw uninstall --dry-run
+aisw uninstall --yes
+aisw uninstall --remove-data --yes
+```
+
+`aisw uninstall` removes only the `aisw` marker block it installed in bash, zsh, and fish rc files. It does not remove completions or the `aisw` binary itself; restart your shell or source the rc file after uninstalling, and remove the binary manually if you no longer want it installed.
+
+---
+
 ## aisw shell-hook
 
 Print the shell integration code for manual installation.

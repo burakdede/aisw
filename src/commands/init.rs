@@ -16,7 +16,7 @@ use crate::tool_detection::{self, DetectedTool};
 use crate::types::Tool;
 
 // Marker written by shell_hook.rs — must match.
-const HOOK_MARKER: &str = "# Added by aisw";
+pub(crate) const HOOK_MARKER: &str = "# Added by aisw";
 
 pub(crate) fn run_inner(
     aisw_home: &Path,
@@ -90,7 +90,7 @@ fn print_detected_tools(detected: &HashMap<Tool, Option<DetectedTool>>) {
     }
 }
 
-fn rc_file(user_home: &Path, shell: &str) -> PathBuf {
+pub(crate) fn rc_file(user_home: &Path, shell: &str) -> PathBuf {
     match shell {
         "bash" => {
             if cfg!(target_os = "macos") {

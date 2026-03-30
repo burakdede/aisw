@@ -119,3 +119,12 @@ echo $AISW_SHELL_HOOK   # should print 1
 
 Remove or comment out the `eval` / `source` line from your shell config, then start a
 new shell session.
+
+If you want `aisw` to remove only its managed hook block for you, run:
+
+```sh
+aisw uninstall --dry-run
+aisw uninstall --yes
+```
+
+`aisw uninstall` is conservative by default: it removes the `aisw` shell hook block and keeps `~/.aisw` unless you explicitly add `--remove-data`.

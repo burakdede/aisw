@@ -74,6 +74,9 @@ pub enum Command {
     /// First-run setup: shell integration and credential import
     Init(InitArgs),
 
+    /// Remove aisw shell integration and optionally delete aisw-managed data
+    Uninstall(UninstallArgs),
+
     /// Print the shell integration hook for the given shell
     #[command(name = "shell-hook")]
     ShellHook(ShellHookArgs),
@@ -170,6 +173,21 @@ pub struct StatusArgs {
 #[derive(Args, Debug)]
 pub struct InitArgs {
     /// Answer yes to all confirmation prompts
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct UninstallArgs {
+    /// Delete AISW_HOME (profiles, config, backups) after removing shell integration
+    #[arg(long)]
+    pub remove_data: bool,
+
+    /// Show what would be removed without changing any files. Recommended before uninstalling.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Skip the confirmation prompt
     #[arg(long)]
     pub yes: bool,
 }
@@ -352,6 +370,17 @@ mod tests {
         let Command::Init(args) = cli.command else {
             panic!("wrong command")
         };
+        assert!(args.yes);
+    }
+
+    #[test]
+    fn uninstall_flags() {
+        let cli = parse(&["uninstall", "--dry-run", "--remove-data", "--yes"]).unwrap();
+        let Command::Uninstall(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(args.dry_run);
+        assert!(args.remove_data);
         assert!(args.yes);
     }
 

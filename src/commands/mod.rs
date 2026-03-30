@@ -11,6 +11,7 @@ pub mod remove;
 pub mod rename;
 pub mod shell_hook;
 pub mod status;
+pub mod uninstall;
 pub mod use_;
 
 pub fn dispatch(cli: Cli) -> Result<()> {
@@ -32,6 +33,10 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 );
             }
             init::run_inner(&home, &user_home, shell_env.as_deref(), args.yes)?;
+        }
+        Command::Uninstall(args) => {
+            let user_home = dirs::home_dir().context("could not determine home directory")?;
+            uninstall::run(args, &home, &user_home)?;
         }
         Command::ShellHook(args) => shell_hook::run(args)?,
         Command::Backup(args) => backup::run(args.command, &home)?,
