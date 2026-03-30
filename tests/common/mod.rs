@@ -3,6 +3,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command as StdCommand, Output};
 
 use assert_cmd::Command;
 use tempfile::TempDir;
@@ -68,6 +69,51 @@ impl TestEnv {
             .args(args)
             .output()
             .unwrap_or_else(|_| panic!("command failed to launch: {}", args.join(" ")))
+    }
+
+    pub fn aisw_bin(&self) -> PathBuf {
+        assert_cmd::cargo::cargo_bin("aisw")
+    }
+
+    pub fn shell_path(&self) -> String {
+        let aisw_bin = self.aisw_bin();
+        let aisw_dir = aisw_bin
+            .parent()
+            .expect("aisw binary should have a parent directory");
+        let system_path = std::env::var("PATH").unwrap_or_default();
+        format!(
+            "{}:{}:{}",
+            self.bin_dir.display(),
+            aisw_dir.display(),
+            system_path
+        )
+    }
+
+    pub fn shell_cmd(&self, shell: &str) -> Option<StdCommand> {
+        let mut cmd = match shell {
+            "bash" => {
+                let mut cmd = StdCommand::new("bash");
+                cmd.args(["--noprofile", "--norc"]);
+                cmd
+            }
+            "zsh" => {
+                let mut cmd = StdCommand::new("zsh");
+                cmd.arg("-f");
+                cmd
+            }
+            _ => panic!("unsupported shell: {shell}"),
+        };
+
+        cmd.env("AISW_HOME", &self.aisw_home)
+            .env("HOME", &self.fake_home)
+            .env("PATH", self.shell_path());
+
+        Some(cmd)
+    }
+
+    pub fn run_shell_script(&self, shell: &str, script: &str) -> Option<Output> {
+        let mut cmd = self.shell_cmd(shell)?;
+        cmd.args(["-c", script]).output().ok()
     }
 
     /// Convenience: path to a file inside AISW_HOME.
