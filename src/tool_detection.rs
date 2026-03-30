@@ -10,6 +10,8 @@ use anyhow::{bail, Result};
 use crate::types::Tool;
 
 const VERSION_TIMEOUT: Duration = Duration::from_millis(750);
+#[cfg(test)]
+type VersionFn = fn(&std::path::Path) -> Option<String>;
 
 #[derive(Debug, Clone)]
 pub struct DetectedTool {
@@ -18,8 +20,20 @@ pub struct DetectedTool {
     pub version: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+enum VersionSource {
+    None,
+    Capture,
+    #[cfg(test)]
+    Custom(VersionFn),
+}
+
 pub fn detect(tool: Tool) -> Option<DetectedTool> {
-    detect_with_version_in(tool, std::env::var_os("PATH").unwrap_or_default())
+    detect_at(
+        tool,
+        std::env::var_os("PATH").unwrap_or_default(),
+        VersionSource::Capture,
+    )
 }
 
 pub fn detect_all() -> HashMap<Tool, Option<DetectedTool>> {
@@ -53,26 +67,17 @@ pub(crate) fn require_in(tool: Tool, path: OsString) -> Result<DetectedTool> {
 }
 
 pub(crate) fn detect_in(tool: Tool, path: OsString) -> Option<DetectedTool> {
-    let binary_path = find_binary_path(tool, &path)?;
-    Some(DetectedTool {
-        tool,
-        binary_path,
-        version: None,
-    })
+    detect_at(tool, path, VersionSource::None)
 }
 
-pub(crate) fn detect_with_version_in(tool: Tool, path: OsString) -> Option<DetectedTool> {
-    detect_in_with(tool, path, capture_version)
-}
-
-/// Separated from `detect_in` so tests can inject a mock version getter and avoid
-/// spawning real processes (which is the root cause of parallel-test flakiness).
-fn detect_in_with<F>(tool: Tool, path: OsString, version_fn: F) -> Option<DetectedTool>
-where
-    F: Fn(&std::path::Path) -> Option<String>,
-{
+fn detect_at(tool: Tool, path: OsString, version_source: VersionSource) -> Option<DetectedTool> {
     let binary_path = find_binary_path(tool, &path)?;
-    let version = version_fn(&binary_path);
+    let version = match version_source {
+        VersionSource::None => None,
+        VersionSource::Capture => capture_version(&binary_path),
+        #[cfg(test)]
+        VersionSource::Custom(version_fn) => version_fn(&binary_path),
+    };
     Some(DetectedTool {
         tool,
         binary_path,
@@ -149,14 +154,27 @@ mod tests {
     }
 
     // --- Binary discovery tests (no process spawning) ---
-    // These use detect_in_with with a mock version getter so they are not
+    // These use detect_at with a mock version getter so they are not
     // affected by OS process-spawn latency or resource contention.
+
+    fn no_version(_: &Path) -> Option<String> {
+        None
+    }
+
+    fn injected_version(_: &Path) -> Option<String> {
+        Some("injected 1.2.3".to_owned())
+    }
 
     #[test]
     fn detect_missing_returns_none() {
         let dir = tempdir().unwrap();
         // No binary in dir — should be absent regardless of version getter.
-        assert!(detect_in_with(Tool::Claude, path_of(dir.path()), |_| None).is_none());
+        assert!(detect_at(
+            Tool::Claude,
+            path_of(dir.path()),
+            VersionSource::Custom(no_version)
+        )
+        .is_none());
     }
 
     #[test]
@@ -164,7 +182,12 @@ mod tests {
         let dir = tempdir().unwrap();
         make_dummy_binary(dir.path(), "claude", "irrelevant", true);
 
-        let result = detect_in_with(Tool::Claude, path_of(dir.path()), |_| None).unwrap();
+        let result = detect_at(
+            Tool::Claude,
+            path_of(dir.path()),
+            VersionSource::Custom(no_version),
+        )
+        .unwrap();
         assert_eq!(result.tool, Tool::Claude);
         assert_eq!(result.binary_path, dir.path().join("claude"));
     }
@@ -174,9 +197,11 @@ mod tests {
         let dir = tempdir().unwrap();
         make_dummy_binary(dir.path(), "claude", "irrelevant", true);
 
-        let result = detect_in_with(Tool::Claude, path_of(dir.path()), |_| {
-            Some("injected 1.2.3".to_owned())
-        })
+        let result = detect_at(
+            Tool::Claude,
+            path_of(dir.path()),
+            VersionSource::Custom(injected_version),
+        )
         .unwrap();
         assert_eq!(result.version.as_deref(), Some("injected 1.2.3"));
     }
@@ -184,7 +209,11 @@ mod tests {
     #[test]
     fn require_missing_errors_with_guidance() {
         let dir = tempdir().unwrap();
-        let result = detect_in_with(Tool::Claude, path_of(dir.path()), |_| None);
+        let result = detect_at(
+            Tool::Claude,
+            path_of(dir.path()),
+            VersionSource::Custom(no_version),
+        );
         assert!(result.is_none());
 
         let err = anyhow::anyhow!(
@@ -200,7 +229,12 @@ mod tests {
         let dir = tempdir().unwrap();
         make_dummy_binary(dir.path(), "codex", "irrelevant", true);
 
-        let result = detect_in_with(Tool::Codex, path_of(dir.path()), |_| None).unwrap();
+        let result = detect_at(
+            Tool::Codex,
+            path_of(dir.path()),
+            VersionSource::Custom(no_version),
+        )
+        .unwrap();
         assert_eq!(result.tool, Tool::Codex);
     }
 
@@ -222,12 +256,17 @@ mod tests {
         let dir = tempdir().unwrap();
         make_dummy_binary(dir.path(), "gemini", "irrelevant", true);
 
-        // detect_all uses env PATH; drive detect_in_with directly for isolation.
+        // detect_all uses env PATH; drive detect_at directly for isolation.
         let path = path_of(dir.path());
         let results: HashMap<Tool, Option<DetectedTool>> =
             [Tool::Claude, Tool::Codex, Tool::Gemini]
                 .into_iter()
-                .map(|t| (t, detect_in_with(t, path.clone(), |_| None)))
+                .map(|t| {
+                    (
+                        t,
+                        detect_at(t, path.clone(), VersionSource::Custom(no_version)),
+                    )
+                })
                 .collect();
 
         assert!(results[&Tool::Gemini].is_some());
