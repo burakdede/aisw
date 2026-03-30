@@ -1,6 +1,4 @@
-use std::ffi::CStr;
 use std::io::Write;
-use std::mem::MaybeUninit;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -125,20 +123,7 @@ pub fn find_generic_password_account(service: &str) -> Result<Option<String>> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    for line in combined.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("\"acct\"") {
-            continue;
-        }
-        if let Some(eq) = trimmed.find('=') {
-            let value = trimmed[eq + 1..].trim().trim_matches('"');
-            if !value.is_empty() {
-                return Ok(Some(value.to_owned()));
-            }
-        }
-    }
-
-    Ok(None)
+    Ok(parse_attribute_value(&combined, "acct"))
 }
 
 pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
@@ -194,40 +179,121 @@ fn explicit_keychain_path() -> Option<PathBuf> {
         return Some(PathBuf::from(path));
     }
 
-    current_user_home_dir().map(|home| home.join("Library/Keychains/login.keychain-db"))
+    login_keychain_path()
 }
 
-#[cfg(target_os = "macos")]
-fn current_user_home_dir() -> Option<PathBuf> {
-    let uid = unsafe { libc::geteuid() };
-    let size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
-    let mut buf = vec![0u8; if size > 0 { size as usize } else { 4096 }];
-    let mut pwd = MaybeUninit::<libc::passwd>::uninit();
-    let mut result = std::ptr::null_mut();
-
-    let rc = unsafe {
-        libc::getpwuid_r(
-            uid,
-            pwd.as_mut_ptr(),
-            buf.as_mut_ptr().cast(),
-            buf.len(),
-            &mut result,
-        )
-    };
-    if rc != 0 || result.is_null() {
+fn login_keychain_path() -> Option<PathBuf> {
+    let output = Command::new(security_bin())
+        .args(["login-keychain", "-d", "user"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
         return None;
     }
 
-    let pwd = unsafe { pwd.assume_init() };
-    if pwd.pw_dir.is_null() {
-        return None;
-    }
-
-    let home = unsafe { CStr::from_ptr(pwd.pw_dir) }.to_str().ok()?;
-    Some(PathBuf::from(home))
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    parse_first_quoted_value(&combined).map(PathBuf::from)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn current_user_home_dir() -> Option<PathBuf> {
+fn parse_first_quoted_value(text: &str) -> Option<String> {
+    let start = text.find('"')?;
+    let rest = &text[start + 1..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_owned())
+}
+
+fn parse_attribute_value(text: &str, key: &str) -> Option<String> {
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with(&format!("\"{key}\"")) {
+            continue;
+        }
+        let (_, value) = trimmed.split_once('=')?;
+        let value = value.trim();
+        if let Some(parsed) = parse_first_quoted_value(value) {
+            return Some(parsed);
+        }
+        if !value.is_empty() {
+            return Some(value.to_owned());
+        }
+    }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::tempdir;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        old: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let old = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, old }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.old {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn explicit_keychain_path_uses_security_login_keychain() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"login-keychain\" ]; then\n\
+               printf '    \"/tmp/test-login.keychain-db\"\\n'\n\
+               exit 0\n\
+             fi\n\
+             exit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let _keychain = EnvVarGuard::set("AISW_SECURITY_KEYCHAIN", "");
+        std::env::remove_var("AISW_SECURITY_KEYCHAIN");
+
+        assert_eq!(
+            explicit_keychain_path(),
+            Some(PathBuf::from("/tmp/test-login.keychain-db"))
+        );
+    }
+
+    #[test]
+    fn find_generic_password_account_parses_blob_output() {
+        let output = "keychain: \"/tmp/test-login.keychain-db\"\n\
+                      class: \"genp\"\n\
+                      attributes:\n\
+                          0x00000007 <blob>=\"Codex Auth\"\n\
+                          \"acct\"<blob>=\"burak\"\n";
+
+        assert_eq!(
+            parse_attribute_value(output, "acct"),
+            Some("burak".to_owned())
+        );
+    }
 }

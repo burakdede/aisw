@@ -1,6 +1,8 @@
 // Integration tests for `aisw add` across all tools.
 mod common;
 
+use std::fs;
+
 use common::assert_output_redacts_secret;
 use common::TestEnv;
 use predicates::str::contains;
@@ -50,6 +52,77 @@ fn add_fake_claude_security_tool(env: &TestEnv) {
                    shift\n\
                    ;;\n\
                esac\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
+fn add_fake_codex_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             service=''\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             case \"$service\" in\n\
+               \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
+               \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
+               *) store=\"$HOME/unknown-keychain.json\" ;;\n\
+             esac\n\
+             if [ -f \"$store\" ]; then\n\
+               value=''\n\
+               while IFS= read -r line || [ -n \"$line\" ]; do\n\
+                 value=\"$value$line\"\n\
+               done < \"$store\"\n\
+               printf '%s' \"$value\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             service=''\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -w)\n\
+                   shift\n\
+                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                     secret=\"$1\"\n\
+                   else\n\
+                     IFS= read -r secret || true\n\
+                   fi\n\
+                   case \"$service\" in\n\
+                     \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
+                     \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
+                     *) store=\"$HOME/unknown-keychain.json\" ;;\n\
+                   esac\n\
+                   printf '%s' \"$secret\" > \"$store\"\n\
+                   exit 0\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
              done\n\
              echo 'missing -w password' >&2\n\
              exit 1\n\
@@ -369,6 +442,7 @@ fn add_codex_oauth_succeeds_with_mocked_binary() {
 
     env.cmd()
         .args(["add", "codex", "work"])
+        .env("AISW_CODEX_AUTH_STORAGE", "file")
         .assert()
         .success()
         .stdout(contains("Added profile"));
@@ -378,6 +452,51 @@ fn add_codex_oauth_succeeds_with_mocked_binary() {
     assert_eq!(config["profiles"]["codex"]["work"]["auth_method"], "o_auth");
     env.assert_home_file_exists("profiles/codex/work/auth.json");
     env.assert_home_file_exists("profiles/codex/work/config.toml");
+}
+
+#[test]
+fn add_codex_oauth_stores_secure_backend_when_supported() {
+    let env = TestEnv::new();
+    add_fake_codex_security_tool(&env);
+    env.add_script_tool(
+        "codex",
+        "#!/bin/sh\n\
+         if [ \"$1\" = \"--version\" ]; then\n\
+           echo 'codex 1.0.0'\n\
+           exit 0\n\
+         fi\n\
+         if [ \"$1\" = \"login\" ]; then\n\
+           /bin/mkdir -p \"$CODEX_HOME\"\n\
+           printf '%s' '{\"token\":\"tok\",\"email\":\"work@example.com\"}' > \"$CODEX_HOME/auth.json\"\n\
+           exit 0\n\
+         fi\n\
+         exit 1\n",
+    );
+
+    env.cmd()
+        .args(["add", "codex", "work"])
+        .env("AISW_CODEX_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .assert()
+        .success()
+        .stdout(contains("Added profile"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["profiles"]["codex"]["work"]["auth_method"], "o_auth");
+    assert_eq!(
+        config["profiles"]["codex"]["work"]["credential_backend"],
+        "macos_keychain"
+    );
+    assert!(!env.home_file("profiles/codex/work/auth.json").exists());
+    env.assert_home_file_exists("profiles/codex/work/config.toml");
+    assert_eq!(
+        fs::read_to_string(env.fake_home.join("aisw-codex-keychain.json")).unwrap(),
+        "{\"token\":\"tok\",\"email\":\"work@example.com\"}"
+    );
+    assert!(!env
+        .home_file("profiles/codex/work/.oauth-capture/auth.json")
+        .exists());
 }
 
 // ---- Gemini ----

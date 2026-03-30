@@ -25,6 +25,7 @@ const CONFIG_TOML_CONTENTS: &str = "cli_auth_credentials_store = \"file\"\n";
 
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
 
 fn live_dir(user_home: &Path) -> PathBuf {
     user_home.join(".codex")
@@ -269,8 +270,10 @@ pub fn validate_api_key(key: &str) -> Result<()> {
 
 /// Start the Codex OAuth flow using the installed `codex` binary.
 ///
-/// Pre-writes `config.toml` with `cli_auth_credentials_store = "file"` before
-/// spawning so Codex writes `auth.json` into `CODEX_HOME` instead of the OS keyring.
+/// On platforms where aisw has a native secure backend, Codex OAuth is captured
+/// through a transient file-backed scratch dir and then persisted into the
+/// secure backend. This avoids leaving `auth.json` in the managed profile while
+/// also avoiding writes to the user's live Codex keyring item during `add`.
 pub fn add_oauth(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
@@ -299,63 +302,154 @@ fn add_oauth_with(
     poll_interval: Duration,
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Codex, name)?;
+    let stored_backend = oauth_stored_backend();
+    let capture_dir = oauth_capture_dir(&profile_dir);
+    fs::create_dir_all(&capture_dir)
+        .with_context(|| format!("could not create {}", capture_dir.display()))?;
 
-    // config.toml must be written before spawning — without it Codex falls back to keyring.
     files::cleanup_profile_on_error(
-        write_file_store_config(profile_store, name),
+        write_capture_file_store_config(&capture_dir),
         profile_store,
         Tool::Codex,
         name,
     )?;
 
     let auth_path = files::cleanup_profile_on_error(
-        run_oauth_flow(codex_bin, &profile_dir, timeout, poll_interval),
+        run_oauth_flow(codex_bin, &capture_dir, timeout, poll_interval),
         profile_store,
         Tool::Codex,
         name,
     )?;
 
     files::set_permissions_600(&auth_path)?;
+    let auth_bytes =
+        fs::read(&auth_path).with_context(|| format!("could not read {}", auth_path.display()))?;
+    store_oauth_profile(
+        profile_store,
+        config_store,
+        name,
+        label,
+        stored_backend,
+        &auth_bytes,
+    )
+    .inspect_err(|_| {
+        let _ = fs::remove_dir_all(&capture_dir);
+    })?;
+    let _ = fs::remove_dir_all(&capture_dir);
+
+    Ok(())
+}
+
+fn store_oauth_profile(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    stored_backend: CredentialBackend,
+    auth_bytes: &[u8],
+) -> Result<()> {
+    files::cleanup_profile_on_error(
+        persist_oauth_storage(profile_store, name, stored_backend, auth_bytes),
+        profile_store,
+        Tool::Codex,
+        name,
+    )?;
+
     files::cleanup_profile_on_error(
         identity::ensure_unique_oauth_identity(
             profile_store,
             config_store,
             Tool::Codex,
             name,
-            CredentialBackend::File,
+            stored_backend,
         ),
         profile_store,
         Tool::Codex,
         name,
-    )?;
+    )
+    .inspect_err(|_| {
+        if stored_backend == CredentialBackend::MacosKeychain {
+            let _ = secure_store::delete_profile_secret(Tool::Codex, name);
+        }
+    })?;
 
-    config_store.add_profile(
-        Tool::Codex,
-        name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::OAuth,
-            credential_backend: CredentialBackend::File,
-            label,
-        },
-    )?;
+    config_store
+        .add_profile(
+            Tool::Codex,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: stored_backend,
+                label,
+            },
+        )
+        .inspect_err(|_| {
+            if stored_backend == CredentialBackend::MacosKeychain {
+                let _ = secure_store::delete_profile_secret(Tool::Codex, name);
+            }
+            let _ = profile_store.delete(Tool::Codex, name);
+        })?;
 
     Ok(())
 }
 
+fn persist_oauth_storage(
+    profile_store: &ProfileStore,
+    name: &str,
+    stored_backend: CredentialBackend,
+    auth_bytes: &[u8],
+) -> Result<()> {
+    match stored_backend {
+        CredentialBackend::File => {
+            write_file_store_config(profile_store, name)?;
+            profile_store.write_file(Tool::Codex, name, AUTH_FILE, auth_bytes)
+        }
+        CredentialBackend::MacosKeychain => {
+            write_keyring_store_config(profile_store, name)?;
+            secure_store::write_profile_secret(Tool::Codex, name, auth_bytes)
+        }
+    }
+}
+
+fn oauth_stored_backend() -> CredentialBackend {
+    match forced_auth_storage() {
+        Some(LiveAuthStorage::File) => CredentialBackend::File,
+        Some(LiveAuthStorage::Keyring) => CredentialBackend::MacosKeychain,
+        Some(LiveAuthStorage::Auto | LiveAuthStorage::Unknown) | None => {
+            if cfg!(target_os = "macos") {
+                CredentialBackend::MacosKeychain
+            } else {
+                CredentialBackend::File
+            }
+        }
+    }
+}
+
+fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {
+    profile_dir.join(OAUTH_CAPTURE_DIR)
+}
+
+fn write_capture_file_store_config(capture_dir: &Path) -> Result<()> {
+    let path = capture_dir.join(CONFIG_FILE);
+    fs::write(&path, CONFIG_TOML_CONTENTS.as_bytes())
+        .with_context(|| format!("could not write {}", path.display()))?;
+    files::set_permissions_600(&path)
+}
+
 fn run_oauth_flow(
     codex_bin: &Path,
-    profile_dir: &Path,
+    capture_dir: &Path,
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<PathBuf> {
     let mut child = Command::new(codex_bin)
         .arg("login")
-        .env("CODEX_HOME", profile_dir)
+        .env("CODEX_HOME", capture_dir)
         .spawn()
         .with_context(|| format!("could not spawn {}", codex_bin.display()))?;
 
-    let auth_path = profile_dir.join(AUTH_FILE);
+    let auth_path = capture_dir.join(AUTH_FILE);
     let deadline = Instant::now() + timeout;
 
     loop {
@@ -973,6 +1067,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_config_toml_written_before_spawn() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         // Verify config.toml exists in the profile dir when the mock binary runs.
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
@@ -984,7 +1079,7 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             [ -f \"$CODEX_HOME/config.toml\" ] && touch \"$CODEX_HOME/config_was_present\"\n\
+             [ -f \"$CODEX_HOME/config.toml\" ] && touch \"$CODEX_HOME/../config_was_present\"\n\
              echo '{}' > \"$CODEX_HOME/auth.json\"\n",
         )
         .unwrap();
@@ -1015,6 +1110,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_flow_succeeds() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
@@ -1044,6 +1140,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_flow_times_out_and_cleans_up() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
@@ -1072,6 +1169,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_auth_json_has_600_permissions() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
@@ -1100,6 +1198,7 @@ mod tests {
     #[cfg(unix)]
     fn oauth_duplicate_identity_is_rejected_and_cleaned_up() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
