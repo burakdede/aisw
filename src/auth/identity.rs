@@ -104,11 +104,7 @@ pub fn existing_api_key_profile_for_secret(
 }
 
 fn oauth_profile_names(config: &Config, tool: Tool) -> Vec<&str> {
-    let profiles = match tool {
-        Tool::Claude => &config.profiles.claude,
-        Tool::Codex => &config.profiles.codex,
-        Tool::Gemini => &config.profiles.gemini,
-    };
+    let profiles = config.profiles_for(tool);
 
     profiles
         .iter()
@@ -117,11 +113,7 @@ fn oauth_profile_names(config: &Config, tool: Tool) -> Vec<&str> {
 }
 
 fn api_key_profile_names(config: &Config, tool: Tool) -> Vec<&str> {
-    let profiles = match tool {
-        Tool::Claude => &config.profiles.claude,
-        Tool::Codex => &config.profiles.codex,
-        Tool::Gemini => &config.profiles.gemini,
-    };
+    let profiles = config.profiles_for(tool);
 
     profiles
         .iter()

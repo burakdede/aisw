@@ -167,12 +167,7 @@ mod tests {
         let ps = ProfileStore::new(home);
         let cs = ConfigStore::new(home);
         let config = cs.load().unwrap();
-        let profile_meta = match tool {
-            Tool::Claude => config.profiles.claude.get(name),
-            Tool::Codex => config.profiles.codex.get(name),
-            Tool::Gemini => config.profiles.gemini.get(name),
-        }
-        .unwrap();
+        let profile_meta = config.profiles_for(tool).get(name).unwrap();
         let profile_dir = ps.profile_dir(tool, name);
         let m = BackupManager::new(home);
         m.snapshot(tool, name, &profile_dir, profile_meta).unwrap();

@@ -72,7 +72,7 @@ pub(crate) fn run_inner(
 }
 
 fn detect_supported_tools() -> HashMap<Tool, Option<DetectedTool>> {
-    [Tool::Claude, Tool::Codex, Tool::Gemini]
+    Tool::ALL
         .into_iter()
         .map(|tool| (tool, tool_detection::detect(tool)))
         .collect()
@@ -83,7 +83,7 @@ fn print_detected_tools(detected: &HashMap<Tool, Option<DetectedTool>>) {
     output::print_info("aisw checked your PATH for supported coding agent CLIs.");
     output::print_blank_line();
 
-    for tool in [Tool::Claude, Tool::Codex, Tool::Gemini] {
+    for tool in Tool::ALL {
         output::print_tool_section(tool);
         print_detection_metadata(detected.get(&tool).and_then(|entry| entry.as_ref()));
         output::print_blank_line();
@@ -839,9 +839,9 @@ mod tests {
         assert_eq!(contents, b"{\"token\":\"oauth\"}");
 
         let config = ConfigStore::new(&aisw_home).load().unwrap();
-        assert!(config.profiles.claude.contains_key("default"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("default"));
         assert_eq!(
-            config.profiles.claude["default"].auth_method,
+            config.profiles_for(Tool::Claude)["default"].auth_method,
             AuthMethod::OAuth
         );
     }
@@ -861,7 +861,7 @@ mod tests {
         assert!(ps.exists(Tool::Codex, "default"));
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert_eq!(
-            config.profiles.codex["default"].auth_method,
+            config.profiles_for(Tool::Codex)["default"].auth_method,
             AuthMethod::OAuth
         );
     }
@@ -881,7 +881,7 @@ mod tests {
         assert!(ps.exists(Tool::Gemini, "default"));
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert_eq!(
-            config.profiles.gemini["default"].auth_method,
+            config.profiles_for(Tool::Gemini)["default"].auth_method,
             AuthMethod::ApiKey
         );
     }

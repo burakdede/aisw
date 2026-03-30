@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use fs2::FileExt;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::types::{StateMode, Tool};
 
@@ -28,19 +28,11 @@ pub struct Config {
     pub settings: Settings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ActiveProfiles {
-    pub claude: Option<String>,
-    pub codex: Option<String>,
-    pub gemini: Option<String>,
-}
+#[derive(Debug, Clone, Default)]
+pub struct ActiveProfiles(HashMap<Tool, Option<String>>);
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AllProfiles {
-    pub claude: HashMap<String, ProfileMeta>,
-    pub codex: HashMap<String, ProfileMeta>,
-    pub gemini: HashMap<String, ProfileMeta>,
-}
+#[derive(Debug, Clone, Default)]
+pub struct AllProfiles(HashMap<Tool, HashMap<String, ProfileMeta>>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileMeta {
@@ -56,14 +48,11 @@ pub enum AuthMethod {
     ApiKey,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Settings {
     pub backup_on_switch: bool,
     pub max_backups: usize,
-    #[serde(default)]
-    pub claude: ToolSettings,
-    #[serde(default)]
-    pub codex: ToolSettings,
+    pub tool_settings: HashMap<Tool, ToolSettings>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,11 +74,17 @@ impl Default for Config {
 
 impl Default for Settings {
     fn default() -> Self {
+        let mut tool_settings = HashMap::new();
+        for tool in Tool::ALL {
+            if tool.supports_state_mode() {
+                tool_settings.insert(tool, ToolSettings::default());
+            }
+        }
+
         Self {
             backup_on_switch: true,
             max_backups: 10,
-            claude: ToolSettings::default(),
-            codex: ToolSettings::default(),
+            tool_settings,
         }
     }
 }
@@ -99,6 +94,20 @@ impl Default for ToolSettings {
         Self {
             state_mode: StateMode::Isolated,
         }
+    }
+}
+
+impl Config {
+    pub fn profiles_for(&self, tool: Tool) -> &HashMap<String, ProfileMeta> {
+        tool_profiles(self, tool)
+    }
+
+    pub fn active_for(&self, tool: Tool) -> Option<&str> {
+        tool_active(self, tool).as_deref()
+    }
+
+    pub fn state_mode_for(&self, tool: Tool) -> StateMode {
+        self.settings.state_mode(tool)
     }
 }
 
@@ -403,6 +412,164 @@ impl ConfigStore {
     }
 }
 
+impl ActiveProfiles {
+    pub fn get(&self, tool: Tool) -> Option<&Option<String>> {
+        self.0.get(&tool)
+    }
+
+    pub fn get_mut(&mut self, tool: Tool) -> &mut Option<String> {
+        self.0.entry(tool).or_default()
+    }
+}
+
+impl AllProfiles {
+    pub fn get(&self, tool: Tool) -> Option<&HashMap<String, ProfileMeta>> {
+        self.0.get(&tool)
+    }
+
+    pub fn get_mut(&mut self, tool: Tool) -> &mut HashMap<String, ProfileMeta> {
+        self.0.entry(tool).or_default()
+    }
+}
+
+impl Settings {
+    pub fn state_mode(&self, tool: Tool) -> StateMode {
+        self.tool_settings
+            .get(&tool)
+            .map(|settings| settings.state_mode)
+            .unwrap_or(StateMode::Isolated)
+    }
+
+    pub fn state_mode_mut(&mut self, tool: Tool) -> &mut StateMode {
+        assert!(
+            tool.supports_state_mode(),
+            "{tool} does not support configurable state mode"
+        );
+        &mut self.tool_settings.entry(tool).or_default().state_mode
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct LegacyActiveProfiles {
+    pub claude: Option<String>,
+    pub codex: Option<String>,
+    pub gemini: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct LegacyAllProfiles {
+    pub claude: HashMap<String, ProfileMeta>,
+    pub codex: HashMap<String, ProfileMeta>,
+    pub gemini: HashMap<String, ProfileMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct LegacySettings {
+    pub backup_on_switch: bool,
+    pub max_backups: usize,
+    #[serde(default)]
+    pub claude: ToolSettings,
+    #[serde(default)]
+    pub codex: ToolSettings,
+}
+
+impl Serialize for ActiveProfiles {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        LegacyActiveProfiles {
+            claude: self.get(Tool::Claude).cloned().flatten(),
+            codex: self.get(Tool::Codex).cloned().flatten(),
+            gemini: self.get(Tool::Gemini).cloned().flatten(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ActiveProfiles {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let legacy = LegacyActiveProfiles::deserialize(deserializer)?;
+        let mut inner = HashMap::new();
+        inner.insert(Tool::Claude, legacy.claude);
+        inner.insert(Tool::Codex, legacy.codex);
+        inner.insert(Tool::Gemini, legacy.gemini);
+        Ok(Self(inner))
+    }
+}
+
+impl Serialize for AllProfiles {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        LegacyAllProfiles {
+            claude: self.get(Tool::Claude).cloned().unwrap_or_default(),
+            codex: self.get(Tool::Codex).cloned().unwrap_or_default(),
+            gemini: self.get(Tool::Gemini).cloned().unwrap_or_default(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AllProfiles {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let legacy = LegacyAllProfiles::deserialize(deserializer)?;
+        let mut inner = HashMap::new();
+        inner.insert(Tool::Claude, legacy.claude);
+        inner.insert(Tool::Codex, legacy.codex);
+        inner.insert(Tool::Gemini, legacy.gemini);
+        Ok(Self(inner))
+    }
+}
+
+impl Serialize for Settings {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        LegacySettings {
+            backup_on_switch: self.backup_on_switch,
+            max_backups: self.max_backups,
+            claude: self
+                .tool_settings
+                .get(&Tool::Claude)
+                .cloned()
+                .unwrap_or_default(),
+            codex: self
+                .tool_settings
+                .get(&Tool::Codex)
+                .cloned()
+                .unwrap_or_default(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Settings {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let legacy = LegacySettings::deserialize(deserializer)?;
+        let mut tool_settings = HashMap::new();
+        tool_settings.insert(Tool::Claude, legacy.claude);
+        tool_settings.insert(Tool::Codex, legacy.codex);
+
+        Ok(Self {
+            backup_on_switch: legacy.backup_on_switch,
+            max_backups: legacy.max_backups,
+            tool_settings,
+        })
+    }
+}
+
 struct ConfigLockGuard {
     file: fs::File,
 }
@@ -427,44 +594,28 @@ fn validate_config_version(config: &Config) -> Result<()> {
 }
 
 fn tool_profiles(config: &Config, tool: Tool) -> &HashMap<String, ProfileMeta> {
-    match tool {
-        Tool::Claude => &config.profiles.claude,
-        Tool::Codex => &config.profiles.codex,
-        Tool::Gemini => &config.profiles.gemini,
-    }
+    config.profiles.get(tool).unwrap_or(&EMPTY_PROFILES)
 }
 
 fn tool_profiles_mut(config: &mut Config, tool: Tool) -> &mut HashMap<String, ProfileMeta> {
-    match tool {
-        Tool::Claude => &mut config.profiles.claude,
-        Tool::Codex => &mut config.profiles.codex,
-        Tool::Gemini => &mut config.profiles.gemini,
-    }
+    config.profiles.get_mut(tool)
 }
 
 fn tool_active(config: &Config, tool: Tool) -> &Option<String> {
-    match tool {
-        Tool::Claude => &config.active.claude,
-        Tool::Codex => &config.active.codex,
-        Tool::Gemini => &config.active.gemini,
-    }
+    config.active.get(tool).unwrap_or(&EMPTY_ACTIVE)
 }
 
 fn tool_active_mut(config: &mut Config, tool: Tool) -> &mut Option<String> {
-    match tool {
-        Tool::Claude => &mut config.active.claude,
-        Tool::Codex => &mut config.active.codex,
-        Tool::Gemini => &mut config.active.gemini,
-    }
+    config.active.get_mut(tool)
 }
 
 fn tool_state_mode_mut(config: &mut Config, tool: Tool) -> &mut StateMode {
-    match tool {
-        Tool::Claude => &mut config.settings.claude.state_mode,
-        Tool::Codex => &mut config.settings.codex.state_mode,
-        Tool::Gemini => panic!("gemini does not support configurable state mode"),
-    }
+    config.settings.state_mode_mut(tool)
 }
+
+static EMPTY_ACTIVE: Option<String> = None;
+static EMPTY_PROFILES: std::sync::LazyLock<HashMap<String, ProfileMeta>> =
+    std::sync::LazyLock::new(HashMap::new);
 
 #[cfg(unix)]
 fn set_file_permissions_600(path: &Path) -> Result<()> {
@@ -535,8 +686,8 @@ mod tests {
         .unwrap();
 
         let config = store.load().unwrap();
-        assert_eq!(config.settings.claude.state_mode, StateMode::Isolated);
-        assert_eq!(config.settings.codex.state_mode, StateMode::Isolated);
+        assert_eq!(config.state_mode_for(Tool::Claude), StateMode::Isolated);
+        assert_eq!(config.state_mode_for(Tool::Codex), StateMode::Isolated);
     }
 
     #[test]
@@ -569,9 +720,9 @@ mod tests {
             .unwrap();
         let config = store.load().unwrap();
 
-        assert!(config.profiles.claude.contains_key("work"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("work"));
         assert_eq!(
-            config.profiles.claude["work"].auth_method,
+            config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::OAuth
         );
     }
@@ -602,7 +753,7 @@ mod tests {
             .unwrap();
 
         let config = store.load().unwrap();
-        assert_eq!(config.settings.codex.state_mode, StateMode::Shared);
+        assert_eq!(config.state_mode_for(Tool::Codex), StateMode::Shared);
     }
 
     #[test]
@@ -616,7 +767,7 @@ mod tests {
         store.remove_profile(Tool::Codex, "personal").unwrap();
 
         let config = store.load().unwrap();
-        assert!(!config.profiles.codex.contains_key("personal"));
+        assert!(!config.profiles_for(Tool::Codex).contains_key("personal"));
     }
 
     #[test]
@@ -640,7 +791,7 @@ mod tests {
 
         let config = store.load().unwrap();
         assert_eq!(
-            config.profiles.claude["work"].auth_method,
+            config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::ApiKey
         );
     }
@@ -659,7 +810,7 @@ mod tests {
 
         let config = store.load().unwrap();
         assert_eq!(
-            config.profiles.claude["work"].auth_method,
+            config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::ApiKey
         );
     }
@@ -693,8 +844,8 @@ mod tests {
             .unwrap();
 
         let config = store.load().unwrap();
-        assert!(!config.profiles.claude.contains_key("default"));
-        assert!(config.profiles.claude.contains_key("work"));
+        assert!(!config.profiles_for(Tool::Claude).contains_key("default"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("work"));
         assert_eq!(store.get_active(&config, Tool::Claude), Some("work"));
     }
 
@@ -779,10 +930,10 @@ mod tests {
 
         let config = store.load().unwrap();
         assert_eq!(
-            config.profiles.claude["work"].label.as_deref(),
+            config.profiles_for(Tool::Claude)["work"].label.as_deref(),
             Some("Work subscription")
         );
-        assert_eq!(config.active.claude.as_deref(), Some("work"));
+        assert_eq!(config.active_for(Tool::Claude), Some("work"));
     }
 
     #[test]
@@ -807,8 +958,8 @@ mod tests {
         );
 
         let config = store(dir.path()).load().unwrap();
-        assert!(config.profiles.claude.contains_key("child"));
-        assert!(config.profiles.claude.contains_key("parent"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("child"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("parent"));
 
         let contents = fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap();
         serde_json::from_str::<serde_json::Value>(&contents).unwrap();

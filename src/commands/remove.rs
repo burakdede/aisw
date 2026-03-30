@@ -66,17 +66,15 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
 
     // Final backup before deleting.
     let profile_dir = profile_store.profile_dir(args.tool, &args.profile_name);
-    let profile_meta = match args.tool {
-        Tool::Claude => config.profiles.claude.get(&args.profile_name),
-        Tool::Codex => config.profiles.codex.get(&args.profile_name),
-        Tool::Gemini => config.profiles.gemini.get(&args.profile_name),
-    }
-    .with_context(|| {
-        format!(
-            "profile '{}' exists on disk for {} but is missing from config",
-            args.profile_name, args.tool
-        )
-    })?;
+    let profile_meta = config
+        .profiles_for(args.tool)
+        .get(&args.profile_name)
+        .with_context(|| {
+            format!(
+                "profile '{}' exists on disk for {} but is missing from config",
+                args.profile_name, args.tool
+            )
+        })?;
     BackupManager::new(home).snapshot(args.tool, &args.profile_name, &profile_dir, profile_meta)?;
 
     profile_store.delete(args.tool, &args.profile_name)?;
@@ -126,11 +124,7 @@ fn precheck(args: &RemoveArgs, home: &Path) -> Result<()> {
 }
 
 fn active_for(config: &Config, tool: Tool) -> Option<&str> {
-    match tool {
-        Tool::Claude => config.active.claude.as_deref(),
-        Tool::Codex => config.active.codex.as_deref(),
-        Tool::Gemini => config.active.gemini.as_deref(),
-    }
+    config.active_for(tool)
 }
 
 #[cfg(test)]
@@ -181,7 +175,7 @@ mod tests {
         assert!(!ps.exists(Tool::Claude, "work"));
 
         let config = ConfigStore::new(tmp.path()).load().unwrap();
-        assert!(!config.profiles.claude.contains_key("work"));
+        assert!(!config.profiles_for(Tool::Claude).contains_key("work"));
     }
 
     #[test]
@@ -229,8 +223,8 @@ mod tests {
         .unwrap();
 
         let config = ConfigStore::new(tmp.path()).load().unwrap();
-        assert!(!config.profiles.claude.contains_key("work"));
-        assert!(config.active.claude.is_none());
+        assert!(!config.profiles_for(Tool::Claude).contains_key("work"));
+        assert_eq!(config.active_for(Tool::Claude), None);
     }
 
     #[test]

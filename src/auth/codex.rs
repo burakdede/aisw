@@ -436,10 +436,13 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.codex["main"].auth_method,
+            config.profiles_for(Tool::Codex)["main"].auth_method,
             AuthMethod::ApiKey
         );
-        assert_eq!(config.profiles.codex["main"].label.as_deref(), Some("Work"));
+        assert_eq!(
+            config.profiles_for(Tool::Codex)["main"].label.as_deref(),
+            Some("Work")
+        );
     }
 
     #[test]
@@ -569,7 +572,10 @@ mod tests {
 
         assert!(ps.exists(Tool::Codex, "main"));
         let config = cs.load().unwrap();
-        assert_eq!(config.profiles.codex["main"].auth_method, AuthMethod::OAuth);
+        assert_eq!(
+            config.profiles_for(Tool::Codex)["main"].auth_method,
+            AuthMethod::OAuth
+        );
     }
 
     #[test]

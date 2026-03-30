@@ -175,7 +175,7 @@ mod tests {
         run_in(args, &home, path_of(&bin_dir)).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
-        assert!(config.profiles.claude.contains_key("work"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("work"));
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
         run_in(args, &home, path_of(&bin_dir)).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
-        assert_eq!(config.active.claude.as_deref(), Some("work"));
+        assert_eq!(config.active_for(Tool::Claude), Some("work"));
     }
 
     #[test]
@@ -210,7 +210,7 @@ mod tests {
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(
-            config.profiles.claude["work"].label.as_deref(),
+            config.profiles_for(Tool::Claude)["work"].label.as_deref(),
             Some("My work account")
         );
     }
@@ -241,7 +241,7 @@ mod tests {
         run_in(args, &home, path_of(&bin_dir)).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
-        assert!(config.profiles.codex.contains_key("work"));
+        assert!(config.profiles_for(Tool::Codex).contains_key("work"));
     }
 
     #[test]
@@ -257,6 +257,6 @@ mod tests {
         run_in(args, &home, path_of(&bin_dir)).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
-        assert!(config.profiles.gemini.contains_key("work"));
+        assert!(config.profiles_for(Tool::Gemini).contains_key("work"));
     }
 }

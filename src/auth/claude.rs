@@ -338,9 +338,9 @@ mod tests {
 
         assert!(ps.exists(Tool::Claude, "work"));
         let config = cs.load().unwrap();
-        assert!(config.profiles.claude.contains_key("work"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("work"));
         assert_eq!(
-            config.profiles.claude["work"].auth_method,
+            config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::ApiKey
         );
     }
@@ -354,7 +354,7 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.claude["work"].label.as_deref(),
+            config.profiles_for(Tool::Claude)["work"].label.as_deref(),
             Some("My work key")
         );
     }
@@ -457,7 +457,7 @@ mod tests {
         assert!(ps.exists(Tool::Claude, "work"));
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.claude["work"].auth_method,
+            config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::OAuth
         );
     }

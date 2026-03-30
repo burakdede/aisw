@@ -26,27 +26,15 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
 
-    let tools: &[Tool] = match args.tool {
-        Some(t) => match t {
-            Tool::Claude => &[Tool::Claude],
-            Tool::Codex => &[Tool::Codex],
-            Tool::Gemini => &[Tool::Gemini],
-        },
-        None => &[Tool::Claude, Tool::Codex, Tool::Gemini],
+    let tools: Vec<Tool> = match args.tool {
+        Some(t) => vec![t],
+        None => Tool::ALL.to_vec(),
     };
 
     let mut rows = Vec::new();
-    for &tool in tools {
-        let profiles = match tool {
-            Tool::Claude => &config.profiles.claude,
-            Tool::Codex => &config.profiles.codex,
-            Tool::Gemini => &config.profiles.gemini,
-        };
-        let active = match tool {
-            Tool::Claude => config.active.claude.as_deref(),
-            Tool::Codex => config.active.codex.as_deref(),
-            Tool::Gemini => config.active.gemini.as_deref(),
-        };
+    for tool in tools {
+        let profiles = config.profiles_for(tool);
+        let active = config.active_for(tool);
 
         let mut names: Vec<&str> = profiles.keys().map(String::as_str).collect();
         names.sort_unstable();

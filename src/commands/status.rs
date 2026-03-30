@@ -58,27 +58,14 @@ pub(crate) fn collect_status(
     let profile_store = ProfileStore::new(home);
 
     let mut statuses = Vec::new();
-    for tool in [Tool::Claude, Tool::Codex, Tool::Gemini] {
+    for tool in Tool::ALL {
         let binary_found = tool_detection::detect_in(tool, tool_path.clone()).is_some();
 
-        let active_name = match tool {
-            Tool::Claude => config.active.claude.as_deref(),
-            Tool::Codex => config.active.codex.as_deref(),
-            Tool::Gemini => config.active.gemini.as_deref(),
-        };
-        let stored_profiles = match tool {
-            Tool::Claude => config.profiles.claude.len(),
-            Tool::Codex => config.profiles.codex.len(),
-            Tool::Gemini => config.profiles.gemini.len(),
-        };
+        let active_name = config.active_for(tool);
+        let stored_profiles = config.profiles_for(tool).len();
 
-        let state_mode = if matches!(tool, Tool::Claude | Tool::Codex) {
-            let mode = match tool {
-                Tool::Claude => config.settings.claude.state_mode,
-                Tool::Codex => config.settings.codex.state_mode,
-                Tool::Gemini => unreachable!(),
-            };
-            Some(mode.display_name().to_owned())
+        let state_mode = if tool.supports_state_mode() {
+            Some(config.state_mode_for(tool).display_name().to_owned())
         } else {
             None
         };
@@ -90,11 +77,7 @@ pub(crate) fn collect_status(
             credentials_present,
             permissions_ok,
         ) = if let Some(name) = active_name {
-            let profiles = match tool {
-                Tool::Claude => &config.profiles.claude,
-                Tool::Codex => &config.profiles.codex,
-                Tool::Gemini => &config.profiles.gemini,
-            };
+            let profiles = config.profiles_for(tool);
             let auth = profiles
                 .get(name)
                 .map(|m| auth_label(m.auth_method).to_owned());

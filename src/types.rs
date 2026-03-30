@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
 pub enum Tool {
     Claude,
     Codex,
@@ -8,6 +9,8 @@ pub enum Tool {
 }
 
 impl Tool {
+    pub const ALL: [Tool; 3] = [Tool::Claude, Tool::Codex, Tool::Gemini];
+
     pub fn binary_name(&self) -> &'static str {
         match self {
             Tool::Claude => "claude",
@@ -30,6 +33,10 @@ impl Tool {
             Tool::Codex => "Codex CLI",
             Tool::Gemini => "Gemini CLI",
         }
+    }
+
+    pub fn supports_state_mode(self) -> bool {
+        matches!(self, Tool::Claude | Tool::Codex)
     }
 }
 

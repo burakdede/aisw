@@ -24,7 +24,7 @@ pub fn detect(tool: Tool) -> Option<DetectedTool> {
 
 pub fn detect_all() -> HashMap<Tool, Option<DetectedTool>> {
     let path = std::env::var_os("PATH").unwrap_or_default();
-    [Tool::Claude, Tool::Codex, Tool::Gemini]
+    Tool::ALL
         .into_iter()
         .map(|t| (t, detect_in(t, path.clone())))
         .collect()

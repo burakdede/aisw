@@ -108,7 +108,7 @@ impl BackupManager {
                 .unwrap_or("")
                 .to_owned();
 
-            for tool in [Tool::Claude, Tool::Codex, Tool::Gemini] {
+            for tool in Tool::ALL {
                 let tool_path = ts_path.join(tool.dir_name());
                 if !tool_path.is_dir() {
                     continue;
@@ -150,7 +150,7 @@ impl BackupManager {
 
         let mut restored = 0usize;
 
-        for tool in [Tool::Claude, Tool::Codex, Tool::Gemini] {
+        for tool in Tool::ALL {
             let tool_path = backup_root.join(tool.dir_name());
             if !tool_path.is_dir() {
                 continue;
@@ -288,11 +288,7 @@ fn existing_profile_meta(
     profile_name: &str,
 ) -> Result<Option<ProfileMeta>> {
     let config = config_store.load()?;
-    let existing = match tool {
-        Tool::Claude => config.profiles.claude.get(profile_name),
-        Tool::Codex => config.profiles.codex.get(profile_name),
-        Tool::Gemini => config.profiles.gemini.get(profile_name),
-    };
+    let existing = config.profiles_for(tool).get(profile_name);
     Ok(existing.cloned())
 }
 
@@ -649,7 +645,7 @@ mod tests {
         m.restore(&backup_id, &ps, &cs).unwrap();
 
         let config = cs.load().unwrap();
-        let restored = &config.profiles.claude["work"];
+        let restored = &config.profiles_for(Tool::Claude)["work"];
         assert_eq!(restored.auth_method, meta.auth_method);
         assert_eq!(restored.label, meta.label);
     }
@@ -675,7 +671,7 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.claude["work"].auth_method,
+            config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::ApiKey
         );
         assert_eq!(
@@ -706,7 +702,7 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.codex["main"].auth_method,
+            config.profiles_for(Tool::Codex)["main"].auth_method,
             AuthMethod::ApiKey
         );
         assert_eq!(
@@ -733,7 +729,7 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.gemini["default"].auth_method,
+            config.profiles_for(Tool::Gemini)["default"].auth_method,
             AuthMethod::ApiKey
         );
         assert_eq!(

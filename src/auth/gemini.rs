@@ -450,11 +450,13 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.gemini["default"].auth_method,
+            config.profiles_for(Tool::Gemini)["default"].auth_method,
             AuthMethod::ApiKey
         );
         assert_eq!(
-            config.profiles.gemini["default"].label.as_deref(),
+            config.profiles_for(Tool::Gemini)["default"]
+                .label
+                .as_deref(),
             Some("AI Studio")
         );
     }
@@ -551,7 +553,7 @@ mod tests {
         assert!(ps.exists(Tool::Gemini, "default"));
         let config = cs.load().unwrap();
         assert_eq!(
-            config.profiles.gemini["default"].auth_method,
+            config.profiles_for(Tool::Gemini)["default"].auth_method,
             AuthMethod::OAuth
         );
         assert!(ps

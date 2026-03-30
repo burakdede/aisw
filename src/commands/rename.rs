@@ -84,8 +84,8 @@ mod tests {
         let config = cs.load().unwrap();
         assert!(!ps.exists(Tool::Claude, "default"));
         assert!(ps.exists(Tool::Claude, "work"));
-        assert!(config.profiles.claude.contains_key("work"));
-        assert!(!config.profiles.claude.contains_key("default"));
+        assert!(config.profiles_for(Tool::Claude).contains_key("work"));
+        assert!(!config.profiles_for(Tool::Claude).contains_key("default"));
     }
 
     #[test]
@@ -106,7 +106,7 @@ mod tests {
         run_inner(rename_args(Tool::Claude, "default", "work"), tmp.path()).unwrap();
 
         let config = cs.load().unwrap();
-        assert_eq!(config.active.claude.as_deref(), Some("work"));
+        assert_eq!(config.active_for(Tool::Claude), Some("work"));
     }
 
     #[test]

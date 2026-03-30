@@ -26,7 +26,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
     let requested_state_mode = match (args.tool, args.state_mode) {
-        (Tool::Claude | Tool::Codex, mode) => mode,
+        (tool, mode) if tool.supports_state_mode() => mode,
         (_, Some(_)) => {
             anyhow::bail!(
                 "--state-mode is currently supported only for claude and codex.\n  \
@@ -37,17 +37,13 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         }
         (_, None) => None,
     };
-    let state_mode = match args.tool {
-        Tool::Claude => requested_state_mode.unwrap_or(config.settings.claude.state_mode),
-        Tool::Codex => requested_state_mode.unwrap_or(config.settings.codex.state_mode),
-        Tool::Gemini => StateMode::Isolated,
+    let state_mode = if args.tool.supports_state_mode() {
+        requested_state_mode.unwrap_or(config.state_mode_for(args.tool))
+    } else {
+        StateMode::Isolated
     };
 
-    let profiles = match args.tool {
-        Tool::Claude => &config.profiles.claude,
-        Tool::Codex => &config.profiles.codex,
-        Tool::Gemini => &config.profiles.gemini,
-    };
+    let profiles = config.profiles_for(args.tool);
 
     let profile_meta = profiles.get(&args.profile_name).ok_or_else(|| {
         anyhow::anyhow!(
@@ -150,7 +146,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     config_store.activate_profile(
         args.tool,
         &args.profile_name,
-        matches!(args.tool, Tool::Claude | Tool::Codex).then_some(state_mode),
+        args.tool.supports_state_mode().then_some(state_mode),
     )?;
 
     if !args.emit_env {
@@ -158,14 +154,14 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         output::print_kv("Tool", args.tool.display_name());
         output::print_kv("Active profile", &args.profile_name);
         output::print_kv("Auth", auth_label(profile_meta.auth_method));
-        if matches!(args.tool, Tool::Claude | Tool::Codex) {
+        if args.tool.supports_state_mode() {
             output::print_kv("State mode", state_mode.display_name());
         }
         output::print_blank_line();
         output::print_effects_header();
         output::print_effect("Live tool configuration updated.");
         output::print_effect("Active profile updated.");
-        if matches!(args.tool, Tool::Claude | Tool::Codex) {
+        if args.tool.supports_state_mode() {
             output::print_effect(match (args.tool, state_mode) {
                 (Tool::Claude, StateMode::Isolated) => {
                     "Claude will use isolated profile state when shell integration is active."
@@ -262,7 +258,7 @@ mod tests {
         run_in(use_args(Tool::Claude, "work", true), &home, &user_home).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
-        assert_eq!(config.active.claude.as_deref(), Some("work"));
+        assert_eq!(config.active_for(Tool::Claude), Some("work"));
     }
 
     #[test]
@@ -276,7 +272,7 @@ mod tests {
         run_in(use_args(Tool::Claude, "work", false), &home, &user_home).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
-        assert_eq!(config.active.claude.as_deref(), Some("work"));
+        assert_eq!(config.active_for(Tool::Claude), Some("work"));
     }
 
     #[test]
@@ -325,6 +321,6 @@ mod tests {
         run_in(use_args(Tool::Codex, "work", true), &home, &user_home).unwrap();
 
         let config = cs.load().unwrap();
-        assert_eq!(config.active.codex.as_deref(), Some("work"));
+        assert_eq!(config.active_for(Tool::Codex), Some("work"));
     }
 }
