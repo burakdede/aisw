@@ -49,7 +49,12 @@ fn add_fake_security_tool(env: &TestEnv) {
                  want_secret='true'\n\
                else\n\
                  shift\n\
-                 password=\"$1\"\n\
+                 if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                   password=\"$1\"\n\
+                 else\n\
+                   IFS= read -r password || true\n\
+                   continue\n\
+                 fi\n\
                fi\n\
                ;;\n\
            esac\n\
@@ -183,7 +188,9 @@ fn claude_secure_backend_import_use_and_rename_work_end_to_end() {
         .assert()
         .success()
         .stdout(contains("found macOS Keychain"))
-        .stdout(contains("Imported Claude Code credentials as profile 'default'"));
+        .stdout(contains(
+            "Imported Claude Code credentials as profile 'default'",
+        ));
 
     let config = read_json(&env.home_file("config.json"));
     assert_eq!(
@@ -274,7 +281,9 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
         .assert()
         .success()
         .stdout(contains("found macOS Keychain"))
-        .stdout(contains("Imported Codex CLI credentials as profile 'default'"));
+        .stdout(contains(
+            "Imported Codex CLI credentials as profile 'default'",
+        ));
 
     let config = read_json(&env.home_file("config.json"));
     assert_eq!(
@@ -292,8 +301,12 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
         .stdout(contains("Backend"))
         .stdout(contains("macos_keychain"));
 
-    let live_secret = fs::read_to_string(keychain_secret_path(&env, "Codex Auth", "tester")).unwrap();
-    assert_eq!(live_secret, "{\"token\":\"tok\",\"email\":\"codex-smoke@example.com\"}");
+    let live_secret =
+        fs::read_to_string(keychain_secret_path(&env, "Codex Auth", "tester")).unwrap();
+    assert_eq!(
+        live_secret,
+        "{\"token\":\"tok\",\"email\":\"codex-smoke@example.com\"}"
+    );
     let live_config = fs::read_to_string(env.fake_home.join(".codex").join("config.toml")).unwrap();
     assert!(live_config.contains("cli_auth_credentials_store = \"keyring\""));
     assert!(live_config.contains("model = \"gpt-5.4\""));
@@ -324,12 +337,10 @@ fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
 
     assert!(!keychain_secret_path(&env, "aisw", "profile:codex:default").exists());
     let backup_id = backup_id_for(&env, "codex", "default");
-    assert!(keychain_secret_path(
-        &env,
-        "aisw",
-        &format!("backup:{}:codex:default", backup_id),
-    )
-    .exists());
+    assert!(
+        keychain_secret_path(&env, "aisw", &format!("backup:{}:codex:default", backup_id),)
+            .exists()
+    );
 
     cmd_with_secure_env(&env)
         .args(["backup", "restore", "--yes", &backup_id])

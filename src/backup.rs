@@ -468,7 +468,15 @@ mod tests {
                    case \"$1\" in\n\
                      -s) shift; service=\"$1\" ;;\n\
                      -a) shift; account=\"$1\" ;;\n\
-                     -w) shift; secret=\"$1\" ;;\n\
+                     -w)\n\
+                       shift\n\
+                       if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                         secret=\"$1\"\n\
+                       else\n\
+                         IFS= read -r secret || true\n\
+                         continue\n\
+                       fi\n\
+                       ;;\n\
                    esac\n\
                    shift\n\
                  done\n\

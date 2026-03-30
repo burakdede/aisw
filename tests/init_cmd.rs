@@ -33,8 +33,14 @@ fn add_fake_claude_security_tool(env: &TestEnv) {
                case \"$1\" in\n\
                  -w)\n\
                    shift\n\
-                   printf '%s' \"$1\" > \"$store\"\n\
-                   exit 0\n\
+                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                     printf '%s' \"$1\" > \"$store\"\n\
+                     exit 0\n\
+                   else\n\
+                     IFS= read -r secret || true\n\
+                     printf '%s' \"$secret\" > \"$store\"\n\
+                     exit 0\n\
+                   fi\n\
                    ;;\n\
                  *)\n\
                    shift\n\
@@ -96,12 +102,22 @@ fn add_fake_codex_security_tool(env: &TestEnv) {
                    ;;\n\
                  -w)\n\
                    shift\n\
+                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                     case \"$service\" in\n\
+                       \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
+                       \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
+                       *) store=\"$HOME/unknown-keychain.json\" ;;\n\
+                     esac\n\
+                     printf '%s' \"$1\" > \"$store\"\n\
+                     exit 0\n\
+                   fi\n\
+                   IFS= read -r secret || true\n\
                    case \"$service\" in\n\
                      \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
                      \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
                      *) store=\"$HOME/unknown-keychain.json\" ;;\n\
                    esac\n\
-                   printf '%s' \"$1\" > \"$store\"\n\
+                   printf '%s' \"$secret\" > \"$store\"\n\
                    exit 0\n\
                    ;;\n\
                  *)\n\

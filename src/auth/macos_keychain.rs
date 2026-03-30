@@ -1,7 +1,8 @@
 use std::ffi::CStr;
+use std::io::Write;
 use std::mem::MaybeUninit;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
 
@@ -52,22 +53,34 @@ pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> R
     let secret = std::str::from_utf8(secret).context("keychain secret is not valid UTF-8")?;
 
     let mut command = Command::new(security_bin());
-    command.args([
-        "add-generic-password",
-        "-U",
-        "-a",
-        account,
-        "-s",
-        service,
-        "-w",
-        secret,
-    ]);
-    if let Some(path) = explicit_keychain_path() {
-        command.arg(path);
-    }
+    command
+        .args([
+            "add-generic-password",
+            "-U",
+            "-a",
+            account,
+            "-s",
+            service,
+            "-w",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    let output = command
-        .output()
+    let mut child = command
+        .spawn()
+        .context("could not write macOS Keychain generic password")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("could not open stdin for macOS Keychain password prompt")?;
+    stdin
+        .write_all(secret.as_bytes())
+        .and_then(|_| stdin.write_all(b"\n"))
+        .context("could not send secret to macOS Keychain password prompt")?;
+    drop(stdin);
+    let output = child
+        .wait_with_output()
         .context("could not write macOS Keychain generic password")?;
 
     if output.status.success() {

@@ -532,13 +532,21 @@ mod tests {
                  account=''\n\
                  secret=''\n\
                  while [ \"$#\" -gt 0 ]; do\n\
-                   case \"$1\" in\n\
-                     -s) shift; service=\"$1\" ;;\n\
-                     -a) shift; account=\"$1\" ;;\n\
-                     -w) shift; secret=\"$1\" ;;\n\
-                   esac\n\
+               case \"$1\" in\n\
+                 -s) shift; service=\"$1\" ;;\n\
+                 -a) shift; account=\"$1\" ;;\n\
+                 -w)\n\
                    shift\n\
-                 done\n\
+                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                     secret=\"$1\"\n\
+                   else\n\
+                     IFS= read -r secret || true\n\
+                     continue\n\
+                   fi\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
                  if [ \"$service\" = \"aisw\" ]; then key=\"$service-$account\"; else key=\"$service\"; fi\n\
                  key=$(printf '%s' \"$key\" | tr ' /:' '___')\n\
                  store=\"$HOME/$key.json\"\n\
