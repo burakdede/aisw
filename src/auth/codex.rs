@@ -906,7 +906,10 @@ mod tests {
 
         let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "keychain");
         let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", user_home.join("keychain"));
-        let item_dir = user_home.join("keychain").join(KEYCHAIN_SERVICE).join("tester");
+        let item_dir = user_home
+            .join("keychain")
+            .join(KEYCHAIN_SERVICE)
+            .join("tester");
         std::fs::create_dir_all(&item_dir).unwrap();
         std::fs::write(item_dir.join("account"), b"tester").unwrap();
         std::fs::write(item_dir.join("secret"), br#"{"token":"tok"}"#).unwrap();
