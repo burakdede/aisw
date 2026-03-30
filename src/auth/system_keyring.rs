@@ -79,6 +79,19 @@ pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
 }
 
 pub fn find_generic_password_account(service: &str) -> Result<Option<String>> {
+    find_generic_password_account_with_candidates(service, &[])
+}
+
+pub fn find_generic_password_account_with_candidates(
+    service: &str,
+    candidates: &[String],
+) -> Result<Option<String>> {
+    for candidate in candidate_accounts(candidates) {
+        if read_generic_password(service, Some(&candidate))?.is_some() {
+            return Ok(Some(candidate));
+        }
+    }
+
     if let Some(root) = fake_root() {
         return find_fake_account(&root, service);
     }
@@ -106,6 +119,20 @@ fn fake_root() -> Option<PathBuf> {
 
 fn fake_item_dir(root: &Path, service: &str, account: &str) -> PathBuf {
     root.join(service).join(account)
+}
+
+fn candidate_accounts(candidates: &[String]) -> Vec<String> {
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        let trimmed = candidate.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if unique.iter().all(|existing| existing != trimmed) {
+            unique.push(trimmed.to_owned());
+        }
+    }
+    unique
 }
 
 fn read_fake_password(
@@ -277,5 +304,21 @@ mod tests {
         let _root = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path());
 
         delete_generic_password("aisw", "missing").unwrap();
+    }
+
+    #[test]
+    fn fake_keyring_prefers_matching_candidate_account() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let _root = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path());
+
+        upsert_generic_password("Codex Auth", "a-stale", br#"{"token":"stale"}"#).unwrap();
+        upsert_generic_password("Codex Auth", "work@example.com", br#"{"token":"live"}"#).unwrap();
+
+        let candidates = vec!["work@example.com".to_owned(), "a-stale".to_owned()];
+        assert_eq!(
+            find_generic_password_account_with_candidates("Codex Auth", &candidates).unwrap(),
+            Some("work@example.com".to_owned())
+        );
     }
 }

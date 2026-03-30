@@ -165,16 +165,25 @@ fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
         .context("could not query the system keyring for Codex credentials")
 }
 
-fn live_keyring_account() -> Result<String> {
-    secure_backend::find_generic_password_account(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE)
-        .context("could not determine the live Codex keyring account")?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "could not determine the live Codex keyring account.\n  \
+fn live_keyring_account(credentials: &[u8]) -> Result<String> {
+    let mut candidates = Vec::new();
+    if let Some(identity) = super::identity::resolve_identity_from_json_bytes(credentials)? {
+        candidates.push(identity);
+    }
+
+    secure_backend::find_generic_password_account_with_candidates(
+        KEYCHAIN_BACKEND,
+        KEYCHAIN_SERVICE,
+        &candidates,
+    )
+    .context("could not determine the live Codex keyring account")?
+    .ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not determine the live Codex keyring account.\n  \
                  Sign in with Codex once on this machine so aisw can reuse the \
                  existing keyring entry, or switch Codex to file-backed auth."
-            )
-        })
+        )
+    })
 }
 
 pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
@@ -541,7 +550,7 @@ pub fn apply_live_files(
                     name
                 )
             })?;
-            let account = live_keyring_account()?;
+            let account = live_keyring_account(&bytes)?;
             secure_backend::upsert_generic_password(
                 KEYCHAIN_BACKEND,
                 KEYCHAIN_SERVICE,
@@ -1293,5 +1302,63 @@ mod tests {
         assert!(err
             .to_string()
             .contains("could not determine the live Codex keyring account"));
+    }
+
+    #[test]
+    fn keychain_backed_profile_prefers_identity_named_live_account() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let aisw_home = dir.path().join("aisw");
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        std::fs::create_dir_all(&aisw_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", &user_home);
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+        let profiles_home = aisw_home.join("profiles");
+        let ps = ProfileStore::new(&profiles_home);
+
+        ps.create(Tool::Codex, "work").unwrap();
+        write_keyring_store_config(&ps, "work").unwrap();
+        secure_store::write_profile_secret(
+            Tool::Codex,
+            "work",
+            br#"{"token":"new","email":"work@example.com"}"#,
+        )
+        .unwrap();
+        secure_backend::upsert_generic_password(
+            KEYCHAIN_BACKEND,
+            KEYCHAIN_SERVICE,
+            "a-stale",
+            br#"{"token":"stale"}"#,
+        )
+        .unwrap();
+        secure_backend::upsert_generic_password(
+            KEYCHAIN_BACKEND,
+            KEYCHAIN_SERVICE,
+            "work@example.com",
+            br#"{"token":"old"}"#,
+        )
+        .unwrap();
+
+        apply_live_files(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
+
+        assert_eq!(
+            secure_backend::read_generic_password(
+                KEYCHAIN_BACKEND,
+                KEYCHAIN_SERVICE,
+                Some("work@example.com"),
+            )
+            .unwrap(),
+            Some(br#"{"token":"new","email":"work@example.com"}"#.to_vec())
+        );
+        assert_eq!(
+            secure_backend::read_generic_password(
+                KEYCHAIN_BACKEND,
+                KEYCHAIN_SERVICE,
+                Some("a-stale"),
+            )
+            .unwrap(),
+            Some(br#"{"token":"stale"}"#.to_vec())
+        );
     }
 }

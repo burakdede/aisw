@@ -717,6 +717,86 @@ fn use_codex_system_keyring_profile_fails_closed_without_live_account() {
 }
 
 #[test]
+fn use_codex_system_keyring_profile_prefers_identity_named_live_account() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    add_fake_codex_security_tool(&env);
+
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = \"keyring\"\n",
+    )
+    .unwrap();
+    seed_keyring_item(
+        &env,
+        "aisw",
+        "profile:codex:work",
+        "{\"token\":\"new\",\"email\":\"work@example.com\"}",
+    );
+    seed_keyring_item(&env, "Codex Auth", "a-stale", "{\"token\":\"stale\"}");
+    seed_keyring_item(
+        &env,
+        "Codex Auth",
+        "work@example.com",
+        "{\"token\":\"old\"}",
+    );
+
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 1,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {
+                    "work": {
+                        "added_at": "2026-03-30T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "system_keyring",
+                        "label": null
+                    }
+                },
+                "gemini": {}
+            },
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        }),
+    );
+
+    env.cmd()
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("AISW_CODEX_AUTH_STORAGE", "keychain")
+        .env("USER", "someone-else")
+        .args(["use", "codex", "work"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join("keychain")
+                .join("Codex Auth")
+                .join("work@example.com")
+                .join("secret"),
+        )
+        .unwrap(),
+        "{\"token\":\"new\",\"email\":\"work@example.com\"}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join("keychain")
+                .join("Codex Auth")
+                .join("a-stale")
+                .join("secret"),
+        )
+        .unwrap(),
+        "{\"token\":\"stale\"}"
+    );
+}
+
+#[test]
 fn failed_claude_switch_does_not_advance_active_profile_or_live_credentials() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");

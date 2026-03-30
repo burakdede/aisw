@@ -44,3 +44,15 @@ pub fn find_generic_password_account(
         SecureBackend::SystemKeyring => system_keyring::find_generic_password_account(service),
     }
 }
+
+pub fn find_generic_password_account_with_candidates(
+    backend: SecureBackend,
+    service: &str,
+    candidates: &[String],
+) -> Result<Option<String>> {
+    match backend {
+        SecureBackend::SystemKeyring => {
+            system_keyring::find_generic_password_account_with_candidates(service, candidates)
+        }
+    }
+}

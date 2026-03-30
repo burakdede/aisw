@@ -43,7 +43,7 @@ The current support policy is:
 | Claude Code | file-backed credentials | supported | supported | uses the live Claude credentials file |
 | Claude Code | system keyring | supported where the live entry is readable | supported | managed profiles stay in the system keyring rather than being downgraded to files |
 | Codex CLI | file-backed `auth.json` | supported | supported | file-backed profiles remain portable across platforms |
-| Codex CLI | system keyring with discoverable live account | supported | supported | `aisw` reuses the existing live keyring account instead of guessing |
+| Codex CLI | system keyring with discoverable live account | supported | supported | `aisw` reuses the existing live keyring account when it can identify it from the live keyring or the stored OAuth identity |
 | Codex CLI | system keyring without discoverable live account | partial | fail-closed | `aisw` will not fabricate a username-based keyring account; switching errors with guidance instead |
 | Gemini CLI | file-backed local state under `~/.gemini` | supported | supported | Gemini remains file-managed because auth and broader local state are coupled |
 

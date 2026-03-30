@@ -183,7 +183,7 @@ fn resolve_oauth_identity(
     Ok(None)
 }
 
-fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<String>> {
+pub(crate) fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<String>> {
     let value: Value = match serde_json::from_slice(bytes) {
         Ok(value) => value,
         Err(_) => return Ok(None),
