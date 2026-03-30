@@ -28,7 +28,12 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     let requested_state_mode = match (args.tool, args.state_mode) {
         (Tool::Claude | Tool::Codex, mode) => mode,
         (_, Some(_)) => {
-            anyhow::bail!("--state-mode is currently supported only for claude and codex.");
+            anyhow::bail!(
+                "--state-mode is currently supported only for claude and codex.\n  \
+                 Gemini remains isolated-only because its native ~/.gemini directory mixes \
+                 credentials with broader local state such as history, trusted folders, \
+                 project mappings, settings, and MCP config."
+            );
         }
         (_, None) => None,
     };

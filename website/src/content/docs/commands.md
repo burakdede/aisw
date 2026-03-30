@@ -96,7 +96,7 @@ aisw add gemini backup --api-key AIza... --label "Backup quota account"
 Switch the active account for a tool.
 
 ```
-aisw use <tool> <profile_name>
+aisw use <tool> <profile_name> [--state-mode <isolated|shared>]
 ```
 
 `aisw use` applies the selected profile into the live config location each tool reads:
@@ -104,13 +104,21 @@ aisw use <tool> <profile_name>
 - Codex: live `auth.json` plus file-store config in `~/.codex/config.toml`
 - Gemini: live `~/.gemini/.env` or token cache
 
+`--state-mode` is supported for Claude and Codex:
+- `isolated`: switch both account credentials and local tool state for that tool
+- `shared`: keep the tool's shared local state and switch account credentials only
+
+Gemini is currently isolated-only. `aisw` does not expose `--state-mode` for Gemini because the native `~/.gemini` directory mixes credentials with broader local state such as history, trusted folders, project mappings, settings, and MCP config. A Gemini "shared" mode would therefore mean sharing the whole native Gemini state, not just auth.
+
 Normal switching does not require shell integration.
 
 Examples:
 
 ```
 aisw use claude work
+aisw use claude work --state-mode shared
 aisw use codex personal
+aisw use codex personal --state-mode isolated
 aisw use gemini default
 aisw use claude backup
 aisw use codex team-shared
@@ -200,6 +208,8 @@ aisw status [--json]
 ```
 
 Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and whether the live tool config matches the configured active profile. Token validity, quota, and subscription state are not checked — aisw only verifies local file presence and that the local live state matches the selected profile.
+
+For Claude and Codex, `status` also reports the active state mode (`isolated` or `shared`). Gemini does not currently support configurable state mode and remains isolated-only.
 
 | Flag | Description |
 |---|---|

@@ -6,7 +6,7 @@ Common issues and solutions for `aisw`.
 
 ## 1. Shell integration not working
 
-If running `aisw use` updates the profile list but doesn't change the active environment variable for a tool (like `ANTHROPIC_API_KEY`), the shell hook might not be loaded.
+If running `aisw use` updates the profile list but doesn't change the active shell environment for a tool (for example `CLAUDE_CONFIG_DIR` or `CODEX_HOME`), the shell hook might not be loaded.
 
 ### Diagnosis
 Run:
@@ -54,7 +54,27 @@ Gemini's OAuth flow captures a token cache by overriding the `HOME` directory to
 
 ---
 
-## 4. Permission Denied errors
+## 4. Gemini does not support shared state mode
+
+If `aisw use gemini ... --state-mode shared` fails, that is expected.
+
+### Why
+Gemini's native `~/.gemini` directory mixes credentials with broader local state such as:
+- history
+- trusted folders
+- project mappings
+- settings
+- MCP-related config
+
+Because of that, a Gemini "shared" mode would share the whole native Gemini state, not just account credentials.
+
+### What to do instead
+- Use Gemini in the default isolated mode.
+- Use Claude or Codex with `--state-mode shared` if you need cross-account continuity while keeping one local tool state.
+
+---
+
+## 5. Permission Denied errors
 
 `aisw` strictly enforces `0600` permissions for your security.
 
@@ -68,7 +88,7 @@ Errors when writing to `~/.aisw/` or `~/.claude/`.
 
 ---
 
-## 5. Duplicate Identity Warning
+## 6. Duplicate Identity Warning
 
 If you get a warning that an account identity already exists under a different profile name, it means `aisw` detected the same email or account ID in the credentials.
 
