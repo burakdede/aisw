@@ -372,15 +372,25 @@ fn import_claude(
     confirmed: bool,
 ) -> Result<()> {
     print_import_header(Tool::Claude, detected);
-    let candidates = [
-        user_home.join(".claude").join(".credentials.json"),
-        user_home
-            .join(".config")
-            .join("claude")
-            .join(".credentials.json"),
-    ];
-    let Some(src) = candidates.iter().find(|p| p.exists()) else {
-        output::print_kv("Credentials", "not found");
+    let local_state = auth::claude::live_local_state_dir(user_home);
+    output::print_kv(
+        "Local state",
+        local_state
+            .as_ref()
+            .map(|path| format!("found {}", path.display()))
+            .unwrap_or_else(|| "not found".to_owned()),
+    );
+
+    let Some(snapshot) = auth::claude::live_credentials_snapshot_for_import(user_home)? else {
+        if auth::claude::keychain_import_supported() && local_state.is_some() {
+            output::print_kv("Credentials", "not found in file or Keychain");
+            output::print_info(
+                "Claude local state exists, but aisw could not find importable auth in \
+                 ~/.claude/.credentials.json or macOS Keychain.",
+            );
+        } else {
+            output::print_kv("Credentials", "not found");
+        }
         output::print_blank_line();
         return Ok(());
     };
@@ -389,8 +399,14 @@ fn import_claude(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
-    let source_bytes =
-        fs::read(src).with_context(|| format!("could not read {}", src.display()))?;
+    let (source_desc, source_bytes) = match snapshot.source {
+        auth::claude::LiveCredentialSource::File(path) => {
+            (format!("found {}", path.display()), snapshot.bytes)
+        }
+        auth::claude::LiveCredentialSource::Keychain => {
+            ("found macOS Keychain".to_owned(), snapshot.bytes)
+        }
+    };
     let imported_method = if extract_json_string_field(&source_bytes, "apiKey").is_some() {
         AuthMethod::ApiKey
     } else {
@@ -403,7 +419,7 @@ fn import_claude(
             Tool::Claude,
             &api_key,
         )? {
-            output::print_kv("Credentials", format!("found {}", src.display()));
+            output::print_kv("Credentials", &source_desc);
             output::print_kv("Auth", "api_key");
             output::print_kv("Import", "already managed");
             output::print_info(format!(
@@ -420,7 +436,7 @@ fn import_claude(
         Tool::Claude,
         &source_bytes,
     )? {
-        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Credentials", &source_desc);
         output::print_kv("Auth", "oauth");
         output::print_kv("Import", "already managed");
         output::print_info(format!(
@@ -432,14 +448,14 @@ fn import_claude(
     }
 
     if confirmed && profile_store.exists(Tool::Claude, "default") {
-        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Credentials", &source_desc);
         output::print_kv("Import", "skipped");
         output::print_info("Profile 'default' already exists.");
         output::print_blank_line();
         return Ok(());
     }
 
-    output::print_kv("Credentials", format!("found {}", src.display()));
+    output::print_kv("Credentials", &source_desc);
     output::print_kv(
         "Auth",
         if imported_method == AuthMethod::ApiKey {
@@ -457,7 +473,12 @@ fn import_claude(
     };
 
     profile_store.create(Tool::Claude, &profile_name)?;
-    profile_store.copy_file_into(Tool::Claude, &profile_name, src, ".credentials.json")?;
+    profile_store.write_file(
+        Tool::Claude,
+        &profile_name,
+        ".credentials.json",
+        &source_bytes,
+    )?;
     if imported_method == AuthMethod::OAuth {
         auth::identity::ensure_unique_oauth_identity(
             &profile_store,

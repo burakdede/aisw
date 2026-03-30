@@ -22,6 +22,16 @@ enum ClaudeAuthStorage {
     Keychain,
 }
 
+pub enum LiveCredentialSource {
+    File(PathBuf),
+    Keychain,
+}
+
+pub struct LiveCredentialSnapshot {
+    pub bytes: Vec<u8>,
+    pub source: LiveCredentialSource,
+}
+
 fn live_credentials_path(user_home: &Path) -> PathBuf {
     let primary = user_home.join(".claude").join(CREDENTIALS_FILE);
     let secondary = user_home
@@ -33,6 +43,20 @@ fn live_credentials_path(user_home: &Path) -> PathBuf {
         secondary
     } else {
         primary
+    }
+}
+
+pub fn live_local_state_dir(user_home: &Path) -> Option<PathBuf> {
+    let primary = user_home.join(".claude");
+    if primary.exists() {
+        return Some(primary);
+    }
+
+    let secondary = user_home.join(".config").join("claude");
+    if secondary.exists() {
+        Some(secondary)
+    } else {
+        None
     }
 }
 
@@ -56,6 +80,10 @@ fn forced_auth_storage() -> Option<ClaudeAuthStorage> {
         Ok("keychain") => Some(ClaudeAuthStorage::Keychain),
         _ => None,
     }
+}
+
+pub fn keychain_import_supported() -> bool {
+    forced_auth_storage() == Some(ClaudeAuthStorage::Keychain) || cfg!(target_os = "macos")
 }
 
 fn watch_keychain_during_oauth() -> bool {
@@ -100,6 +128,41 @@ fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
             stderr.trim()
         )
     }
+}
+
+pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
+    if keychain_import_supported() {
+        read_keychain_credentials()
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn live_credentials_snapshot_for_import(
+    user_home: &Path,
+) -> Result<Option<LiveCredentialSnapshot>> {
+    let live_path = live_credentials_path(user_home);
+    if live_path.exists() {
+        let bytes = std::fs::read(&live_path)
+            .with_context(|| format!("could not read {}", live_path.display()))?;
+        return Ok(Some(LiveCredentialSnapshot {
+            bytes,
+            source: LiveCredentialSource::File(live_path),
+        }));
+    }
+
+    if live_local_state_dir(user_home).is_none() {
+        return Ok(None);
+    }
+
+    let Some(bytes) = read_live_keychain_credentials_for_import()? else {
+        return Ok(None);
+    };
+
+    Ok(Some(LiveCredentialSnapshot {
+        bytes,
+        source: LiveCredentialSource::Keychain,
+    }))
 }
 
 fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {

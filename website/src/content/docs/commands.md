@@ -234,6 +234,11 @@ aisw init
 
 Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool, and `aisw init` applies that active profile to the live tool config immediately. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
 
+For Claude Code, `aisw init` distinguishes local Claude state from importable auth:
+- file-backed Claude auth is imported from the live Claude config directory
+- on macOS, Claude auth can also be imported from the `Claude Code-credentials` Keychain item when present
+- if Claude local state exists but no importable auth is available, `aisw init` reports that explicitly instead of only saying credentials were “not found”
+
 When imported credentials are OAuth-based and aisw can resolve the authenticated account identity, it blocks importing a duplicate alias for an already stored account. If identity cannot be resolved, the import continues with a warning.
 
 On success, `aisw init` prints a short next-step hint for reviewing or switching profiles.

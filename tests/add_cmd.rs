@@ -22,7 +22,11 @@ fn add_fake_claude_security_tool(env: &TestEnv) {
          case \"$cmd\" in\n\
            find-generic-password)\n\
              if [ -f \"$store\" ]; then\n\
-               cat \"$store\"\n\
+               value=''\n\
+               while IFS= read -r line || [ -n \"$line\" ]; do\n\
+                 value=\"$value$line\"\n\
+               done < \"$store\"\n\
+               printf '%s' \"$value\"\n\
                exit 0\n\
              fi\n\
              echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\

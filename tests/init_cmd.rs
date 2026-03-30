@@ -8,6 +8,50 @@ use common::TestEnv;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
+fn add_fake_claude_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store=\"$HOME/claude-keychain.json\"\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             if [ -f \"$store\" ]; then\n\
+               value=''\n\
+               while IFS= read -r line || [ -n \"$line\" ]; do\n\
+                 value=\"$value$line\"\n\
+               done < \"$store\"\n\
+               printf '%s' \"$value\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -w)\n\
+                   shift\n\
+                   printf '%s' \"$1\" > \"$store\"\n\
+                   exit 0\n\
+                   ;;\n\
+                 *)\n\
+                   shift\n\
+                   ;;\n\
+               esac\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
 fn run_init(env: &TestEnv) -> assert_cmd::assert::Assert {
     env.cmd().args(["init", "--yes"]).assert()
 }
@@ -137,6 +181,81 @@ fn init_imports_claude_credentials() {
     assert_eq!(config["active"]["claude"], "default");
     let live = fs::read(env.fake_home.join(".claude").join(".credentials.json")).unwrap();
     assert_eq!(live, b"{\"token\":\"oauth\"}");
+}
+
+#[test]
+fn init_imports_claude_credentials_from_keychain() {
+    let env = TestEnv::new();
+    add_fake_claude_security_tool(&env);
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(claude_dir.join("settings.json"), b"{\"theme\":\"dark\"}").unwrap();
+    fs::write(
+        env.fake_home.join("claude-keychain.json"),
+        b"{\"token\":\"oauth\"}",
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .assert()
+        .success()
+        .stdout(contains("Local state"))
+        .stdout(contains("found"))
+        .stdout(contains(".claude"))
+        .stdout(contains("found macOS Keychain"))
+        .stdout(contains(
+            "Imported Claude Code credentials as profile 'default' and marked it active.",
+        ));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["default"]["auth_method"],
+        "o_auth"
+    );
+    assert_eq!(config["active"]["claude"], "default");
+    let stored = fs::read(
+        env.aisw_home
+            .join("profiles")
+            .join("claude")
+            .join("default")
+            .join(".credentials.json"),
+    )
+    .unwrap();
+    assert_eq!(stored, b"{\"token\":\"oauth\"}");
+}
+
+#[test]
+fn init_reports_claude_local_state_without_importable_auth() {
+    let env = TestEnv::new();
+    add_fake_claude_security_tool(&env);
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(claude_dir.join("settings.json"), b"{\"theme\":\"dark\"}").unwrap();
+
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .assert()
+        .success()
+        .stdout(contains("Claude Code"))
+        .stdout(contains("Local state"))
+        .stdout(contains(".claude"))
+        .stdout(contains("not found in file or Keychain"))
+        .stdout(contains("could not find importable auth"));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .exists());
 }
 
 #[test]

@@ -69,6 +69,10 @@ The wizard will:
    default unless aisw is already managing an active profile for that tool. When an import is
    marked active, `aisw` also applies it to the live tool config immediately.
 
+For Claude Code specifically, onboarding is platform-aware: file-backed auth is imported from
+the live Claude config directory, and on macOS `aisw` can also import Claude auth from Keychain
+when Claude is signed in that way.
+
 Running `aisw init` a second time is safe — the shell hook will not be duplicated, and
 existing profiles will not be overwritten.
 

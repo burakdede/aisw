@@ -10,7 +10,7 @@ If you use AI coding agents like Claude Code, Codex CLI, or Gemini CLI, you even
 
 Before `aisw`, switching accounts was a manual, error-prone process:
 
-- **Manual File Management:** You had to find and move hidden files like `~/.claude/.credentials.json` or edit `~/.gemini/.env` manually.
+- **Manual Credential Plumbing:** You had to find and move hidden files like `~/.claude/.credentials.json`, deal with macOS Keychain-backed Claude auth, or edit `~/.gemini/.env` manually.
 - **Identity Confusion:** It was easy to lose track of which account was currently "live," leading to accidental usage of the wrong subscription.
 - **Security Risks:** Manually copying sensitive credentials increases the risk of setting loose permissions or accidentally leaking them in a terminal history or git repo.
 - **No Backups:** If you messed up a manual copy, your login session was gone, forcing you to re-run the browser OAuth flow.
