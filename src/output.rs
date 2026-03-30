@@ -77,6 +77,26 @@ pub fn print_next_step(message: impl AsRef<str>) {
     println!("  {}", style(message.as_ref()).cyan());
 }
 
+pub fn next_step_after_init() -> &'static str {
+    "Run 'aisw list' to review profiles, then 'aisw use <tool> <name>' to switch."
+}
+
+pub fn next_step_after_add(tool: Tool, profile_name: &str, set_active: bool) -> String {
+    if set_active {
+        "Run 'aisw status' to confirm the current state.".to_owned()
+    } else {
+        format!("Run 'aisw use {} {}' to activate it.", tool, profile_name)
+    }
+}
+
+pub fn next_step_after_use() -> &'static str {
+    "Run 'aisw status' to confirm the current state."
+}
+
+pub fn next_step_after_restore(tool: Tool, profile_name: &str) -> String {
+    format!("Run 'aisw use {} {}' to switch to it.", tool, profile_name)
+}
+
 pub fn print_fix(message: impl AsRef<str>) {
     if runtime::is_quiet() {
         return;

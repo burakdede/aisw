@@ -1,11 +1,9 @@
-pub mod activation;
 pub mod auth;
 pub mod backup;
 pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod live_apply;
-pub mod next_steps;
 pub mod output;
 pub mod profile;
 pub mod runtime;

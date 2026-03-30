@@ -5,7 +5,6 @@ use anyhow::{bail, Context, Result};
 use crate::backup::BackupManager;
 use crate::cli::{BackupCommand, BackupListArgs};
 use crate::config::ConfigStore;
-use crate::next_steps;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::runtime;
@@ -130,7 +129,7 @@ pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
         output::print_effect("Stored profile files restored from backup.");
         output::print_effect("Config entry recreated if it was missing.");
         output::print_blank_line();
-        output::print_next_step(next_steps::after_restore(e.tool, &e.profile));
+        output::print_next_step(output::next_step_after_restore(e.tool, &e.profile));
     }
     Ok(())
 }

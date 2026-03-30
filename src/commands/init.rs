@@ -10,7 +10,6 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input};
 
 use crate::auth;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
-use crate::next_steps;
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
 use crate::runtime;
@@ -69,7 +68,7 @@ pub(crate) fn run_inner(
     import_credentials(aisw_home, user_home, &detected_tools, confirmed)?;
 
     output::print_title("Setup complete");
-    output::print_next_step(next_steps::after_init());
+    output::print_next_step(output::next_step_after_init());
     Ok(())
 }
 

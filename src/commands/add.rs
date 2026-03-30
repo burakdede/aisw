@@ -6,7 +6,6 @@ use anyhow::Result;
 use crate::auth;
 use crate::cli::AddArgs;
 use crate::config::ConfigStore;
-use crate::next_steps;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::runtime;
@@ -99,7 +98,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         output::print_effect("Active profile updated.");
     }
     output::print_blank_line();
-    output::print_next_step(next_steps::after_add(
+    output::print_next_step(output::next_step_after_add(
         args.tool,
         &args.profile_name,
         args.set_active,

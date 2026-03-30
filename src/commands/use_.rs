@@ -6,7 +6,6 @@ use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
 use crate::config::{AuthMethod, ConfigStore};
-use crate::next_steps;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
@@ -182,7 +181,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             output::print_effect("Backup created before switching.");
         }
         output::print_blank_line();
-        output::print_next_step(next_steps::after_use());
+        output::print_next_step(output::next_step_after_use());
     }
 
     Ok(())
