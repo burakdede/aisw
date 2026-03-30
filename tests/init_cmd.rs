@@ -259,6 +259,61 @@ fn init_reports_claude_local_state_without_importable_auth() {
 }
 
 #[test]
+fn init_reports_codex_local_state_without_importable_auth() {
+    let env = TestEnv::new();
+    let codex_dir = env.fake_home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(
+        codex_dir.join("config.toml"),
+        b"cli_auth_credentials_store = \"keyring\"\n",
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("Local state"))
+        .stdout(contains(".codex"))
+        .stdout(contains("not found in auth.json"))
+        .stdout(contains("Auth storage"))
+        .stdout(contains("keyring"))
+        .stdout(contains("keyring-backed auth"))
+        .stdout(contains("does not import yet"));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("codex")
+        .join("default")
+        .exists());
+}
+
+#[test]
+fn init_reports_codex_auto_backend_without_importable_auth() {
+    let env = TestEnv::new();
+    let codex_dir = env.fake_home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(codex_dir.join("config.toml"), b"model = \"gpt-5.4\"\n").unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("Local state"))
+        .stdout(contains(".codex"))
+        .stdout(contains("not found in auth.json"))
+        .stdout(contains("Auth storage"))
+        .stdout(contains("auto"))
+        .stdout(contains("may be using the OS credential store"));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("codex")
+        .join("default")
+        .exists());
+}
+
+#[test]
 fn init_imports_codex_credentials() {
     let env = TestEnv::new();
     env.add_fake_tool("codex", "codex 1.0.0");
@@ -321,6 +376,70 @@ fn init_imports_gemini_env_credentials() {
     assert_eq!(config["active"]["gemini"], "default");
     let live_env = fs::read_to_string(env.fake_home.join(".gemini").join(".env")).unwrap();
     assert!(live_env.contains("GEMINI_API_KEY=abc"));
+}
+
+#[test]
+fn init_imports_gemini_oauth_credentials_from_oauth_creds_file() {
+    let env = TestEnv::new();
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+    let gemini_dir = env.fake_home.join(".gemini");
+    fs::create_dir_all(&gemini_dir).unwrap();
+    fs::write(
+        gemini_dir.join("oauth_creds.json"),
+        br#"{"email":"burak@example.com","access_token":"tok"}"#,
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Gemini CLI"))
+        .stdout(contains("oauth"))
+        .stdout(contains(
+            "Imported Gemini CLI credentials as profile 'default' and marked it active.",
+        ));
+
+    let profile_dir = env
+        .aisw_home
+        .join("profiles")
+        .join("gemini")
+        .join("default");
+    assert!(profile_dir.join("oauth_creds.json").exists());
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["gemini"]["default"]["auth_method"],
+        "o_auth"
+    );
+    assert_eq!(config["active"]["gemini"], "default");
+}
+
+#[test]
+fn init_imports_all_gemini_oauth_cache_files() {
+    let env = TestEnv::new();
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+    let gemini_dir = env.fake_home.join(".gemini");
+    fs::create_dir_all(&gemini_dir).unwrap();
+    fs::write(
+        gemini_dir.join("settings.json"),
+        br#"{"security":{"auth":{"selectedType":"oauth-personal"}}}"#,
+    )
+    .unwrap();
+    fs::write(
+        gemini_dir.join("oauth_creds.json"),
+        br#"{"email":"burak@example.com","access_token":"tok"}"#,
+    )
+    .unwrap();
+
+    run_init(&env).success();
+
+    let profile_dir = env
+        .aisw_home
+        .join("profiles")
+        .join("gemini")
+        .join("default");
+    assert!(profile_dir.join("settings.json").exists());
+    assert!(profile_dir.join("oauth_creds.json").exists());
 }
 
 #[test]
@@ -655,6 +774,64 @@ fn init_skips_duplicate_gemini_api_key_without_failing() {
     fs::write(
         gemini_dir.join(".env"),
         b"GEMINI_API_KEY=AIzatest1234567890ABCDEF\n",
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Gemini CLI"))
+        .stdout(contains("already managed"))
+        .stdout(contains("Live credentials already match profile 'work'."));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("gemini")
+        .join("default")
+        .exists());
+}
+
+#[test]
+fn init_skips_duplicate_gemini_oauth_identity_without_failing() {
+    let env = TestEnv::new();
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+
+    fs::create_dir_all(&env.aisw_home).unwrap();
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "active": { "claude": null, "codex": null, "gemini": "work" },
+            "profiles": {
+                "claude": {},
+                "codex": {},
+                "gemini": {
+                    "work": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    }
+                }
+            },
+            "settings": { "backup_on_switch": true, "max_backups": 10 }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let profile_dir = env.aisw_home.join("profiles").join("gemini").join("work");
+    fs::create_dir_all(&profile_dir).unwrap();
+    fs::write(
+        profile_dir.join("oauth_creds.json"),
+        br#"{"email":"burak@example.com","access_token":"tok"}"#,
+    )
+    .unwrap();
+
+    let gemini_dir = env.fake_home.join(".gemini");
+    fs::create_dir_all(&gemini_dir).unwrap();
+    fs::write(
+        gemini_dir.join("oauth_creds.json"),
+        br#"{"email":"burak@example.com","access_token":"tok"}"#,
     )
     .unwrap();
 

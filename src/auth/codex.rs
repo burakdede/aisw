@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -31,6 +32,102 @@ fn live_auth_path(user_home: &Path) -> PathBuf {
 
 fn live_config_path(user_home: &Path) -> PathBuf {
     live_dir(user_home).join(CONFIG_FILE)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveAuthStorage {
+    Auto,
+    File,
+    Keyring,
+    Unknown,
+}
+
+impl LiveAuthStorage {
+    pub fn description(self) -> &'static str {
+        match self {
+            LiveAuthStorage::Auto => "auto",
+            LiveAuthStorage::File => "file",
+            LiveAuthStorage::Keyring => "keyring",
+            LiveAuthStorage::Unknown => "unknown",
+        }
+    }
+}
+
+pub enum LiveCredentialSource {
+    File(PathBuf),
+}
+
+pub struct LiveCredentialSnapshot {
+    pub bytes: Vec<u8>,
+    pub source: LiveCredentialSource,
+}
+
+pub fn live_local_state_dir(user_home: &Path) -> Option<PathBuf> {
+    let dir = live_dir(user_home);
+    dir.exists().then_some(dir)
+}
+
+pub fn live_auth_storage(user_home: &Path) -> Result<Option<LiveAuthStorage>> {
+    let Some(_) = live_local_state_dir(user_home) else {
+        return Ok(None);
+    };
+
+    let config_path = live_config_path(user_home);
+    if !config_path.exists() {
+        return Ok(Some(LiveAuthStorage::Auto));
+    }
+
+    let contents = fs::read_to_string(&config_path)
+        .with_context(|| format!("could not read {}", config_path.display()))?;
+    Ok(Some(parse_live_auth_storage(&contents)))
+}
+
+pub fn live_credentials_snapshot_for_import(
+    user_home: &Path,
+) -> Result<Option<LiveCredentialSnapshot>> {
+    let auth_path = live_auth_path(user_home);
+    if !auth_path.exists() {
+        return Ok(None);
+    }
+
+    let bytes =
+        fs::read(&auth_path).with_context(|| format!("could not read {}", auth_path.display()))?;
+    Ok(Some(LiveCredentialSnapshot {
+        bytes,
+        source: LiveCredentialSource::File(auth_path),
+    }))
+}
+
+fn parse_live_auth_storage(contents: &str) -> LiveAuthStorage {
+    let parsed = toml::from_str::<toml::Value>(contents).ok();
+    if let Some(raw) = parsed
+        .as_ref()
+        .and_then(|value| value.get("cli_auth_credentials_store"))
+        .and_then(|value| value.as_str())
+    {
+        return auth_storage_from_str(raw);
+    }
+
+    for line in contents.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "cli_auth_credentials_store" {
+            continue;
+        }
+        return auth_storage_from_str(value.trim().trim_matches('"'));
+    }
+
+    LiveAuthStorage::Auto
+}
+
+fn auth_storage_from_str(raw: &str) -> LiveAuthStorage {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "auto" => LiveAuthStorage::Auto,
+        "file" => LiveAuthStorage::File,
+        "keyring" => LiveAuthStorage::Keyring,
+        _ => LiveAuthStorage::Unknown,
+    }
 }
 
 pub(crate) fn write_file_store_config(profile_store: &ProfileStore, name: &str) -> Result<()> {
@@ -392,6 +489,46 @@ mod tests {
         let toml_str = std::str::from_utf8(&contents).unwrap();
         assert!(toml_str.contains("cli_auth_credentials_store"));
         assert!(toml_str.contains("file"));
+    }
+
+    #[test]
+    fn parse_live_auth_storage_defaults_to_auto_when_missing() {
+        assert_eq!(parse_live_auth_storage("model = \"gpt-5.4\"\n"), LiveAuthStorage::Auto);
+    }
+
+    #[test]
+    fn parse_live_auth_storage_reads_keyring_backend() {
+        assert_eq!(
+            parse_live_auth_storage("cli_auth_credentials_store = \"keyring\"\n"),
+            LiveAuthStorage::Keyring
+        );
+    }
+
+    #[test]
+    fn parse_live_auth_storage_handles_unknown_backend() {
+        assert_eq!(
+            parse_live_auth_storage("cli_auth_credentials_store = \"mystery\"\n"),
+            LiveAuthStorage::Unknown
+        );
+    }
+
+    #[test]
+    fn live_credentials_snapshot_reads_auth_json() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        std::fs::write(user_home.join(".codex").join(AUTH_FILE), br#"{"token":"tok"}"#).unwrap();
+
+        let snapshot = live_credentials_snapshot_for_import(&user_home)
+            .unwrap()
+            .expect("snapshot should exist");
+
+        assert_eq!(snapshot.bytes, br#"{"token":"tok"}"#);
+        match snapshot.source {
+            LiveCredentialSource::File(path) => {
+                assert_eq!(path, user_home.join(".codex").join(AUTH_FILE));
+            }
+        }
     }
 
     #[test]
