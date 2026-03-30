@@ -7,7 +7,9 @@ use chrono::Utc;
 
 use super::files;
 use super::identity;
-use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use super::macos_keychain;
+use super::secure_store;
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
@@ -75,9 +77,9 @@ fn auth_storage(user_home: &Path) -> ClaudeAuthStorage {
 }
 
 fn forced_auth_storage() -> Option<ClaudeAuthStorage> {
-    match std::env::var("AISW_CLAUDE_AUTH_STORAGE").as_deref() {
-        Ok("file") => Some(ClaudeAuthStorage::File),
-        Ok("keychain") => Some(ClaudeAuthStorage::Keychain),
+    match super::test_overrides::string("AISW_CLAUDE_AUTH_STORAGE").as_deref() {
+        Some("file") => Some(ClaudeAuthStorage::File),
+        Some("keychain") => Some(ClaudeAuthStorage::Keychain),
         _ => None,
     }
 }
@@ -94,40 +96,17 @@ fn watch_keychain_during_oauth() -> bool {
     }
 }
 
-fn security_bin() -> String {
-    std::env::var("AISW_SECURITY_BIN").unwrap_or_else(|_| "security".to_owned())
-}
-
 fn keychain_account() -> String {
-    std::env::var("USER").unwrap_or_else(|_| "aisw".to_owned())
+    macos_keychain::find_generic_password_account(KEYCHAIN_SERVICE)
+        .ok()
+        .flatten()
+        .or_else(|| std::env::var("USER").ok())
+        .unwrap_or_else(|| "aisw".to_owned())
 }
 
 fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
-    let output = Command::new(security_bin())
-        .args(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"])
-        .output()
-        .context("could not query macOS Keychain for Claude Code credentials")?;
-
-    if output.status.success() {
-        let mut bytes = output.stdout;
-        if bytes.last() == Some(&b'\n') {
-            bytes.pop();
-            if bytes.last() == Some(&b'\r') {
-                bytes.pop();
-            }
-        }
-        return Ok(Some(bytes));
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if stderr.contains("could not be found") || stderr.contains("not found in the keychain") {
-        Ok(None)
-    } else {
-        bail!(
-            "could not read Claude Code credentials from Keychain: {}",
-            stderr.trim()
-        )
-    }
+    macos_keychain::read_generic_password(KEYCHAIN_SERVICE, None)
+        .context("could not query macOS Keychain for Claude Code credentials")
 }
 
 pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
@@ -166,30 +145,8 @@ pub fn live_credentials_snapshot_for_import(
 }
 
 fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
-    let secret = std::str::from_utf8(bytes).context("Claude credentials are not valid UTF-8")?;
-    let output = Command::new(security_bin())
-        .args([
-            "add-generic-password",
-            "-U",
-            "-a",
-            &keychain_account(),
-            "-s",
-            KEYCHAIN_SERVICE,
-            "-w",
-            secret,
-        ])
-        .output()
-        .context("could not write Claude Code credentials into macOS Keychain")?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "could not update Claude Code credentials in Keychain: {}",
-            stderr.trim()
-        )
-    }
+    macos_keychain::upsert_generic_password(KEYCHAIN_SERVICE, &keychain_account(), bytes)
+        .context("could not write Claude Code credentials into macOS Keychain")
 }
 
 fn capture_keychain_credentials(profile_dir: &Path, bytes: &[u8]) -> Result<PathBuf> {
@@ -237,6 +194,7 @@ pub fn add_api_key(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::ApiKey,
+            credential_backend: CredentialBackend::File,
             label,
         },
     )?;
@@ -297,7 +255,13 @@ fn add_oauth_with(
 
     files::set_permissions_600(&result)?;
     files::cleanup_profile_on_error(
-        identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Claude, name),
+        identity::ensure_unique_oauth_identity(
+            profile_store,
+            config_store,
+            Tool::Claude,
+            name,
+            CredentialBackend::File,
+        ),
         profile_store,
         Tool::Claude,
         name,
@@ -309,6 +273,7 @@ fn add_oauth_with(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
+            credential_backend: CredentialBackend::File,
             label,
         },
     )?;
@@ -434,6 +399,7 @@ pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> 
 pub fn apply_live_credentials(
     profile_store: &ProfileStore,
     name: &str,
+    backend: CredentialBackend,
     user_home: &Path,
 ) -> Result<()> {
     match auth_storage(user_home) {
@@ -445,8 +411,8 @@ pub fn apply_live_credentials(
             live_credentials_path(user_home),
         ),
         ClaudeAuthStorage::Keychain => {
-            let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
-            write_keychain_credentials(&bytes)
+            let stored = read_stored_credentials(profile_store, name, backend)?;
+            write_keychain_credentials(&stored)
         }
     }
 }
@@ -469,23 +435,43 @@ pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode)
 pub fn live_credentials_match(
     profile_store: &ProfileStore,
     name: &str,
+    backend: CredentialBackend,
     user_home: &Path,
 ) -> Result<bool> {
+    let stored = read_stored_credentials(profile_store, name, backend)?;
     match auth_storage(user_home) {
-        ClaudeAuthStorage::File => files::stored_profile_file_matches_live(
-            profile_store,
-            Tool::Claude,
-            name,
-            CREDENTIALS_FILE,
-            &live_credentials_path(user_home),
-        ),
+        ClaudeAuthStorage::File => {
+            let live_path = live_credentials_path(user_home);
+            if !live_path.exists() {
+                return Ok(false);
+            }
+            let live = std::fs::read(&live_path)
+                .with_context(|| format!("could not read {}", live_path.display()))?;
+            Ok(live == stored)
+        }
         ClaudeAuthStorage::Keychain => {
             let Some(live) = read_keychain_credentials()? else {
                 return Ok(false);
             };
-            let stored = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
             Ok(live == stored)
         }
+    }
+}
+
+fn read_stored_credentials(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+) -> Result<Vec<u8>> {
+    match backend {
+        CredentialBackend::File => profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE),
+        CredentialBackend::MacosKeychain => secure_store::read_profile_secret(Tool::Claude, name)?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "secure credentials for Claude Code profile '{}' are missing from macOS Keychain",
+                    name
+                )
+            }),
     }
 }
 
@@ -497,9 +483,12 @@ fn shell_single_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
     use super::*;
+    use crate::auth::secure_store;
     use crate::config::ConfigStore;
     use crate::profile::ProfileStore;
 
@@ -509,6 +498,74 @@ mod tests {
 
     fn stores(dir: &std::path::Path) -> (ProfileStore, ConfigStore) {
         (ProfileStore::new(dir), ConfigStore::new(dir))
+    }
+
+    fn write_security_mock(bin: &std::path::Path) {
+        fs::write(
+            bin,
+            "#!/bin/sh\n\
+             cmd=\"$1\"\n\
+             shift\n\
+             case \"$cmd\" in\n\
+               find-generic-password)\n\
+                 service=''\n\
+                 account=''\n\
+                 while [ \"$#\" -gt 0 ]; do\n\
+                   case \"$1\" in\n\
+                     -s) shift; service=\"$1\" ;;\n\
+                     -a) shift; account=\"$1\" ;;\n\
+                   esac\n\
+                   shift\n\
+                 done\n\
+                 if [ \"$service\" = \"aisw\" ]; then key=\"$service-$account\"; else key=\"$service\"; fi\n\
+                 key=$(printf '%s' \"$key\" | tr ' /:' '___')\n\
+                 store=\"$HOME/$key.json\"\n\
+                 if [ -f \"$store\" ]; then\n\
+                   cat \"$store\"\n\
+                   exit 0\n\
+                 fi\n\
+                 echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+                 exit 44\n\
+                 ;;\n\
+               add-generic-password)\n\
+                 service=''\n\
+                 account=''\n\
+                 secret=''\n\
+                 while [ \"$#\" -gt 0 ]; do\n\
+                   case \"$1\" in\n\
+                     -s) shift; service=\"$1\" ;;\n\
+                     -a) shift; account=\"$1\" ;;\n\
+                     -w) shift; secret=\"$1\" ;;\n\
+                   esac\n\
+                   shift\n\
+                 done\n\
+                 if [ \"$service\" = \"aisw\" ]; then key=\"$service-$account\"; else key=\"$service\"; fi\n\
+                 key=$(printf '%s' \"$key\" | tr ' /:' '___')\n\
+                 store=\"$HOME/$key.json\"\n\
+                 printf '%s' \"$secret\" > \"$store\"\n\
+                 exit 0\n\
+                 ;;\n\
+               delete-generic-password)\n\
+                 service=''\n\
+                 account=''\n\
+                 while [ \"$#\" -gt 0 ]; do\n\
+                   case \"$1\" in\n\
+                     -s) shift; service=\"$1\" ;;\n\
+                     -a) shift; account=\"$1\" ;;\n\
+                   esac\n\
+                   shift\n\
+                 done\n\
+                 if [ \"$service\" = \"aisw\" ]; then key=\"$service-$account\"; else key=\"$service\"; fi\n\
+                 key=$(printf '%s' \"$key\" | tr ' /:' '___')\n\
+                 store=\"$HOME/$key.json\"\n\
+                 rm -f \"$store\"\n\
+                 exit 0\n\
+                 ;;\n\
+             esac\n\
+             exit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(bin, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
     struct EnvVarGuard {
@@ -757,6 +814,7 @@ mod tests {
             ProfileMeta {
                 added_at: Utc::now(),
                 auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
                 label: None,
             },
         )
@@ -879,6 +937,38 @@ mod tests {
         assert!(
             sentinel.exists(),
             "CLAUDE_CONFIG_DIR was not set in spawned process"
+        );
+    }
+
+    #[test]
+    fn keychain_backed_profile_applies_and_matches_live_keychain() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+
+        let security_bin = bin_dir.join("security");
+        write_security_mock(&security_bin);
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _security = EnvVarGuard::set(
+            "AISW_SECURITY_BIN",
+            security_bin
+                .to_str()
+                .expect("security path should be utf-8"),
+        );
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        secure_store::write_profile_secret(Tool::Claude, "work", br#"{"token":"tok"}"#).unwrap();
+
+        apply_live_credentials(&ps, "work", CredentialBackend::MacosKeychain, &user_home).unwrap();
+
+        assert!(
+            live_credentials_match(&ps, "work", CredentialBackend::MacosKeychain, &user_home)
+                .unwrap()
         );
     }
 }

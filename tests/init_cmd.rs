@@ -56,20 +56,25 @@ fn add_fake_codex_security_tool(env: &TestEnv) {
     env.add_script_tool(
         "security",
         "#!/bin/sh\n\
-         store=\"$HOME/codex-keychain.json\"\n\
          cmd=\"$1\"\n\
          shift\n\
          case \"$cmd\" in\n\
            find-generic-password)\n\
+             service=''\n\
              while [ \"$#\" -gt 0 ]; do\n\
                case \"$1\" in\n\
                  -s)\n\
                    shift\n\
-                   [ \"$1\" = \"Codex Auth\" ] || exit 44\n\
+                   service=\"$1\"\n\
                    ;;\n\
                esac\n\
                shift\n\
              done\n\
+             case \"$service\" in\n\
+               \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
+               \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
+               *) store=\"$HOME/unknown-keychain.json\" ;;\n\
+             esac\n\
              if [ -f \"$store\" ]; then\n\
                value=''\n\
                while IFS= read -r line || [ -n \"$line\" ]; do\n\
@@ -80,6 +85,32 @@ fn add_fake_codex_security_tool(env: &TestEnv) {
              fi\n\
              echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
              exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             service=''\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -w)\n\
+                   shift\n\
+                   case \"$service\" in\n\
+                     \"Codex Auth\") store=\"$HOME/codex-keychain.json\" ;;\n\
+                     \"aisw\") store=\"$HOME/aisw-codex-keychain.json\" ;;\n\
+                     *) store=\"$HOME/unknown-keychain.json\" ;;\n\
+                   esac\n\
+                   printf '%s' \"$1\" > \"$store\"\n\
+                   exit 0\n\
+                   ;;\n\
+                 *)\n\
+                   shift\n\
+                   ;;\n\
+               esac\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
              ;;\n\
            *)\n\
              echo \"unexpected security command: $cmd\" >&2\n\
@@ -254,16 +285,18 @@ fn init_imports_claude_credentials_from_keychain() {
         config["profiles"]["claude"]["default"]["auth_method"],
         "o_auth"
     );
+    assert_eq!(
+        config["profiles"]["claude"]["default"]["credential_backend"],
+        "macos_keychain"
+    );
     assert_eq!(config["active"]["claude"], "default");
-    let stored = fs::read(
-        env.aisw_home
-            .join("profiles")
-            .join("claude")
-            .join("default")
-            .join(".credentials.json"),
-    )
-    .unwrap();
-    assert_eq!(stored, b"{\"token\":\"oauth\"}");
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .join(".credentials.json")
+        .exists());
 }
 
 #[test]
@@ -357,7 +390,13 @@ fn init_imports_codex_credentials_from_keychain() {
         ));
 
     let profile_dir = env.aisw_home.join("profiles").join("codex").join("default");
-    assert!(profile_dir.join("auth.json").exists());
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["codex"]["default"]["credential_backend"],
+        "macos_keychain"
+    );
+    assert!(!profile_dir.join("auth.json").exists());
     assert!(profile_dir.join("config.toml").exists());
 }
 

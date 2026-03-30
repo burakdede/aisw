@@ -9,7 +9,7 @@ use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input};
 
 use crate::auth;
-use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
 use crate::runtime;
@@ -266,6 +266,7 @@ fn should_mark_import_active(config_store: &ConfigStore, tool: Tool) -> Result<b
 fn activate_imported_profile(
     tool: Tool,
     auth_method: AuthMethod,
+    credential_backend: CredentialBackend,
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
     profile_name: &str,
@@ -273,10 +274,20 @@ fn activate_imported_profile(
 ) -> Result<()> {
     match tool {
         Tool::Claude => {
-            auth::claude::apply_live_credentials(profile_store, profile_name, user_home)?;
+            auth::claude::apply_live_credentials(
+                profile_store,
+                profile_name,
+                credential_backend,
+                user_home,
+            )?;
         }
         Tool::Codex => {
-            auth::codex::apply_live_files(profile_store, profile_name, user_home)?;
+            auth::codex::apply_live_files(
+                profile_store,
+                profile_name,
+                credential_backend,
+                user_home,
+            )?;
         }
         Tool::Gemini => {
             let gemini_dir = user_home.join(".gemini");
@@ -399,6 +410,10 @@ fn import_claude(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
+    let imported_backend = match snapshot.source {
+        auth::claude::LiveCredentialSource::File(_) => CredentialBackend::File,
+        auth::claude::LiveCredentialSource::Keychain => CredentialBackend::MacosKeychain,
+    };
     let (source_desc, source_bytes) = match snapshot.source {
         auth::claude::LiveCredentialSource::File(path) => {
             (format!("found {}", path.display()), snapshot.bytes)
@@ -473,20 +488,29 @@ fn import_claude(
     };
 
     profile_store.create(Tool::Claude, &profile_name)?;
-    profile_store.write_file(
-        Tool::Claude,
-        &profile_name,
-        ".credentials.json",
-        &source_bytes,
-    )?;
+    match imported_backend {
+        CredentialBackend::File => profile_store.write_file(
+            Tool::Claude,
+            &profile_name,
+            ".credentials.json",
+            &source_bytes,
+        )?,
+        CredentialBackend::MacosKeychain => {
+            auth::secure_store::write_profile_secret(Tool::Claude, &profile_name, &source_bytes)?
+        }
+    }
     if imported_method == AuthMethod::OAuth {
         auth::identity::ensure_unique_oauth_identity(
             &profile_store,
             &config_store,
             Tool::Claude,
             &profile_name,
+            imported_backend,
         )
         .inspect_err(|_| {
+            if imported_backend == CredentialBackend::MacosKeychain {
+                let _ = auth::secure_store::delete_profile_secret(Tool::Claude, &profile_name);
+            }
             let _ = profile_store.delete(Tool::Claude, &profile_name);
         })?;
     }
@@ -496,6 +520,7 @@ fn import_claude(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: imported_method,
+            credential_backend: imported_backend,
             label,
         },
     )?;
@@ -503,6 +528,7 @@ fn import_claude(
         activate_imported_profile(
             Tool::Claude,
             imported_method,
+            imported_backend,
             &profile_store,
             &config_store,
             &profile_name,
@@ -579,6 +605,10 @@ fn import_codex(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
+    let imported_backend = match snapshot.source {
+        auth::codex::LiveCredentialSource::File(_) => CredentialBackend::File,
+        auth::codex::LiveCredentialSource::Keychain => CredentialBackend::MacosKeychain,
+    };
     let (src_desc, source_bytes) = match snapshot.source {
         auth::codex::LiveCredentialSource::File(path) => {
             let bytes = snapshot.bytes;
@@ -642,15 +672,27 @@ fn import_codex(
     };
 
     profile_store.create(Tool::Codex, &profile_name)?;
-    auth::codex::write_file_store_config(&profile_store, &profile_name)?;
-    profile_store.write_file(Tool::Codex, &profile_name, "auth.json", &source_bytes)?;
+    match imported_backend {
+        CredentialBackend::File => {
+            auth::codex::write_file_store_config(&profile_store, &profile_name)?;
+            profile_store.write_file(Tool::Codex, &profile_name, "auth.json", &source_bytes)?;
+        }
+        CredentialBackend::MacosKeychain => {
+            auth::codex::write_keyring_store_config(&profile_store, &profile_name)?;
+            auth::secure_store::write_profile_secret(Tool::Codex, &profile_name, &source_bytes)?;
+        }
+    }
     auth::identity::ensure_unique_oauth_identity(
         &profile_store,
         &config_store,
         Tool::Codex,
         &profile_name,
+        imported_backend,
     )
     .inspect_err(|_| {
+        if imported_backend == CredentialBackend::MacosKeychain {
+            let _ = auth::secure_store::delete_profile_secret(Tool::Codex, &profile_name);
+        }
         let _ = profile_store.delete(Tool::Codex, &profile_name);
     })?;
     config_store.add_profile(
@@ -659,6 +701,7 @@ fn import_codex(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
+            credential_backend: imported_backend,
             label,
         },
     )?;
@@ -666,6 +709,7 @@ fn import_codex(
         activate_imported_profile(
             Tool::Codex,
             AuthMethod::OAuth,
+            imported_backend,
             &profile_store,
             &config_store,
             &profile_name,
@@ -795,6 +839,7 @@ fn import_gemini(
             &config_store,
             Tool::Gemini,
             &profile_name,
+            CredentialBackend::File,
         )
         .inspect_err(|_| {
             let _ = profile_store.delete(Tool::Gemini, &profile_name);
@@ -808,6 +853,7 @@ fn import_gemini(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: method,
+            credential_backend: CredentialBackend::File,
             label,
         },
     )?;
@@ -815,6 +861,7 @@ fn import_gemini(
         activate_imported_profile(
             Tool::Gemini,
             method,
+            CredentialBackend::File,
             &profile_store,
             &config_store,
             &profile_name,

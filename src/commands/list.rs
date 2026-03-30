@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::cli::ListArgs;
-use crate::config::{AuthMethod, ConfigStore};
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend};
 use crate::output;
 use crate::types::Tool;
 
@@ -12,6 +12,7 @@ pub(crate) struct Row {
     profile: String,
     active: bool,
     auth_method: &'static str,
+    credential_backend: &'static str,
     label: Option<String>,
 }
 
@@ -20,6 +21,10 @@ fn auth_display(method: AuthMethod) -> &'static str {
         AuthMethod::OAuth => "oauth",
         AuthMethod::ApiKey => "api_key",
     }
+}
+
+fn backend_display(backend: CredentialBackend) -> &'static str {
+    backend.display_name()
 }
 
 pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
@@ -46,6 +51,7 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
                 profile: name.to_owned(),
                 active: active == Some(name),
                 auth_method: auth_display(meta.auth_method),
+                credential_backend: backend_display(meta.credential_backend),
                 label: meta.label.clone(),
             });
         }
@@ -96,6 +102,7 @@ fn print_table(rows: &[Row]) {
         output::print_profile_section(&row.profile, row.active);
         output::print_kv("Active", if row.active { "yes" } else { "no" });
         output::print_kv("Auth", row.auth_method);
+        output::print_kv("Backend", row.credential_backend);
         if let Some(label) = row.label.as_deref() {
             output::print_kv("Label", label);
         }
@@ -112,6 +119,7 @@ fn print_json(rows: &[Row]) -> Result<()> {
                 "profile":     r.profile,
                 "active":      r.active,
                 "auth_method": r.auth_method,
+                "credential_backend": r.credential_backend,
                 "label":       r.label,
             })
         })
@@ -158,6 +166,7 @@ mod tests {
         assert_eq!(rows[0].tool, "claude");
         assert_eq!(rows[0].profile, "work");
         assert_eq!(rows[0].auth_method, "api_key");
+        assert_eq!(rows[0].credential_backend, "file");
         assert!(!rows[0].active);
     }
 

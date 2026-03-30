@@ -8,7 +8,7 @@ use chrono::Utc;
 
 use super::files;
 use super::identity;
-use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
@@ -134,6 +134,7 @@ pub fn add_api_key(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::ApiKey,
+            credential_backend: CredentialBackend::File,
             label,
         },
     )?;
@@ -243,7 +244,13 @@ fn add_oauth_with(
     }
 
     files::cleanup_profile_on_error(
-        identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Gemini, name),
+        identity::ensure_unique_oauth_identity(
+            profile_store,
+            config_store,
+            Tool::Gemini,
+            name,
+            CredentialBackend::File,
+        ),
         profile_store,
         Tool::Gemini,
         name,
@@ -255,6 +262,7 @@ fn add_oauth_with(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
+            credential_backend: CredentialBackend::File,
             label,
         },
     )?;

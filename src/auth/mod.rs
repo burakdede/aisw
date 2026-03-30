@@ -3,3 +3,6 @@ pub mod codex;
 pub(crate) mod files;
 pub mod gemini;
 pub(crate) mod identity;
+pub(crate) mod macos_keychain;
+pub(crate) mod secure_store;
+pub(crate) mod test_overrides;

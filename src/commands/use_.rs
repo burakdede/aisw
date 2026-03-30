@@ -53,6 +53,9 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             args.tool
         )
     })?;
+    profile_meta
+        .credential_backend
+        .validate_for_tool(args.tool)?;
 
     if config.settings.backup_on_switch {
         let backup_manager = BackupManager::new(home);
@@ -69,6 +72,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                     auth::claude::apply_live_credentials(
                         &profile_store,
                         &args.profile_name,
+                        profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
@@ -80,6 +84,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                     auth::claude::apply_live_credentials(
                         &profile_store,
                         &args.profile_name,
+                        profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
@@ -90,7 +95,12 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 if args.emit_env {
                     auth::codex::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
-                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+                    auth::codex::apply_live_files(
+                        &profile_store,
+                        &args.profile_name,
+                        profile_meta.credential_backend,
+                        user_home,
+                    )?;
                 }
             }
             AuthMethod::ApiKey => {
@@ -106,7 +116,12 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                         }
                     }
                 } else {
-                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+                    auth::codex::apply_live_files(
+                        &profile_store,
+                        &args.profile_name,
+                        profile_meta.credential_backend,
+                        user_home,
+                    )?;
                 }
             }
         },
@@ -153,6 +168,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         output::print_kv("Tool", args.tool.display_name());
         output::print_kv("Active profile", &args.profile_name);
         output::print_kv("Auth", auth_label(profile_meta.auth_method));
+        output::print_kv("Backend", profile_meta.credential_backend.display_name());
         if args.tool.supports_state_mode() {
             output::print_kv("State mode", state_mode.display_name());
         }

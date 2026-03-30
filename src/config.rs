@@ -38,6 +38,8 @@ pub struct AllProfiles(HashMap<Tool, HashMap<String, ProfileMeta>>);
 pub struct ProfileMeta {
     pub added_at: DateTime<Utc>,
     pub auth_method: AuthMethod,
+    #[serde(default)]
+    pub credential_backend: CredentialBackend,
     pub label: Option<String>,
 }
 
@@ -46,6 +48,37 @@ pub struct ProfileMeta {
 pub enum AuthMethod {
     OAuth,
     ApiKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialBackend {
+    #[default]
+    File,
+    MacosKeychain,
+}
+
+impl CredentialBackend {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            CredentialBackend::File => "file",
+            CredentialBackend::MacosKeychain => "macos_keychain",
+        }
+    }
+
+    pub fn validate_for_tool(self, tool: Tool) -> Result<()> {
+        match (self, tool) {
+            (CredentialBackend::File, _) => Ok(()),
+            (CredentialBackend::MacosKeychain, Tool::Claude | Tool::Codex) => Ok(()),
+            (CredentialBackend::MacosKeychain, Tool::Gemini) => bail!(
+                "credential backend '{}' is not supported for {}.\n  \
+                 Gemini CLI auth remains file-managed because its local ~/.gemini state mixes \
+                 credentials with broader tool state.",
+                self.display_name(),
+                tool
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -646,6 +679,7 @@ mod tests {
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: method,
+            credential_backend: CredentialBackend::File,
             label: None,
         }
     }
@@ -688,6 +722,48 @@ mod tests {
         let config = store.load().unwrap();
         assert_eq!(config.state_mode_for(Tool::Claude), StateMode::Isolated);
         assert_eq!(config.state_mode_for(Tool::Codex), StateMode::Isolated);
+    }
+
+    #[test]
+    fn load_defaults_missing_credential_backend_to_file() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+        fs::write(
+            dir.path().join(CONFIG_FILE),
+            r#"{
+  "version": 1,
+  "active": {"claude": "work", "codex": null, "gemini": null},
+  "profiles": {
+    "claude": {
+      "work": {
+        "added_at": "2026-03-30T00:00:00Z",
+        "auth_method": "o_auth",
+        "label": "legacy"
+      }
+    },
+    "codex": {},
+    "gemini": {}
+  },
+  "settings": {"backup_on_switch": true, "max_backups": 10}
+}"#,
+        )
+        .unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(
+            config.profiles_for(Tool::Claude)["work"].credential_backend,
+            CredentialBackend::File
+        );
+    }
+
+    #[test]
+    fn macos_keychain_backend_is_rejected_for_gemini() {
+        let err = CredentialBackend::MacosKeychain
+            .validate_for_tool(Tool::Gemini)
+            .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("credential backend 'macos_keychain' is not supported for gemini"));
     }
 
     #[test]
@@ -922,6 +998,7 @@ mod tests {
                 ProfileMeta {
                     added_at: Utc::now(),
                     auth_method: AuthMethod::OAuth,
+                    credential_backend: CredentialBackend::File,
                     label: Some("Work subscription".to_owned()),
                 },
             )
@@ -932,6 +1009,10 @@ mod tests {
         assert_eq!(
             config.profiles_for(Tool::Claude)["work"].label.as_deref(),
             Some("Work subscription")
+        );
+        assert_eq!(
+            config.profiles_for(Tool::Claude)["work"].credential_backend,
+            CredentialBackend::File
         );
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
     }
