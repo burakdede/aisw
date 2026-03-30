@@ -9,7 +9,7 @@ use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
-use crate::types::Tool;
+use crate::types::{CodexStateMode, Tool};
 
 const AUTH_FILE: &str = "auth.json";
 const CONFIG_FILE: &str = "config.toml";
@@ -253,6 +253,21 @@ pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Pa
     ])
 }
 
+pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: CodexStateMode) {
+    match mode {
+        CodexStateMode::Isolated => {
+            let profile_dir = profile_store.profile_dir(Tool::Codex, name);
+            println!(
+                "export CODEX_HOME={}",
+                shell_single_quote(&profile_dir.display().to_string())
+            );
+        }
+        CodexStateMode::Shared => {
+            println!("unset CODEX_HOME");
+        }
+    }
+}
+
 pub fn live_files_match(
     profile_store: &ProfileStore,
     name: &str,
@@ -315,6 +330,11 @@ fn config_uses_file_store(contents: &str) -> bool {
     contents
         .lines()
         .any(|line| line.trim() == "cli_auth_credentials_store = \"file\"")
+}
+
+fn shell_single_quote(value: &str) -> String {
+    let escaped = value.replace('\'', "'\"'\"'");
+    format!("'{}'", escaped)
 }
 
 #[cfg(test)]

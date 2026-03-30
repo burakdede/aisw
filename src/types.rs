@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum Tool {
     Claude,
@@ -34,5 +36,27 @@ impl Tool {
 impl std::fmt::Display for Tool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.binary_name())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexStateMode {
+    Isolated,
+    Shared,
+}
+
+impl Default for CodexStateMode {
+    fn default() -> Self {
+        Self::Isolated
+    }
+}
+
+impl CodexStateMode {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Isolated => "isolated",
+            Self::Shared => "shared",
+        }
     }
 }

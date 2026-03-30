@@ -307,13 +307,13 @@ fn switching_between_two_codex_profiles_updates_active() {
         .args(["use", "codex", "work", "--emit-env"])
         .assert()
         .success()
-        .stdout(contains("OPENAI_API_KEY="));
+        .stdout(contains("CODEX_HOME="));
 
     env.cmd()
         .args(["use", "codex", "oss", "--emit-env"])
         .assert()
         .success()
-        .stdout(contains("OPENAI_API_KEY="));
+        .stdout(contains("CODEX_HOME="));
 
     let j = list_json(&env);
     let oss = j

@@ -17,6 +17,7 @@ pub(crate) struct ToolStatus {
     pub stored_profiles: usize,
     pub active_profile: Option<String>,
     pub auth_method: Option<String>,
+    pub state_mode: Option<String>,
     pub active_profile_applied: Option<bool>,
     pub credentials_present: bool,
     pub permissions_ok: bool,
@@ -71,6 +72,12 @@ pub(crate) fn collect_status(
             Tool::Gemini => config.profiles.gemini.len(),
         };
 
+        let state_mode = if tool == Tool::Codex {
+            Some(config.settings.codex.state_mode.display_name().to_owned())
+        } else {
+            None
+        };
+
         let (
             active_profile,
             auth_method,
@@ -115,6 +122,7 @@ pub(crate) fn collect_status(
             stored_profiles,
             active_profile,
             auth_method,
+            state_mode,
             active_profile_applied,
             credentials_present,
             permissions_ok,
@@ -192,6 +200,9 @@ fn print_text(statuses: &[ToolStatus]) {
         if let Some(auth) = s.auth_method.as_deref() {
             output::print_kv("Auth", auth);
         }
+        if let Some(mode) = s.state_mode.as_deref() {
+            output::print_kv("State mode", mode);
+        }
         output::print_kv("State", status_message(s));
         output::print_blank_line();
     }
@@ -207,6 +218,7 @@ fn print_json(statuses: &[ToolStatus]) -> Result<()> {
                 "stored_profiles":      s.stored_profiles,
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
+                "state_mode":           s.state_mode,
                 "active_profile_applied": s.active_profile_applied,
                 "credentials_present":  s.credentials_present,
                 "permissions_ok":       s.permissions_ok,

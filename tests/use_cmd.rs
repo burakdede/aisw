@@ -251,6 +251,29 @@ fn use_codex_oauth_emit_env_quotes_path_with_shell_chars() {
 }
 
 #[test]
+fn use_codex_shared_emit_env_unsets_codex_home() {
+    let env = TestEnv::new();
+    add_codex_profile(&env, "work");
+
+    env.cmd()
+        .args([
+            "use",
+            "codex",
+            "work",
+            "--state-mode",
+            "shared",
+            "--emit-env",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("unset CODEX_HOME"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["settings"]["codex"]["state_mode"], "shared");
+}
+
+#[test]
 fn use_without_emit_env_prints_switched_message() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");
@@ -315,6 +338,48 @@ fn use_codex_writes_live_auth_files() {
     let config = std::fs::read_to_string(env.fake_home.join(".codex").join("config.toml")).unwrap();
     assert!(config.contains("model = \"gpt-5.4\""));
     assert!(config.contains("cli_auth_credentials_store = \"file\""));
+}
+
+#[test]
+fn use_codex_shared_mode_preserves_existing_shared_session_files() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    let sessions_dir = env
+        .fake_home
+        .join(".codex")
+        .join("sessions")
+        .join("2026")
+        .join("03")
+        .join("30");
+    std::fs::create_dir_all(&sessions_dir).unwrap();
+    let sentinel = sessions_dir.join("existing-session.jsonl");
+    std::fs::write(&sentinel, "session").unwrap();
+
+    env.cmd()
+        .args(["add", "codex", "work", "--api-key", VALID_CODEX_KEY])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["use", "codex", "work", "--state-mode", "shared"])
+        .assert()
+        .success()
+        .stdout(contains("State mode"))
+        .stdout(contains("shared"));
+
+    assert_eq!(std::fs::read_to_string(&sentinel).unwrap(), "session");
+}
+
+#[test]
+fn use_state_mode_is_rejected_for_non_codex_tools() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+
+    env.cmd()
+        .args(["use", "claude", "work", "--state-mode", "shared"])
+        .assert()
+        .failure()
+        .stderr(contains("currently supported only for codex"));
 }
 
 #[test]

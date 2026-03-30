@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
-use crate::types::Tool;
+use crate::types::{CodexStateMode, Tool};
 
 const CURRENT_VERSION: u32 = 1;
 const CONFIG_FILE: &str = "config.json";
@@ -60,6 +60,14 @@ pub enum AuthMethod {
 pub struct Settings {
     pub backup_on_switch: bool,
     pub max_backups: usize,
+    #[serde(default)]
+    pub codex: CodexSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexSettings {
+    #[serde(default)]
+    pub state_mode: CodexStateMode,
 }
 
 impl Default for Config {
@@ -78,6 +86,15 @@ impl Default for Settings {
         Self {
             backup_on_switch: true,
             max_backups: 10,
+            codex: CodexSettings::default(),
+        }
+    }
+}
+
+impl Default for CodexSettings {
+    fn default() -> Self {
+        Self {
+            state_mode: CodexStateMode::Isolated,
         }
     }
 }
@@ -224,9 +241,43 @@ impl ConfigStore {
         })
     }
 
+    pub fn activate_profile(
+        &self,
+        tool: Tool,
+        name: &str,
+        codex_state_mode: Option<CodexStateMode>,
+    ) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            if !tool_profiles(config, tool).contains_key(name) {
+                bail!(
+                    "profile '{}' not found for {}.\n  \
+                     Run 'aisw list {}' to see available profiles.",
+                    name,
+                    tool,
+                    tool
+                );
+            }
+
+            *tool_active_mut(config, tool) = Some(name.to_owned());
+            if tool == Tool::Codex {
+                if let Some(mode) = codex_state_mode {
+                    config.settings.codex.state_mode = mode;
+                }
+            }
+            Ok(())
+        })
+    }
+
     pub fn clear_active(&self, tool: Tool) -> Result<Config> {
         self.with_mutating_config(|config| {
             *tool_active_mut(config, tool) = None;
+            Ok(())
+        })
+    }
+
+    pub fn set_codex_state_mode(&self, mode: CodexStateMode) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            config.settings.codex.state_mode = mode;
             Ok(())
         })
     }
@@ -460,6 +511,25 @@ mod tests {
     }
 
     #[test]
+    fn load_defaults_missing_codex_settings_to_isolated() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+        fs::write(
+            dir.path().join(CONFIG_FILE),
+            r#"{
+  "version": 1,
+  "active": {"claude": null, "codex": null, "gemini": null},
+  "profiles": {"claude": {}, "codex": {}, "gemini": {}},
+  "settings": {"backup_on_switch": true, "max_backups": 10}
+}"#,
+        )
+        .unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(config.settings.codex.state_mode, CodexStateMode::Isolated);
+    }
+
+    #[test]
     fn save_is_atomic_and_sets_permissions() {
         let dir = tempdir().unwrap();
         let store = store(dir.path());
@@ -510,6 +580,17 @@ mod tests {
 
         assert!(err.to_string().contains("already exists"));
         assert!(err.to_string().contains("work"));
+    }
+
+    #[test]
+    fn set_codex_state_mode_persists() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store.set_codex_state_mode(CodexStateMode::Shared).unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(config.settings.codex.state_mode, CodexStateMode::Shared);
     }
 
     #[test]

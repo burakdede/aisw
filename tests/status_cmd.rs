@@ -77,6 +77,7 @@ fn status_json_has_expected_keys() {
     assert_eq!(claude["binary_found"], true);
     assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
+    assert_eq!(claude["state_mode"], serde_json::Value::Null);
     assert_eq!(claude["active_profile_applied"], true);
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
@@ -133,6 +134,28 @@ fn status_reports_live_tool_config_mismatch_for_active_codex_profile() {
         .stdout(contains(
             "live tool config does not match the active profile",
         ));
+}
+
+#[test]
+fn status_shows_codex_state_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd()
+        .args(["add", "codex", "work", "--api-key", VALID_CODEX_KEY])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "codex", "work", "--state-mode", "shared"])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("State mode"))
+        .stdout(contains("shared"));
 }
 
 #[test]

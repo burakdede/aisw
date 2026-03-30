@@ -2,7 +2,7 @@ use std::ffi::{OsStr, OsString};
 
 use clap::{Args, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
-use crate::types::Tool;
+use crate::types::{CodexStateMode, Tool};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -110,6 +110,10 @@ pub struct UseArgs {
 
     /// Profile to activate
     pub profile_name: String,
+
+    /// Codex only: choose whether switching keeps shared local state or isolates it per profile
+    #[arg(long, value_enum)]
+    pub state_mode: Option<CodexStateMode>,
 
     /// Print shell export statements to stdout instead of applying them directly.
     /// Used internally by the shell hook — not intended for direct use.
@@ -262,7 +266,18 @@ mod tests {
         };
         assert_eq!(args.tool, Tool::Gemini);
         assert_eq!(args.profile_name, "work");
+        assert_eq!(args.state_mode, None);
         assert!(!args.emit_env);
+    }
+
+    #[test]
+    fn use_command_accepts_codex_state_mode() {
+        let cli = parse(&["use", "codex", "work", "--state-mode", "shared"]).unwrap();
+        let Command::Use(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert_eq!(args.tool, Tool::Codex);
+        assert_eq!(args.state_mode, Some(CodexStateMode::Shared));
     }
 
     #[test]

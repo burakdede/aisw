@@ -9,15 +9,11 @@ use crate::config::{AuthMethod, ConfigStore};
 use crate::next_steps;
 use crate::output;
 use crate::profile::ProfileStore;
-use crate::types::Tool;
-
-fn shell_single_quote(value: &str) -> String {
-    let escaped = value.replace('\'', "'\"'\"'");
-    format!("'{}'", escaped)
-}
+use crate::types::{CodexStateMode, Tool};
 
 fn emit_export(name: &str, value: &str) {
-    println!("export {}={}", name, shell_single_quote(value));
+    let escaped = value.replace('\'', "'\"'\"'");
+    println!("export {}='{}'", name, escaped);
 }
 
 pub fn run(args: UseArgs, home: &Path) -> Result<()> {
@@ -29,6 +25,14 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
+    let requested_codex_state_mode = match (args.tool, args.state_mode) {
+        (Tool::Codex, mode) => mode,
+        (_, Some(_)) => {
+            anyhow::bail!("--state-mode is currently supported only for codex.");
+        }
+        (_, None) => None,
+    };
+    let codex_state_mode = requested_codex_state_mode.unwrap_or(config.settings.codex.state_mode);
 
     let profiles = match args.tool {
         Tool::Claude => &config.profiles.claude,
@@ -82,16 +86,27 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         Tool::Codex => match profile_meta.auth_method {
             AuthMethod::OAuth => {
                 if args.emit_env {
-                    let profile_dir = profile_store.profile_dir(Tool::Codex, &args.profile_name);
-                    emit_export("CODEX_HOME", &profile_dir.display().to_string());
+                    auth::codex::emit_shell_env(
+                        &args.profile_name,
+                        &profile_store,
+                        codex_state_mode,
+                    );
                 } else {
                     auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
                 }
             }
             AuthMethod::ApiKey => {
                 if args.emit_env {
-                    let key = auth::codex::read_api_key(&profile_store, &args.profile_name)?;
-                    emit_export("OPENAI_API_KEY", &key);
+                    match codex_state_mode {
+                        CodexStateMode::Isolated => auth::codex::emit_shell_env(
+                            &args.profile_name,
+                            &profile_store,
+                            codex_state_mode,
+                        ),
+                        CodexStateMode::Shared => {
+                            println!("unset CODEX_HOME");
+                        }
+                    }
                 } else {
                     auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
                 }
@@ -129,17 +144,34 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         }
     }
 
-    config_store.set_active(args.tool, &args.profile_name)?;
+    config_store.activate_profile(
+        args.tool,
+        &args.profile_name,
+        (args.tool == Tool::Codex).then_some(codex_state_mode),
+    )?;
 
     if !args.emit_env {
         output::print_title("Switched profile");
         output::print_kv("Tool", args.tool.display_name());
         output::print_kv("Active profile", &args.profile_name);
         output::print_kv("Auth", auth_label(profile_meta.auth_method));
+        if args.tool == Tool::Codex {
+            output::print_kv("State mode", codex_state_mode.display_name());
+        }
         output::print_blank_line();
         output::print_effects_header();
         output::print_effect("Live tool configuration updated.");
         output::print_effect("Active profile updated.");
+        if args.tool == Tool::Codex {
+            output::print_effect(match codex_state_mode {
+                CodexStateMode::Isolated => {
+                    "Codex will use isolated profile state when shell integration is active."
+                }
+                CodexStateMode::Shared => {
+                    "Codex will keep shared local state and only switch account credentials."
+                }
+            });
+        }
         if config.settings.backup_on_switch {
             output::print_effect("Backup created before switching.");
         }
@@ -191,6 +223,7 @@ mod tests {
         UseArgs {
             tool,
             profile_name: name.to_owned(),
+            state_mode: None,
             emit_env,
         }
     }
@@ -283,11 +316,5 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(config.active.codex.as_deref(), Some("work"));
-    }
-
-    #[test]
-    fn shell_single_quote_escapes_single_quotes() {
-        assert_eq!(shell_single_quote("abc"), "'abc'");
-        assert_eq!(shell_single_quote("a'b"), "'a'\"'\"'b'");
     }
 }
