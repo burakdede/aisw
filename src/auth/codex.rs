@@ -165,6 +165,18 @@ fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
         .context("could not query the system keyring for Codex credentials")
 }
 
+fn live_keyring_account() -> Result<String> {
+    secure_backend::find_generic_password_account(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE)
+        .context("could not determine the live Codex keyring account")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "could not determine the live Codex keyring account.\n  \
+                 Sign in with Codex once on this machine so aisw can reuse the \
+                 existing keyring entry, or switch Codex to file-backed auth."
+            )
+        })
+}
+
 pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
     if !keychain_import_supported() {
         return Ok(None);
@@ -525,23 +537,18 @@ pub fn apply_live_files(
         CredentialBackend::SystemKeyring => {
             let bytes = secure_store::read_profile_secret(Tool::Codex, name)?.ok_or_else(|| {
                 anyhow::anyhow!(
-                    "secure credentials for Codex CLI profile '{}' are missing from macOS Keychain",
+                    "secure credentials for Codex CLI profile '{}' are missing from the system keyring",
                     name
                 )
             })?;
-            let account =
-                secure_backend::find_generic_password_account(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE)
-                    .ok()
-                    .flatten()
-                    .or_else(|| std::env::var("USER").ok())
-                    .unwrap_or_else(|| "aisw".to_owned());
+            let account = live_keyring_account()?;
             secure_backend::upsert_generic_password(
                 KEYCHAIN_BACKEND,
                 KEYCHAIN_SERVICE,
                 &account,
                 &bytes,
             )
-            .context("could not write Codex credentials into macOS Keychain")?;
+            .context("could not write Codex credentials into the system keyring")?;
             crate::live_apply::apply_transaction(vec![LiveFileChange::write(
                 config_dest,
                 desired_live_keyring_store_config(user_home)?.into_bytes(),
@@ -1251,11 +1258,40 @@ mod tests {
         ps.create(Tool::Codex, "work").unwrap();
         write_keyring_store_config(&ps, "work").unwrap();
         secure_store::write_profile_secret(Tool::Codex, "work", br#"{"token":"tok"}"#).unwrap();
+        secure_backend::upsert_generic_password(
+            KEYCHAIN_BACKEND,
+            KEYCHAIN_SERVICE,
+            "tester",
+            br#"{"token":"old"}"#,
+        )
+        .unwrap();
 
         apply_live_files(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
 
         assert!(
             live_files_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap()
         );
+    }
+
+    #[test]
+    fn keychain_backed_profile_errors_without_live_keyring_account() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(&user_home).unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Codex, "work").unwrap();
+        write_keyring_store_config(&ps, "work").unwrap();
+        secure_store::write_profile_secret(Tool::Codex, "work", br#"{"token":"tok"}"#).unwrap();
+
+        let err = apply_live_files(&ps, "work", CredentialBackend::SystemKeyring, &user_home)
+            .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("could not determine the live Codex keyring account"));
     }
 }
