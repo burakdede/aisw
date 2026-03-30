@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{CodexStateMode, Tool};
+use crate::types::{StateMode, Tool};
 
 const CURRENT_VERSION: u32 = 1;
 const CONFIG_FILE: &str = "config.json";
@@ -61,13 +61,15 @@ pub struct Settings {
     pub backup_on_switch: bool,
     pub max_backups: usize,
     #[serde(default)]
-    pub codex: CodexSettings,
+    pub claude: ToolSettings,
+    #[serde(default)]
+    pub codex: ToolSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CodexSettings {
+pub struct ToolSettings {
     #[serde(default)]
-    pub state_mode: CodexStateMode,
+    pub state_mode: StateMode,
 }
 
 impl Default for Config {
@@ -86,15 +88,16 @@ impl Default for Settings {
         Self {
             backup_on_switch: true,
             max_backups: 10,
-            codex: CodexSettings::default(),
+            claude: ToolSettings::default(),
+            codex: ToolSettings::default(),
         }
     }
 }
 
-impl Default for CodexSettings {
+impl Default for ToolSettings {
     fn default() -> Self {
         Self {
-            state_mode: CodexStateMode::Isolated,
+            state_mode: StateMode::Isolated,
         }
     }
 }
@@ -245,7 +248,7 @@ impl ConfigStore {
         &self,
         tool: Tool,
         name: &str,
-        codex_state_mode: Option<CodexStateMode>,
+        state_mode: Option<StateMode>,
     ) -> Result<Config> {
         self.with_mutating_config(|config| {
             if !tool_profiles(config, tool).contains_key(name) {
@@ -259,10 +262,8 @@ impl ConfigStore {
             }
 
             *tool_active_mut(config, tool) = Some(name.to_owned());
-            if tool == Tool::Codex {
-                if let Some(mode) = codex_state_mode {
-                    config.settings.codex.state_mode = mode;
-                }
+            if let Some(mode) = state_mode {
+                *tool_state_mode_mut(config, tool) = mode;
             }
             Ok(())
         })
@@ -275,9 +276,9 @@ impl ConfigStore {
         })
     }
 
-    pub fn set_codex_state_mode(&self, mode: CodexStateMode) -> Result<Config> {
+    pub fn set_state_mode(&self, tool: Tool, mode: StateMode) -> Result<Config> {
         self.with_mutating_config(|config| {
-            config.settings.codex.state_mode = mode;
+            *tool_state_mode_mut(config, tool) = mode;
             Ok(())
         })
     }
@@ -457,6 +458,14 @@ fn tool_active_mut(config: &mut Config, tool: Tool) -> &mut Option<String> {
     }
 }
 
+fn tool_state_mode_mut(config: &mut Config, tool: Tool) -> &mut StateMode {
+    match tool {
+        Tool::Claude => &mut config.settings.claude.state_mode,
+        Tool::Codex => &mut config.settings.codex.state_mode,
+        Tool::Gemini => panic!("gemini does not support configurable state mode"),
+    }
+}
+
 #[cfg(unix)]
 fn set_file_permissions_600(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -526,7 +535,8 @@ mod tests {
         .unwrap();
 
         let config = store.load().unwrap();
-        assert_eq!(config.settings.codex.state_mode, CodexStateMode::Isolated);
+        assert_eq!(config.settings.claude.state_mode, StateMode::Isolated);
+        assert_eq!(config.settings.codex.state_mode, StateMode::Isolated);
     }
 
     #[test]
@@ -583,14 +593,16 @@ mod tests {
     }
 
     #[test]
-    fn set_codex_state_mode_persists() {
+    fn set_state_mode_persists() {
         let dir = tempdir().unwrap();
         let store = store(dir.path());
 
-        store.set_codex_state_mode(CodexStateMode::Shared).unwrap();
+        store
+            .set_state_mode(Tool::Codex, StateMode::Shared)
+            .unwrap();
 
         let config = store.load().unwrap();
-        assert_eq!(config.settings.codex.state_mode, CodexStateMode::Shared);
+        assert_eq!(config.settings.codex.state_mode, StateMode::Shared);
     }
 
     #[test]

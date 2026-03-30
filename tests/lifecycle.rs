@@ -252,8 +252,8 @@ fn switching_between_two_claude_profiles_changes_config_dir() {
         .clone();
     let work_str = String::from_utf8_lossy(&work_env);
     assert!(
-        work_str.contains("ANTHROPIC_API_KEY="),
-        "api key profile emits ANTHROPIC_API_KEY"
+        work_str.contains("CLAUDE_CONFIG_DIR="),
+        "isolated Claude state emits CLAUDE_CONFIG_DIR"
     );
 
     let j = list_json(&env);
@@ -597,7 +597,7 @@ fn backup_restore_then_use_completes_successfully() {
         .args(["use", "claude", "work", "--emit-env"])
         .assert()
         .success()
-        .stdout(contains("ANTHROPIC_API_KEY="));
+        .stdout(contains("CLAUDE_CONFIG_DIR="));
 }
 
 #[test]

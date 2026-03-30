@@ -72,8 +72,13 @@ pub(crate) fn collect_status(
             Tool::Gemini => config.profiles.gemini.len(),
         };
 
-        let state_mode = if tool == Tool::Codex {
-            Some(config.settings.codex.state_mode.display_name().to_owned())
+        let state_mode = if matches!(tool, Tool::Claude | Tool::Codex) {
+            let mode = match tool {
+                Tool::Claude => config.settings.claude.state_mode,
+                Tool::Codex => config.settings.codex.state_mode,
+                Tool::Gemini => unreachable!(),
+            };
+            Some(mode.display_name().to_owned())
         } else {
             None
         };

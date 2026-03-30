@@ -9,7 +9,7 @@ use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
-use crate::types::{CodexStateMode, Tool};
+use crate::types::{StateMode, Tool};
 
 const AUTH_FILE: &str = "auth.json";
 const CONFIG_FILE: &str = "config.toml";
@@ -253,16 +253,16 @@ pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Pa
     ])
 }
 
-pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: CodexStateMode) {
+pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode) {
     match mode {
-        CodexStateMode::Isolated => {
+        StateMode::Isolated => {
             let profile_dir = profile_store.profile_dir(Tool::Codex, name);
             println!(
                 "export CODEX_HOME={}",
                 shell_single_quote(&profile_dir.display().to_string())
             );
         }
-        CodexStateMode::Shared => {
+        StateMode::Shared => {
             println!("unset CODEX_HOME");
         }
     }

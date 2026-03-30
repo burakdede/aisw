@@ -2,7 +2,7 @@ use std::ffi::{OsStr, OsString};
 
 use clap::{Args, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
-use crate::types::{CodexStateMode, Tool};
+use crate::types::{StateMode, Tool};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -111,9 +111,9 @@ pub struct UseArgs {
     /// Profile to activate
     pub profile_name: String,
 
-    /// Codex only: choose whether switching keeps shared local state or isolates it per profile
+    /// Claude/Codex only: choose whether switching keeps shared local state or isolates it per profile
     #[arg(long, value_enum)]
-    pub state_mode: Option<CodexStateMode>,
+    pub state_mode: Option<StateMode>,
 
     /// Print shell export statements to stdout instead of applying them directly.
     /// Used internally by the shell hook — not intended for direct use.
@@ -277,7 +277,7 @@ mod tests {
             panic!("wrong command")
         };
         assert_eq!(args.tool, Tool::Codex);
-        assert_eq!(args.state_mode, Some(CodexStateMode::Shared));
+        assert_eq!(args.state_mode, Some(StateMode::Shared));
     }
 
     #[test]

@@ -84,16 +84,39 @@ fn use_claude_oauth_emit_env_prints_claude_config_dir() {
 }
 
 #[test]
-fn use_claude_emit_env_anthropic_api_key_for_api_key_profile() {
+fn use_claude_api_key_emit_env_prints_claude_config_dir() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");
 
-    // API key profile → should emit ANTHROPIC_API_KEY
+    // API key profile should also isolate state through CLAUDE_CONFIG_DIR.
     env.cmd()
         .args(["use", "claude", "work", "--emit-env"])
         .assert()
         .success()
-        .stdout(contains("export ANTHROPIC_API_KEY='"));
+        .stdout(contains("export CLAUDE_CONFIG_DIR='"));
+}
+
+#[test]
+fn use_claude_shared_emit_env_unsets_claude_config_dir() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+
+    env.cmd()
+        .args([
+            "use",
+            "claude",
+            "work",
+            "--state-mode",
+            "shared",
+            "--emit-env",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("unset CLAUDE_CONFIG_DIR"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["settings"]["claude"]["state_mode"], "shared");
 }
 
 #[test]
@@ -371,15 +394,34 @@ fn use_codex_shared_mode_preserves_existing_shared_session_files() {
 }
 
 #[test]
-fn use_state_mode_is_rejected_for_non_codex_tools() {
+fn use_claude_shared_mode_preserves_existing_shared_files() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");
+    let claude_dir = env.fake_home.join(".claude");
+    std::fs::create_dir_all(&claude_dir).unwrap();
+    let sentinel = claude_dir.join("workspace-state.json");
+    std::fs::write(&sentinel, "shared").unwrap();
 
     env.cmd()
         .args(["use", "claude", "work", "--state-mode", "shared"])
         .assert()
+        .success()
+        .stdout(contains("State mode"))
+        .stdout(contains("shared"));
+
+    assert_eq!(std::fs::read_to_string(&sentinel).unwrap(), "shared");
+}
+
+#[test]
+fn use_state_mode_is_rejected_for_unsupported_tools() {
+    let env = TestEnv::new();
+    add_gemini_profile(&env, "work");
+
+    env.cmd()
+        .args(["use", "gemini", "work", "--state-mode", "shared"])
+        .assert()
         .failure()
-        .stderr(contains("currently supported only for codex"));
+        .stderr(contains("currently supported only for claude and codex"));
 }
 
 #[test]

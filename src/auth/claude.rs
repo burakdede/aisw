@@ -9,7 +9,7 @@ use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
-use crate::types::Tool;
+use crate::types::{StateMode, Tool};
 
 const CREDENTIALS_FILE: &str = ".credentials.json";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
@@ -230,6 +230,21 @@ pub fn apply_live_credentials(
     crate::live_apply::apply_transaction(vec![LiveFileChange::write(dest, bytes)])
 }
 
+pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode) {
+    match mode {
+        StateMode::Isolated => {
+            let profile_dir = profile_store.profile_dir(Tool::Claude, name);
+            println!(
+                "export CLAUDE_CONFIG_DIR={}",
+                shell_single_quote(&profile_dir.display().to_string())
+            );
+        }
+        StateMode::Shared => {
+            println!("unset CLAUDE_CONFIG_DIR");
+        }
+    }
+}
+
 pub fn live_credentials_match(
     profile_store: &ProfileStore,
     name: &str,
@@ -243,6 +258,11 @@ pub fn live_credentials_match(
         std::fs::read(&dest).with_context(|| format!("could not read {}", dest.display()))?;
     let stored = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
     Ok(live == stored)
+}
+
+fn shell_single_quote(value: &str) -> String {
+    let escaped = value.replace('\'', "'\"'\"'");
+    format!("'{}'", escaped)
 }
 
 #[cfg(test)]

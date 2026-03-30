@@ -9,7 +9,7 @@ use crate::config::{AuthMethod, ConfigStore};
 use crate::next_steps;
 use crate::output;
 use crate::profile::ProfileStore;
-use crate::types::{CodexStateMode, Tool};
+use crate::types::{StateMode, Tool};
 
 fn emit_export(name: &str, value: &str) {
     let escaped = value.replace('\'', "'\"'\"'");
@@ -25,14 +25,18 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
-    let requested_codex_state_mode = match (args.tool, args.state_mode) {
-        (Tool::Codex, mode) => mode,
+    let requested_state_mode = match (args.tool, args.state_mode) {
+        (Tool::Claude | Tool::Codex, mode) => mode,
         (_, Some(_)) => {
-            anyhow::bail!("--state-mode is currently supported only for codex.");
+            anyhow::bail!("--state-mode is currently supported only for claude and codex.");
         }
         (_, None) => None,
     };
-    let codex_state_mode = requested_codex_state_mode.unwrap_or(config.settings.codex.state_mode);
+    let state_mode = match args.tool {
+        Tool::Claude => requested_state_mode.unwrap_or(config.settings.claude.state_mode),
+        Tool::Codex => requested_state_mode.unwrap_or(config.settings.codex.state_mode),
+        Tool::Gemini => StateMode::Isolated,
+    };
 
     let profiles = match args.tool {
         Tool::Claude => &config.profiles.claude,
@@ -60,8 +64,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         Tool::Claude => match profile_meta.auth_method {
             AuthMethod::OAuth => {
                 if args.emit_env {
-                    let profile_dir = profile_store.profile_dir(Tool::Claude, &args.profile_name);
-                    emit_export("CLAUDE_CONFIG_DIR", &profile_dir.display().to_string());
+                    auth::claude::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
                     auth::claude::apply_live_credentials(
                         &profile_store,
@@ -72,8 +75,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             }
             AuthMethod::ApiKey => {
                 if args.emit_env {
-                    let key = auth::claude::read_api_key(&profile_store, &args.profile_name)?;
-                    emit_export("ANTHROPIC_API_KEY", &key);
+                    auth::claude::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
                     auth::claude::apply_live_credentials(
                         &profile_store,
@@ -86,24 +88,20 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         Tool::Codex => match profile_meta.auth_method {
             AuthMethod::OAuth => {
                 if args.emit_env {
-                    auth::codex::emit_shell_env(
-                        &args.profile_name,
-                        &profile_store,
-                        codex_state_mode,
-                    );
+                    auth::codex::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
                     auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
                 }
             }
             AuthMethod::ApiKey => {
                 if args.emit_env {
-                    match codex_state_mode {
-                        CodexStateMode::Isolated => auth::codex::emit_shell_env(
+                    match state_mode {
+                        StateMode::Isolated => auth::codex::emit_shell_env(
                             &args.profile_name,
                             &profile_store,
-                            codex_state_mode,
+                            state_mode,
                         ),
-                        CodexStateMode::Shared => {
+                        StateMode::Shared => {
                             println!("unset CODEX_HOME");
                         }
                     }
@@ -147,7 +145,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     config_store.activate_profile(
         args.tool,
         &args.profile_name,
-        (args.tool == Tool::Codex).then_some(codex_state_mode),
+        matches!(args.tool, Tool::Claude | Tool::Codex).then_some(state_mode),
     )?;
 
     if !args.emit_env {
@@ -155,21 +153,28 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         output::print_kv("Tool", args.tool.display_name());
         output::print_kv("Active profile", &args.profile_name);
         output::print_kv("Auth", auth_label(profile_meta.auth_method));
-        if args.tool == Tool::Codex {
-            output::print_kv("State mode", codex_state_mode.display_name());
+        if matches!(args.tool, Tool::Claude | Tool::Codex) {
+            output::print_kv("State mode", state_mode.display_name());
         }
         output::print_blank_line();
         output::print_effects_header();
         output::print_effect("Live tool configuration updated.");
         output::print_effect("Active profile updated.");
-        if args.tool == Tool::Codex {
-            output::print_effect(match codex_state_mode {
-                CodexStateMode::Isolated => {
+        if matches!(args.tool, Tool::Claude | Tool::Codex) {
+            output::print_effect(match (args.tool, state_mode) {
+                (Tool::Claude, StateMode::Isolated) => {
+                    "Claude will use isolated profile state when shell integration is active."
+                }
+                (Tool::Claude, StateMode::Shared) => {
+                    "Claude will keep shared local state and only switch account credentials."
+                }
+                (Tool::Codex, StateMode::Isolated) => {
                     "Codex will use isolated profile state when shell integration is active."
                 }
-                CodexStateMode::Shared => {
+                (Tool::Codex, StateMode::Shared) => {
                     "Codex will keep shared local state and only switch account credentials."
                 }
+                (Tool::Gemini, _) => unreachable!(),
             });
         }
         if config.settings.backup_on_switch {
@@ -240,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_api_key_emit_env_prints_anthropic_key() {
+    fn claude_api_key_emit_env_updates_active() {
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let user_home = tmp.path().join("uhome");

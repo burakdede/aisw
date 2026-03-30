@@ -77,7 +77,7 @@ fn status_json_has_expected_keys() {
     assert_eq!(claude["binary_found"], true);
     assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
-    assert_eq!(claude["state_mode"], serde_json::Value::Null);
+    assert_eq!(claude["state_mode"], "isolated");
     assert_eq!(claude["active_profile_applied"], true);
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
@@ -134,6 +134,20 @@ fn status_reports_live_tool_config_mismatch_for_active_codex_profile() {
         .stdout(contains(
             "live tool config does not match the active profile",
         ));
+}
+
+#[test]
+fn status_shows_claude_state_mode() {
+    let env = TestEnv::new();
+    add_and_activate_claude(&env, "work");
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("Claude Code"))
+        .stdout(contains("State mode"))
+        .stdout(contains("isolated"));
 }
 
 #[test]

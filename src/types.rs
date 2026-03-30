@@ -41,18 +41,18 @@ impl std::fmt::Display for Tool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
-pub enum CodexStateMode {
+pub enum StateMode {
     Isolated,
     Shared,
 }
 
-impl Default for CodexStateMode {
+impl Default for StateMode {
     fn default() -> Self {
         Self::Isolated
     }
 }
 
-impl CodexStateMode {
+impl StateMode {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::Isolated => "isolated",
