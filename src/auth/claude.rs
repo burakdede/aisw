@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
+use std::fs;
 
 use super::files;
 use super::identity;
@@ -14,6 +15,7 @@ use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
 const CREDENTIALS_FILE: &str = ".credentials.json";
+const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
@@ -158,11 +160,38 @@ fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
     .context("could not write Claude Code credentials into the system keyring")
 }
 
-fn capture_keychain_credentials(profile_dir: &Path, bytes: &[u8]) -> Result<PathBuf> {
-    let path = profile_dir.join(CREDENTIALS_FILE);
-    std::fs::write(&path, bytes).with_context(|| format!("could not write {}", path.display()))?;
-    files::set_permissions_600(&path)?;
-    Ok(path)
+fn oauth_stored_backend() -> CredentialBackend {
+    match forced_auth_storage() {
+        Some(ClaudeAuthStorage::File) => CredentialBackend::File,
+        Some(ClaudeAuthStorage::Keychain) => CredentialBackend::SystemKeyring,
+        None => {
+            if super::system_keyring::is_available() {
+                CredentialBackend::SystemKeyring
+            } else {
+                CredentialBackend::File
+            }
+        }
+    }
+}
+
+fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {
+    profile_dir.join(OAUTH_CAPTURE_DIR)
+}
+
+fn persist_oauth_storage(
+    profile_store: &ProfileStore,
+    name: &str,
+    stored_backend: CredentialBackend,
+    auth_bytes: &[u8],
+) -> Result<()> {
+    match stored_backend {
+        CredentialBackend::File => {
+            profile_store.write_file(Tool::Claude, name, CREDENTIALS_FILE, auth_bytes)
+        }
+        CredentialBackend::SystemKeyring => {
+            secure_store::write_profile_secret(Tool::Claude, name, auth_bytes)
+        }
+    }
 }
 
 pub fn add_api_key(
@@ -254,48 +283,75 @@ fn add_oauth_with(
     poll_interval: Duration,
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Claude, name)?;
+    let stored_backend = oauth_stored_backend();
+    let capture_dir = oauth_capture_dir(&profile_dir);
+    fs::create_dir_all(&capture_dir)
+        .with_context(|| format!("could not create {}", capture_dir.display()))?;
 
-    let result = files::cleanup_profile_on_error(
-        run_oauth_flow(claude_bin, &profile_dir, timeout, poll_interval),
+    let auth_bytes = files::cleanup_profile_on_error(
+        run_oauth_flow(claude_bin, &capture_dir, timeout, poll_interval),
         profile_store,
         Tool::Claude,
         name,
     )?;
 
-    files::set_permissions_600(&result)?;
+    files::cleanup_profile_on_error(
+        persist_oauth_storage(profile_store, name, stored_backend, &auth_bytes),
+        profile_store,
+        Tool::Claude,
+        name,
+    )
+    .inspect_err(|_| {
+        let _ = fs::remove_dir_all(&capture_dir);
+    })?;
+
     files::cleanup_profile_on_error(
         identity::ensure_unique_oauth_identity(
             profile_store,
             config_store,
             Tool::Claude,
             name,
-            CredentialBackend::File,
+            stored_backend,
         ),
         profile_store,
         Tool::Claude,
         name,
-    )?;
+    )
+    .inspect_err(|_| {
+        if stored_backend == CredentialBackend::SystemKeyring {
+            let _ = secure_store::delete_profile_secret(Tool::Claude, name);
+        }
+    })?;
 
-    config_store.add_profile(
-        Tool::Claude,
-        name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::OAuth,
-            credential_backend: CredentialBackend::File,
-            label,
-        },
-    )?;
+    config_store
+        .add_profile(
+            Tool::Claude,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: stored_backend,
+                label,
+            },
+        )
+        .inspect_err(|_| {
+            if stored_backend == CredentialBackend::SystemKeyring {
+                let _ = secure_store::delete_profile_secret(Tool::Claude, name);
+            }
+            let _ = profile_store.delete(Tool::Claude, name);
+        })?;
+
+    let _ = fs::remove_dir_all(&capture_dir);
 
     Ok(())
 }
 
 fn run_oauth_flow(
     claude_bin: &Path,
-    profile_dir: &Path,
+    capture_dir: &Path,
     timeout: Duration,
     poll_interval: Duration,
-) -> Result<PathBuf> {
+) -> Result<Vec<u8>> {
     let forced_storage = forced_auth_storage();
     let mut watch_keychain = watch_keychain_during_oauth();
     let keychain_before = if watch_keychain {
@@ -312,11 +368,11 @@ fn run_oauth_flow(
     };
 
     let mut child = Command::new(claude_bin)
-        .env("CLAUDE_CONFIG_DIR", profile_dir)
+        .env("CLAUDE_CONFIG_DIR", capture_dir)
         .spawn()
         .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
 
-    let credentials_path = profile_dir.join(CREDENTIALS_FILE);
+    let credentials_path = capture_dir.join(CREDENTIALS_FILE);
     let deadline = Instant::now() + timeout;
 
     loop {
@@ -324,7 +380,10 @@ fn run_oauth_flow(
             // Give the binary a moment to finish writing, then kill it if still running.
             let _ = child.kill();
             let _ = child.wait();
-            return Ok(credentials_path);
+            let bytes = fs::read(&credentials_path)
+                .with_context(|| format!("could not read {}", credentials_path.display()))?;
+            files::set_permissions_600(&credentials_path)?;
+            return Ok(bytes);
         }
 
         if watch_keychain {
@@ -333,7 +392,7 @@ fn run_oauth_flow(
                 if changed {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return capture_keychain_credentials(profile_dir, &current);
+                    return Ok(current);
                 }
             }
         }
@@ -345,7 +404,7 @@ fn run_oauth_flow(
             if watch_keychain {
                 if let Some(current) = read_keychain_credentials()? {
                     if keychain_before.is_none() {
-                        return capture_keychain_credentials(profile_dir, &current);
+                        return Ok(current);
                     }
                 }
             }
@@ -477,7 +536,7 @@ fn read_stored_credentials(
         CredentialBackend::SystemKeyring => secure_store::read_profile_secret(Tool::Claude, name)?
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "secure credentials for Claude Code profile '{}' are missing from macOS Keychain",
+                    "secure credentials for Claude Code profile '{}' are missing from the system keyring",
                     name
                 )
             }),
@@ -917,6 +976,67 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
+    fn oauth_keychain_storage_keeps_managed_profile_secure() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let security_bin = bin_dir.join("security");
+        write_security_mock(&security_bin);
+        let claude_bin = bin_dir.join("claude");
+        fs::write(
+            &claude_bin,
+            "#!/bin/sh\n\
+             item=\"$AISW_KEYRING_TEST_DIR/Claude Code-credentials/${USER:-tester}\"\n\
+             mkdir -p \"$item\"\n\
+             printf '%s' \"${USER:-tester}\" > \"$item/account\"\n\
+             printf '%s' '{\"account\":{\"email\":\"work@example.com\"}}' > \"$item/secret\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&claude_bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+        let _security = EnvVarGuard::set(
+            "AISW_SECURITY_BIN",
+            security_bin
+                .to_str()
+                .expect("security path should be utf-8"),
+        );
+        let _user = EnvVarGuard::set("USER", "tester");
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &claude_bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let config = cs.load().unwrap();
+        assert_eq!(
+            config.profiles_for(Tool::Claude)["work"].credential_backend,
+            CredentialBackend::SystemKeyring
+        );
+        assert!(!ps
+            .profile_dir(Tool::Claude, "work")
+            .join(CREDENTIALS_FILE)
+            .exists());
+        assert_eq!(
+            secure_store::read_profile_secret(Tool::Claude, "work")
+                .unwrap()
+                .as_deref(),
+            Some(br#"{"account":{"email":"work@example.com"}}"#.as_slice())
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn oauth_sets_claude_config_dir_env() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
@@ -932,7 +1052,7 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             echo \"$CLAUDE_CONFIG_DIR\" > \"$CLAUDE_CONFIG_DIR/env_was_set\"\n\
+             echo \"$CLAUDE_CONFIG_DIR\" > \"$(dirname \"$CLAUDE_CONFIG_DIR\")/env_was_set\"\n\
              echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
         )
         .unwrap();

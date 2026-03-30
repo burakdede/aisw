@@ -14,96 +14,6 @@ const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 const VALID_GEMINI_KEY_ALT: &str = "AIzaalt0987654321FEDCBA";
 
-fn add_fake_claude_security_tool(env: &TestEnv) {
-    env.add_script_tool(
-        "security",
-        "#!/bin/sh\n\
-         store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
-         item_dir() {\n\
-           printf '%s/%s/%s' \"$store_root\" \"$1\" \"$2\"\n\
-         }\n\
-         first_item_dir() {\n\
-           dir=\"$store_root/$1\"\n\
-           [ -d \"$dir\" ] || return 1\n\
-           for item in \"$dir\"/*; do\n\
-             [ -d \"$item\" ] || continue\n\
-             printf '%s' \"$item\"\n\
-             return 0\n\
-           done\n\
-           return 1\n\
-         }\n\
-         cmd=\"$1\"\n\
-         shift\n\
-         service=''\n\
-         account=''\n\
-         case \"$cmd\" in\n\
-           find-generic-password)\n\
-             while [ \"$#\" -gt 0 ]; do\n\
-               case \"$1\" in\n\
-                 -s)\n\
-                   shift\n\
-                   service=\"$1\"\n\
-                   ;;\n\
-                 -a)\n\
-                   shift\n\
-                   account=\"$1\"\n\
-                   ;;\n\
-               esac\n\
-               shift\n\
-             done\n\
-             if [ -n \"$account\" ]; then\n\
-               item=\"$(item_dir \"$service\" \"$account\")\"\n\
-             else\n\
-               item=\"$(first_item_dir \"$service\")\" || item=''\n\
-             fi\n\
-             if [ -f \"$item/secret\" ]; then\n\
-               /bin/cat \"$item/secret\"\n\
-               exit 0\n\
-             fi\n\
-             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
-             exit 44\n\
-             ;;\n\
-           add-generic-password)\n\
-             while [ \"$#\" -gt 0 ]; do\n\
-               case \"$1\" in\n\
-                 -s)\n\
-                   shift\n\
-                   service=\"$1\"\n\
-                   ;;\n\
-                 -a)\n\
-                   shift\n\
-                   account=\"$1\"\n\
-                   ;;\n\
-                 -w)\n\
-                   shift\n\
-                   item=\"$(item_dir \"$service\" \"$account\")\"\n\
-                   /bin/mkdir -p \"$item\"\n\
-                   printf '%s' \"$account\" > \"$item/account\"\n\
-                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
-                     printf '%s' \"$1\" > \"$item/secret\"\n\
-                     exit 0\n\
-                   else\n\
-                     IFS= read -r secret || true\n\
-                     printf '%s' \"$secret\" > \"$item/secret\"\n\
-                     exit 0\n\
-                   fi\n\
-                   ;;\n\
-                 *)\n\
-                   shift\n\
-                   ;;\n\
-               esac\n\
-             done\n\
-             echo 'missing -w password' >&2\n\
-             exit 1\n\
-             ;;\n\
-           *)\n\
-             echo \"unexpected security command: $cmd\" >&2\n\
-             exit 1\n\
-             ;;\n\
-         esac\n",
-    );
-}
-
 fn add_fake_codex_security_tool(env: &TestEnv) {
     env.add_script_tool(
         "security",
@@ -356,6 +266,7 @@ fn add_claude_oauth_succeeds_with_mocked_binary() {
     );
 
     env.cmd()
+        .env("AISW_CLAUDE_AUTH_STORAGE", "file")
         .args(["add", "claude", "work"])
         .assert()
         .success()
@@ -373,7 +284,6 @@ fn add_claude_oauth_succeeds_with_mocked_binary() {
 #[test]
 fn add_claude_oauth_succeeds_with_keychain_backed_credentials() {
     let env = TestEnv::new();
-    add_fake_claude_security_tool(&env);
     env.add_script_tool(
         "claude",
         "#!/bin/sh\n\
@@ -381,19 +291,37 @@ fn add_claude_oauth_succeeds_with_keychain_backed_credentials() {
            echo 'claude 2.3.0'\n\
            exit 0\n\
          fi\n\
-         security add-generic-password -U -a \"${USER:-tester}\" -s \"Claude Code-credentials\" -w '{\"account\":{\"email\":\"work@example.com\"}}'\n",
+         item=\"$AISW_KEYRING_TEST_DIR/Claude Code-credentials/${USER:-tester}\"\n\
+         /bin/mkdir -p \"$item\"\n\
+         printf '%s' \"${USER:-tester}\" > \"$item/account\"\n\
+         printf '%s' '{\"account\":{\"email\":\"work@example.com\"}}' > \"$item/secret\"\n",
     );
 
     env.cmd()
         .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
-        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
         .env("USER", "tester")
         .args(["add", "claude", "work"])
         .assert()
         .success()
         .stdout(contains("Added profile"));
 
-    env.assert_home_file_exists("profiles/claude/work/.credentials.json");
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["work"]["credential_backend"],
+        "system_keyring"
+    );
+    assert!(
+        !env.home_file("profiles/claude/work/.credentials.json")
+            .exists(),
+        "secure Claude OAuth profile should not persist a credentials file",
+    );
+    assert!(
+        env.fake_home
+            .join("keychain/aisw/profile:claude:work/secret")
+            .exists(),
+        "secure Claude OAuth profile should persist its secret in the fake keyring",
+    );
 }
 
 #[test]
