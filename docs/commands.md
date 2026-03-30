@@ -78,8 +78,8 @@ aisw use <tool> <profile_name> [--state-mode <isolated|shared>]
 ```
 
 `aisw use` applies the selected profile into the live config location each tool reads:
-- Claude: live credentials file
-- Codex: live `auth.json` plus file-store config in `~/.codex/config.toml`
+- Claude: live credentials file or system keyring, depending on the live Claude auth backend
+- Codex: live `auth.json` or system keyring, plus the matching auth-store config in `~/.codex/config.toml`
 - Gemini: live `~/.gemini/.env` or token cache
 
 `--state-mode` is supported for Claude and Codex:
@@ -185,7 +185,7 @@ Show the current state across all tools.
 aisw status [--json]
 ```
 
-Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and whether the live tool config matches the configured active profile. Token validity, quota, and subscription state are not checked — aisw only verifies local file presence and that the local live state matches the selected profile.
+Reports for each tool: whether the binary is installed, which profile is active, which credential backend that profile uses, whether the managed credentials are present, and whether the live tool config matches the configured active profile. Token validity, quota, and subscription state are not checked — aisw only verifies local state and backend-specific credential presence.
 
 For Claude and Codex, `status` also reports the active state mode (`isolated` or `shared`). Gemini does not currently support configurable state mode and remains isolated-only.
 

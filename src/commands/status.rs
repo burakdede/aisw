@@ -129,32 +129,36 @@ pub(crate) fn collect_status(
         ) = if let Some(name) = active_name {
             let profiles = config.profiles_for(tool);
             let profile_meta = &profiles[name];
+            let profile_dir = profile_store.profile_dir(tool, name);
+            let (creds, perms) =
+                check_profile_storage(&profile_dir, tool, name, profile_meta.credential_backend);
             let auth = profiles
                 .get(name)
                 .map(|m| auth_label(m.auth_method).to_owned());
             let backend = profiles
                 .get(name)
                 .map(|m| m.credential_backend.display_name().to_owned());
-            let applied = profiles
-                .get(name)
-                .map(|m| {
-                    assess_live_state(
-                        tool,
-                        m.auth_method,
-                        m.credential_backend,
-                        &profile_store,
-                        name,
-                        user_home,
-                    )
-                })
-                .transpose()?
-                .map(|state| match state {
-                    LiveActivation::Applied => true,
-                    LiveActivation::NotApplied => false,
-                });
-            let profile_dir = profile_store.profile_dir(tool, name);
-            let (creds, perms) =
-                check_profile_storage(&profile_dir, tool, name, profile_meta.credential_backend);
+            let applied = if creds {
+                profiles
+                    .get(name)
+                    .map(|m| {
+                        assess_live_state(
+                            tool,
+                            m.auth_method,
+                            m.credential_backend,
+                            &profile_store,
+                            name,
+                            user_home,
+                        )
+                    })
+                    .transpose()?
+                    .map(|state| match state {
+                        LiveActivation::Applied => true,
+                        LiveActivation::NotApplied => false,
+                    })
+            } else {
+                Some(false)
+            };
             (Some(name.to_owned()), auth, backend, applied, creds, perms)
         } else {
             (None, None, None, None, false, true)
@@ -240,7 +244,10 @@ fn status_message(s: &ToolStatus) -> &'static str {
         return "no active profile";
     }
     if !s.credentials_present {
-        return "credential files missing";
+        return match s.credential_backend.as_deref() {
+            Some("system_keyring") => "secure credentials missing from the managed system keyring",
+            _ => "credential files missing",
+        };
     }
     if !s.permissions_ok {
         return "credentials present \u{2014} permissions too broad!";

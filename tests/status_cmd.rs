@@ -65,6 +65,46 @@ fn status_shows_credentials_present_for_active_profile() {
 }
 
 #[test]
+fn status_reports_missing_system_keyring_credentials_explicitly() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    std::fs::create_dir_all(env.aisw_home.join("profiles").join("claude").join("work")).unwrap();
+
+    let config_json = serde_json::json!({
+        "version": 1,
+        "active": {"claude": "work", "codex": null, "gemini": null},
+        "profiles": {
+            "claude": {
+                "work": {
+                    "added_at": "2026-03-30T00:00:00Z",
+                    "auth_method": "o_auth",
+                    "credential_backend": "system_keyring",
+                    "label": null
+                }
+            },
+            "codex": {},
+            "gemini": {}
+        },
+        "settings": {"backup_on_switch": true, "max_backups": 10}
+    });
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::to_string_pretty(&config_json).unwrap(),
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("Backend"))
+        .stdout(contains("system_keyring"))
+        .stdout(contains(
+            "secure credentials missing from the managed system keyring",
+        ));
+}
+
+#[test]
 fn status_json_has_expected_keys() {
     let env = TestEnv::new();
     add_and_activate_claude(&env, "work");

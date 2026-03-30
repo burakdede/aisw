@@ -29,6 +29,31 @@ Why Gemini differs:
 
 Because of that, `aisw` does not currently expose `--state-mode` for Gemini.
 
+## Auth backend support
+
+`aisw` distinguishes between:
+- vendor storage behavior: what the upstream CLI stores and where
+- `import`: whether `aisw init` can capture an existing live login
+- `use`: whether `aisw use` can apply a stored profile back into the live tool safely
+
+The current support policy is:
+
+| Tool | Backend | Import support | Use support | Notes |
+|---|---|---|---|---|
+| Claude Code | file-backed credentials | supported | supported | uses the live Claude credentials file |
+| Claude Code | system keyring | supported where the live entry is readable | supported | managed profiles stay in the system keyring rather than being downgraded to files |
+| Codex CLI | file-backed `auth.json` | supported | supported | file-backed profiles remain portable across platforms |
+| Codex CLI | system keyring with discoverable live account | supported | supported | `aisw` reuses the existing live keyring account instead of guessing |
+| Codex CLI | system keyring without discoverable live account | partial | fail-closed | `aisw` will not fabricate a username-based keyring account; switching errors with guidance instead |
+| Gemini CLI | file-backed local state under `~/.gemini` | supported | supported | Gemini remains file-managed because auth and broader local state are coupled |
+
+Important limits:
+- Gemini does not support `system_keyring` profiles in `aisw`
+- Codex keyring-backed support is strongest on platforms where the live keyring account can be discovered authoritatively
+- Claude Linux and Windows secure-storage behavior is still more weakly documented upstream than Codex
+
+For the vendor storage details behind this policy, see [Auth Storage Matrix](../AUTH_STORAGE_MATRIX.md).
+
 ## Typical search intents this page answers
 
 - Which AI CLI tools does aisw support?
