@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::fs;
 use std::io::IsTerminal;
 use std::io::Write;
@@ -366,82 +365,6 @@ fn extract_gemini_api_key(bytes: &[u8]) -> Option<String> {
         .find_map(|line| line.strip_prefix("GEMINI_API_KEY=").map(ToOwned::to_owned))
 }
 
-fn gemini_live_dir(user_home: &Path) -> PathBuf {
-    user_home.join(".gemini")
-}
-
-fn gemini_live_oauth_files_for_import(
-    user_home: &Path,
-) -> Result<Vec<crate::auth::files::RegularFile>> {
-    let gemini_dir = gemini_live_dir(user_home);
-    if !gemini_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut files = crate::auth::files::list_regular_files(&gemini_dir)?
-        .into_iter()
-        .filter(|file| file.file_name != OsStr::new(".env"))
-        .collect::<Vec<_>>();
-    files.sort_by(|a, b| a.file_name.cmp(&b.file_name));
-    Ok(files)
-}
-
-fn preferred_gemini_oauth_file(
-    files: &[crate::auth::files::RegularFile],
-) -> Option<&crate::auth::files::RegularFile> {
-    files
-        .iter()
-        .find(|file| file.file_name == OsStr::new("settings.json"))
-        .or_else(|| {
-            files
-                .iter()
-                .find(|file| file.file_name == OsStr::new("oauth_creds.json"))
-        })
-        .or_else(|| files.first())
-}
-
-fn gemini_import_source_desc(path: &Path, total_files: usize) -> String {
-    if total_files > 1 {
-        format!("found {} (+{} more files)", path.display(), total_files - 1)
-    } else {
-        format!("found {}", path.display())
-    }
-}
-
-fn existing_gemini_oauth_profile_for_live_files(
-    profile_store: &ProfileStore,
-    config_store: &ConfigStore,
-    files: &[crate::auth::files::RegularFile],
-) -> Result<Option<String>> {
-    for file in files {
-        let bytes = fs::read(&file.path)
-            .with_context(|| format!("could not read {}", file.path.display()))?;
-        if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
-            profile_store,
-            config_store,
-            Tool::Gemini,
-            &bytes,
-        )? {
-            return Ok(Some(existing_name));
-        }
-    }
-
-    Ok(None)
-}
-
-fn copy_gemini_oauth_files_into_profile(
-    profile_store: &ProfileStore,
-    profile_name: &str,
-    files: &[crate::auth::files::RegularFile],
-) -> Result<()> {
-    for file in files {
-        let file_name = file.file_name.to_string_lossy().into_owned();
-        profile_store.copy_file_into(Tool::Gemini, profile_name, &file.path, &file_name)?;
-    }
-
-    Ok(())
-}
-
 fn import_claude(
     aisw_home: &Path,
     user_home: &Path,
@@ -770,15 +693,15 @@ fn import_gemini(
     confirmed: bool,
 ) -> Result<()> {
     print_import_header(Tool::Gemini, detected);
-    let gemini_dir = gemini_live_dir(user_home);
+    let gemini_dir = auth::gemini::live_dir(user_home);
     let env_file = gemini_dir.join(".env");
-    let oauth_files = gemini_live_oauth_files_for_import(user_home)?;
+    let oauth_files = auth::gemini::live_oauth_files_for_import(user_home)?;
 
     let (src_desc, method) = if env_file.exists() {
         (format!("found {}", env_file.display()), AuthMethod::ApiKey)
-    } else if let Some(primary_file) = preferred_gemini_oauth_file(&oauth_files) {
+    } else if let Some(primary_file) = auth::gemini::preferred_live_oauth_file(&oauth_files) {
         (
-            gemini_import_source_desc(&primary_file.path, oauth_files.len()),
+            auth::gemini::live_import_source_description(&primary_file.path, oauth_files.len()),
             AuthMethod::OAuth,
         )
     } else {
@@ -815,7 +738,7 @@ fn import_gemini(
     }
 
     if method == AuthMethod::OAuth {
-        if let Some(existing_name) = existing_gemini_oauth_profile_for_live_files(
+        if let Some(existing_name) = auth::gemini::existing_oauth_profile_for_live_files(
             &profile_store,
             &config_store,
             &oauth_files,
@@ -859,7 +782,11 @@ fn import_gemini(
 
     profile_store.create(Tool::Gemini, &profile_name)?;
     if method == AuthMethod::OAuth {
-        copy_gemini_oauth_files_into_profile(&profile_store, &profile_name, &oauth_files)?;
+        auth::gemini::copy_live_oauth_files_into_profile(
+            &profile_store,
+            &profile_name,
+            &oauth_files,
+        )?;
         auth::identity::ensure_unique_oauth_identity(
             &profile_store,
             &config_store,

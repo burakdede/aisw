@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -22,6 +23,78 @@ const KEY_VAR: &str = "GEMINI_API_KEY";
 // $HOME/.gemini/ (see auth::gemini::apply_token_cache).
 const GEMINI_CACHE_DIR: &str = ".gemini";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
+
+pub fn live_dir(user_home: &Path) -> PathBuf {
+    user_home.join(GEMINI_CACHE_DIR)
+}
+
+pub fn live_oauth_files_for_import(user_home: &Path) -> Result<Vec<files::RegularFile>> {
+    let gemini_dir = live_dir(user_home);
+    if !gemini_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = files::list_regular_files(&gemini_dir)?
+        .into_iter()
+        .filter(|file| file.file_name != OsStr::new(ENV_FILE))
+        .collect::<Vec<_>>();
+    files.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+    Ok(files)
+}
+
+pub fn preferred_live_oauth_file(files: &[files::RegularFile]) -> Option<&files::RegularFile> {
+    files
+        .iter()
+        .find(|file| file.file_name == OsStr::new("settings.json"))
+        .or_else(|| {
+            files
+                .iter()
+                .find(|file| file.file_name == OsStr::new("oauth_creds.json"))
+        })
+        .or_else(|| files.first())
+}
+
+pub fn live_import_source_description(path: &Path, total_files: usize) -> String {
+    if total_files > 1 {
+        format!("found {} (+{} more files)", path.display(), total_files - 1)
+    } else {
+        format!("found {}", path.display())
+    }
+}
+
+pub fn existing_oauth_profile_for_live_files(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    files: &[files::RegularFile],
+) -> Result<Option<String>> {
+    for file in files {
+        let bytes = std::fs::read(&file.path)
+            .with_context(|| format!("could not read {}", file.path.display()))?;
+        if let Some(existing_name) = identity::existing_oauth_profile_for_json_bytes(
+            profile_store,
+            config_store,
+            Tool::Gemini,
+            &bytes,
+        )? {
+            return Ok(Some(existing_name));
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn copy_live_oauth_files_into_profile(
+    profile_store: &ProfileStore,
+    profile_name: &str,
+    files: &[files::RegularFile],
+) -> Result<()> {
+    for file in files {
+        let file_name = file.file_name.to_string_lossy().into_owned();
+        profile_store.copy_file_into(Tool::Gemini, profile_name, &file.path, &file_name)?;
+    }
+
+    Ok(())
+}
 
 pub fn add_api_key(
     profile_store: &ProfileStore,
@@ -339,8 +412,6 @@ pub fn live_token_cache_matches(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use tempfile::tempdir;
 
     use super::*;
@@ -677,6 +748,40 @@ mod tests {
 
         assert!(!dest_dir.join(ENV_FILE).exists());
         assert!(dest_dir.join("oauth_creds.json").exists());
+    }
+
+    #[test]
+    fn live_oauth_files_for_import_skips_env_and_sorts() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+        std::fs::write(gemini_dir.join(".env"), "GEMINI_API_KEY=test\n").unwrap();
+        std::fs::write(gemini_dir.join("z.json"), "{}").unwrap();
+        std::fs::write(gemini_dir.join("oauth_creds.json"), "{}").unwrap();
+
+        let files = live_oauth_files_for_import(&user_home).unwrap();
+        let names = files
+            .iter()
+            .map(|file| file.file_name.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["oauth_creds.json", "z.json"]);
+    }
+
+    #[test]
+    fn preferred_live_oauth_file_prefers_settings_json() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+        std::fs::write(gemini_dir.join("oauth_creds.json"), "{}").unwrap();
+        std::fs::write(gemini_dir.join("settings.json"), "{}").unwrap();
+
+        let files = live_oauth_files_for_import(&user_home).unwrap();
+        let preferred = preferred_live_oauth_file(&files).expect("preferred file");
+
+        assert_eq!(preferred.file_name, "settings.json");
     }
 
     #[test]

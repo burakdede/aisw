@@ -428,6 +428,7 @@ mod tests {
 
     #[test]
     fn claude_live_state_is_applied_when_live_credentials_match() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let profile_store = ProfileStore::new(tmp.path());
@@ -449,6 +450,7 @@ mod tests {
 
     #[test]
     fn claude_live_state_is_not_applied_when_live_credentials_are_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let profile_store = ProfileStore::new(tmp.path());

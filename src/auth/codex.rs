@@ -493,7 +493,10 @@ mod tests {
 
     #[test]
     fn parse_live_auth_storage_defaults_to_auto_when_missing() {
-        assert_eq!(parse_live_auth_storage("model = \"gpt-5.4\"\n"), LiveAuthStorage::Auto);
+        assert_eq!(
+            parse_live_auth_storage("model = \"gpt-5.4\"\n"),
+            LiveAuthStorage::Auto
+        );
     }
 
     #[test]
@@ -517,7 +520,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let user_home = dir.path().join("home");
         std::fs::create_dir_all(user_home.join(".codex")).unwrap();
-        std::fs::write(user_home.join(".codex").join(AUTH_FILE), br#"{"token":"tok"}"#).unwrap();
+        std::fs::write(
+            user_home.join(".codex").join(AUTH_FILE),
+            br#"{"token":"tok"}"#,
+        )
+        .unwrap();
 
         let snapshot = live_credentials_snapshot_for_import(&user_home)
             .unwrap()
