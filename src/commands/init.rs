@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::IsTerminal;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use dialoguer::{theme::ColorfulTheme, Confirm, Input};
 
 use crate::auth;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
@@ -160,20 +162,57 @@ fn prompt_yes_no(prompt: &str) -> bool {
     if runtime::is_non_interactive() {
         return false;
     }
-    eprint!("{}", prompt);
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line).unwrap_or(0);
-    matches!(line.trim(), "" | "y" | "Y")
+    if !std::io::stdin().is_terminal() {
+        eprint!("{}", prompt);
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).unwrap_or(0);
+        return matches!(line.trim(), "" | "y" | "Y");
+    }
+    Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt.trim())
+        .default(true)
+        .interact_opt()
+        .unwrap_or(None)
+        .unwrap_or(false)
 }
 
 fn prompt_line(prompt: &str) -> String {
     if runtime::is_non_interactive() {
         return String::new();
     }
-    eprint!("{}", prompt);
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line).unwrap_or(0);
-    line.trim().to_owned()
+    if !std::io::stdin().is_terminal() {
+        eprint!("{}", prompt);
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).unwrap_or(0);
+        return line.trim().to_owned();
+    }
+    let (message, default) = parse_prompt(prompt);
+    let theme = ColorfulTheme::default();
+    let input = Input::<String>::with_theme(&theme).with_prompt(message);
+    let input = if let Some(default) = default {
+        input.default(default.to_owned())
+    } else {
+        input
+    };
+    input.interact_text().unwrap_or_default()
+}
+
+fn parse_prompt(prompt: &str) -> (&str, Option<&str>) {
+    let trimmed = prompt.trim();
+    let Some(start) = trimmed.rfind('[') else {
+        return (trimmed, None);
+    };
+    let Some(end) = trimmed[start..].find(']') else {
+        return (trimmed, None);
+    };
+    let end = start + end;
+    let message = trimmed[..start].trim_end_matches(':').trim();
+    let default = trimmed[start + 1..end].trim();
+    if message.is_empty() || default.is_empty() {
+        (trimmed, None)
+    } else {
+        (message, Some(default))
+    }
 }
 
 fn import_name_and_label(
