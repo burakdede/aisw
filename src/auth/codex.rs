@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
+use super::files;
 use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::live_apply::LiveFileChange;
@@ -65,16 +66,20 @@ pub fn add_api_key(
 
     profile_store.create(Tool::Codex, name)?;
 
-    let cleanup = |ps: &ProfileStore| {
-        let _ = ps.delete(Tool::Codex, name);
-    };
-
-    write_file_store_config(profile_store, name).inspect_err(|_| cleanup(profile_store))?;
+    files::cleanup_profile_on_error(
+        write_file_store_config(profile_store, name),
+        profile_store,
+        Tool::Codex,
+        name,
+    )?;
 
     let auth_json = format!("{{\"token\":\"{}\"}}", key);
-    profile_store
-        .write_file(Tool::Codex, name, AUTH_FILE, auth_json.as_bytes())
-        .inspect_err(|_| cleanup(profile_store))?;
+    files::cleanup_profile_on_error(
+        profile_store.write_file(Tool::Codex, name, AUTH_FILE, auth_json.as_bytes()),
+        profile_store,
+        Tool::Codex,
+        name,
+    )?;
 
     config_store.add_profile(
         Tool::Codex,
@@ -133,20 +138,27 @@ fn add_oauth_with(
     let profile_dir = profile_store.create(Tool::Codex, name)?;
 
     // config.toml must be written before spawning — without it Codex falls back to keyring.
-    write_file_store_config(profile_store, name).inspect_err(|_| {
-        let _ = profile_store.delete(Tool::Codex, name);
-    })?;
+    files::cleanup_profile_on_error(
+        write_file_store_config(profile_store, name),
+        profile_store,
+        Tool::Codex,
+        name,
+    )?;
 
-    let auth_path =
-        run_oauth_flow(codex_bin, &profile_dir, timeout, poll_interval).inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Codex, name);
-        })?;
+    let auth_path = files::cleanup_profile_on_error(
+        run_oauth_flow(codex_bin, &profile_dir, timeout, poll_interval),
+        profile_store,
+        Tool::Codex,
+        name,
+    )?;
 
-    set_auth_permissions(&auth_path)?;
-    identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Codex, name)
-        .inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Codex, name);
-        })?;
+    files::set_permissions_600(&auth_path)?;
+    files::cleanup_profile_on_error(
+        identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Codex, name),
+        profile_store,
+        Tool::Codex,
+        name,
+    )?;
 
     config_store.add_profile(
         Tool::Codex,
@@ -196,19 +208,6 @@ fn run_oauth_flow(
 
         std::thread::sleep(poll_interval);
     }
-}
-
-#[cfg(unix)]
-fn set_auth_permissions(path: &Path) -> Result<()> {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("could not set permissions on {}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn set_auth_permissions(_path: &Path) -> Result<()> {
-    Ok(())
 }
 
 /// Read the stored API token from a profile's auth file.
@@ -273,14 +272,13 @@ pub fn live_files_match(
     name: &str,
     user_home: &Path,
 ) -> Result<bool> {
-    let auth_dest = live_auth_path(user_home);
-    if !auth_dest.exists() {
-        return Ok(false);
-    }
-    let live_auth = std::fs::read(&auth_dest)
-        .with_context(|| format!("could not read {}", auth_dest.display()))?;
-    let stored_auth = profile_store.read_file(Tool::Codex, name, AUTH_FILE)?;
-    if live_auth != stored_auth {
+    if !files::stored_profile_file_matches_live(
+        profile_store,
+        Tool::Codex,
+        name,
+        AUTH_FILE,
+        &live_auth_path(user_home),
+    )? {
         return Ok(false);
     }
 

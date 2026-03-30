@@ -5,6 +5,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
+use super::files;
 use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::live_apply::LiveFileChange;
@@ -47,11 +48,12 @@ pub fn add_api_key(
     profile_store.create(Tool::Gemini, name)?;
 
     let env_contents = format!("{}={}\n", KEY_VAR, key);
-    profile_store
-        .write_file(Tool::Gemini, name, ENV_FILE, env_contents.as_bytes())
-        .inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Gemini, name);
-        })?;
+    files::cleanup_profile_on_error(
+        profile_store.write_file(Tool::Gemini, name, ENV_FILE, env_contents.as_bytes()),
+        profile_store,
+        Tool::Gemini,
+        name,
+    )?;
 
     config_store.add_profile(
         Tool::Gemini,
@@ -102,18 +104,17 @@ pub fn apply_env_file(
     name: &str,
     dest: &std::path::Path,
 ) -> Result<()> {
-    let bytes = profile_store.read_file(Tool::Gemini, name, ENV_FILE)?;
-    crate::live_apply::apply_transaction(vec![LiveFileChange::write(dest.to_path_buf(), bytes)])
+    files::apply_profile_file(
+        profile_store,
+        Tool::Gemini,
+        name,
+        ENV_FILE,
+        dest.to_path_buf(),
+    )
 }
 
 pub fn live_env_matches(profile_store: &ProfileStore, name: &str, dest: &Path) -> Result<bool> {
-    if !dest.exists() {
-        return Ok(false);
-    }
-    let live = std::fs::read(dest)
-        .map_err(|e| anyhow::anyhow!("could not read {}: {}", dest.display(), e))?;
-    let stored = profile_store.read_file(Tool::Gemini, name, ENV_FILE)?;
-    Ok(live == stored)
+    files::stored_profile_file_matches_live(profile_store, Tool::Gemini, name, ENV_FILE, dest)
 }
 
 /// Start the Gemini OAuth flow using the installed `gemini` binary.
@@ -150,13 +151,15 @@ fn add_oauth_with(
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Gemini, name)?;
 
-    let result =
-        run_oauth_flow(gemini_bin, &profile_dir, timeout, poll_interval).inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Gemini, name);
-        })?;
+    let result = files::cleanup_profile_on_error(
+        run_oauth_flow(gemini_bin, &profile_dir, timeout, poll_interval),
+        profile_store,
+        Tool::Gemini,
+        name,
+    )?;
 
     if result == 0 {
-        let _ = profile_store.delete(Tool::Gemini, name);
+        files::cleanup_profile(profile_store, Tool::Gemini, name);
         bail!(
             "Gemini login completed but no credential files were found in the token cache.\n  \
              The OAuth flow may have failed silently. Try running 'aisw add gemini {}' again,\n  \
@@ -166,10 +169,12 @@ fn add_oauth_with(
         );
     }
 
-    identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Gemini, name)
-        .inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Gemini, name);
-        })?;
+    files::cleanup_profile_on_error(
+        identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Gemini, name),
+        profile_store,
+        Tool::Gemini,
+        name,
+    )?;
 
     config_store.add_profile(
         Tool::Gemini,
@@ -257,19 +262,16 @@ fn capture_cache_into_profile(cache_dir: &Path, profile_dir: &Path) -> Result<us
         return Ok(0);
     }
     let mut count = 0;
-    for entry in std::fs::read_dir(cache_dir)
-        .with_context(|| format!("could not read {}", cache_dir.display()))?
-    {
-        let entry = entry?;
-        let src = entry.path();
-        if src.is_symlink() || !src.is_file() {
-            continue;
-        }
-        let filename = entry.file_name();
-        let dst = profile_dir.join(&filename);
-        std::fs::copy(&src, &dst)
-            .with_context(|| format!("could not copy {} to {}", src.display(), dst.display()))?;
-        set_permissions_600(&dst)?;
+    for file in files::list_regular_files(cache_dir)? {
+        let dst = profile_dir.join(&file.file_name);
+        std::fs::copy(&file.path, &dst).with_context(|| {
+            format!(
+                "could not copy {} to {}",
+                file.path.display(),
+                dst.display()
+            )
+        })?;
+        files::set_permissions_600(&dst)?;
         count += 1;
     }
     Ok(count)
@@ -286,21 +288,14 @@ pub fn apply_token_cache(
 
     let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
     let mut changes = Vec::new();
-    for entry in std::fs::read_dir(&profile_dir)
-        .with_context(|| format!("could not read {}", profile_dir.display()))?
-    {
-        let entry = entry?;
-        let src = entry.path();
-        if src.is_symlink() || !src.is_file() {
-            continue;
-        }
+    for file in files::list_regular_files(&profile_dir)? {
         // Skip the .env file — that's for API key profiles.
-        if entry.file_name() == std::ffi::OsStr::new(ENV_FILE) {
+        if file.file_name == std::ffi::OsStr::new(ENV_FILE) {
             continue;
         }
-        let dst = gemini_dir.join(entry.file_name());
-        let contents =
-            std::fs::read(&src).with_context(|| format!("could not read {}", src.display()))?;
+        let dst = gemini_dir.join(&file.file_name);
+        let contents = std::fs::read(&file.path)
+            .with_context(|| format!("could not read {}", file.path.display()))?;
         changes.push(LiveFileChange::write(dst, contents));
     }
 
@@ -324,21 +319,14 @@ pub fn live_token_cache_matches(
     }
 
     let mut saw_file = false;
-    for entry in std::fs::read_dir(&profile_dir)
-        .with_context(|| format!("could not read {}", profile_dir.display()))?
-    {
-        let entry = entry?;
-        let src = entry.path();
-        if src.is_symlink() || !src.is_file() {
-            continue;
-        }
+    for file in files::list_regular_files(&profile_dir)? {
         saw_file = true;
-        let live = gemini_dir.join(entry.file_name());
+        let live = gemini_dir.join(&file.file_name);
         if !live.exists() {
             return Ok(false);
         }
-        let src_bytes =
-            std::fs::read(&src).with_context(|| format!("could not read {}", src.display()))?;
+        let src_bytes = std::fs::read(&file.path)
+            .with_context(|| format!("could not read {}", file.path.display()))?;
         let live_bytes =
             std::fs::read(&live).with_context(|| format!("could not read {}", live.display()))?;
         if src_bytes != live_bytes {
@@ -347,19 +335,6 @@ pub fn live_token_cache_matches(
     }
 
     Ok(saw_file)
-}
-
-#[cfg(unix)]
-fn set_permissions_600(path: &std::path::Path) -> Result<()> {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .map_err(|e| anyhow::anyhow!("could not set permissions on {}: {}", path.display(), e))
-}
-
-#[cfg(not(unix))]
-fn set_permissions_600(_path: &std::path::Path) -> Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]

@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 
+use super::files;
 use super::identity;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
-use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
@@ -54,12 +54,12 @@ pub fn add_api_key(
     profile_store.create(Tool::Claude, name)?;
 
     let credentials = format!("{{\"apiKey\":\"{}\"}}", key);
-    profile_store
-        .write_file(Tool::Claude, name, CREDENTIALS_FILE, credentials.as_bytes())
-        .inspect_err(|_| {
-            // Best-effort cleanup on write failure.
-            let _ = profile_store.delete(Tool::Claude, name);
-        })?;
+    files::cleanup_profile_on_error(
+        profile_store.write_file(Tool::Claude, name, CREDENTIALS_FILE, credentials.as_bytes()),
+        profile_store,
+        Tool::Claude,
+        name,
+    )?;
 
     config_store.add_profile(
         Tool::Claude,
@@ -118,16 +118,20 @@ fn add_oauth_with(
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Claude, name)?;
 
-    let result =
-        run_oauth_flow(claude_bin, &profile_dir, timeout, poll_interval).inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Claude, name);
-        })?;
+    let result = files::cleanup_profile_on_error(
+        run_oauth_flow(claude_bin, &profile_dir, timeout, poll_interval),
+        profile_store,
+        Tool::Claude,
+        name,
+    )?;
 
-    set_credentials_permissions(&result)?;
-    identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Claude, name)
-        .inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Claude, name);
-        })?;
+    files::set_permissions_600(&result)?;
+    files::cleanup_profile_on_error(
+        identity::ensure_unique_oauth_identity(profile_store, config_store, Tool::Claude, name),
+        profile_store,
+        Tool::Claude,
+        name,
+    )?;
 
     config_store.add_profile(
         Tool::Claude,
@@ -178,19 +182,6 @@ fn run_oauth_flow(
     }
 }
 
-#[cfg(unix)]
-fn set_credentials_permissions(path: &Path) -> Result<()> {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("could not set permissions on {}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn set_credentials_permissions(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
 /// Read the stored API key from a profile's credentials file.
 pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> {
     let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
@@ -225,9 +216,13 @@ pub fn apply_live_credentials(
     name: &str,
     user_home: &Path,
 ) -> Result<()> {
-    let dest = live_credentials_path(user_home);
-    let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
-    crate::live_apply::apply_transaction(vec![LiveFileChange::write(dest, bytes)])
+    files::apply_profile_file(
+        profile_store,
+        Tool::Claude,
+        name,
+        CREDENTIALS_FILE,
+        live_credentials_path(user_home),
+    )
 }
 
 pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode) {
@@ -250,14 +245,13 @@ pub fn live_credentials_match(
     name: &str,
     user_home: &Path,
 ) -> Result<bool> {
-    let dest = live_credentials_path(user_home);
-    if !dest.exists() {
-        return Ok(false);
-    }
-    let live =
-        std::fs::read(&dest).with_context(|| format!("could not read {}", dest.display()))?;
-    let stored = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
-    Ok(live == stored)
+    files::stored_profile_file_matches_live(
+        profile_store,
+        Tool::Claude,
+        name,
+        CREDENTIALS_FILE,
+        &live_credentials_path(user_home),
+    )
 }
 
 fn shell_single_quote(value: &str) -> String {
