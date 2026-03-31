@@ -428,7 +428,6 @@ fn add_codex_oauth_succeeds_with_mocked_binary() {
 
     env.cmd()
         .args(["add", "codex", "work"])
-        .env("AISW_CODEX_AUTH_STORAGE", "file")
         .assert()
         .success()
         .stdout(contains("Added profile"));
@@ -436,6 +435,10 @@ fn add_codex_oauth_succeeds_with_mocked_binary() {
     let config: serde_json::Value =
         serde_json::from_str(&env.read_home_file("config.json")).unwrap();
     assert_eq!(config["profiles"]["codex"]["work"]["auth_method"], "o_auth");
+    assert_eq!(
+        config["profiles"]["codex"]["work"]["credential_backend"],
+        "file"
+    );
     env.assert_home_file_exists("profiles/codex/work/auth.json");
     env.assert_home_file_exists("profiles/codex/work/config.toml");
 }

@@ -563,10 +563,7 @@ fn import_codex(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
-    let imported_backend = match snapshot.source {
-        auth::codex::LiveCredentialSource::File(_) => CredentialBackend::File,
-        auth::codex::LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
-    };
+    let imported_backend = auth::codex::managed_oauth_backend();
     let (src_desc, source_bytes) = match snapshot.source {
         auth::codex::LiveCredentialSource::File(path) => {
             let bytes = snapshot.bytes;

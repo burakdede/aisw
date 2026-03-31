@@ -570,6 +570,10 @@ fn init_imports_codex_credentials() {
     );
     assert_eq!(config["profiles"]["codex"]["default"]["label"], "imported");
     assert_eq!(config["active"]["codex"], "default");
+    assert_eq!(
+        config["profiles"]["codex"]["default"]["credential_backend"],
+        "file"
+    );
 
     env.cmd()
         .args(["status"])
@@ -583,6 +587,40 @@ fn init_imports_codex_credentials() {
         .stdout(contains(
             "live tool config does not match the active profile",
         ));
+}
+
+#[test]
+fn init_imports_codex_keychain_credentials_into_file_backed_profile_by_default() {
+    let env = TestEnv::new();
+    add_fake_codex_security_tool(&env);
+    let codex_dir = env.fake_home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(
+        codex_dir.join("config.toml"),
+        b"cli_auth_credentials_store = \"keyring\"\n",
+    )
+    .unwrap();
+    seed_keyring_item(&env, "Codex Auth", "tester", b"{\"token\":\"tok\"}");
+
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .assert()
+        .success()
+        .stdout(contains("found system keyring"))
+        .stdout(contains(
+            "Imported Codex CLI credentials as profile 'default' and marked it active.",
+        ));
+
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join("default");
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["codex"]["default"]["credential_backend"],
+        "file"
+    );
+    assert!(profile_dir.join("auth.json").exists());
+    assert!(profile_dir.join("config.toml").exists());
 }
 
 #[test]

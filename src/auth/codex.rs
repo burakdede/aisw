@@ -323,7 +323,7 @@ fn add_oauth_with(
     poll_interval: Duration,
 ) -> Result<()> {
     let profile_dir = profile_store.create(Tool::Codex, name)?;
-    let stored_backend = oauth_stored_backend();
+    let stored_backend = managed_oauth_backend();
     let capture_dir = oauth_capture_dir(&profile_dir);
     fs::create_dir_all(&capture_dir)
         .with_context(|| format!("could not create {}", capture_dir.display()))?;
@@ -433,17 +433,13 @@ fn persist_oauth_storage(
     }
 }
 
-fn oauth_stored_backend() -> CredentialBackend {
+pub fn managed_oauth_backend() -> CredentialBackend {
     match forced_auth_storage() {
         Some(LiveAuthStorage::File) => CredentialBackend::File,
         Some(LiveAuthStorage::Keyring) => CredentialBackend::SystemKeyring,
-        Some(LiveAuthStorage::Auto | LiveAuthStorage::Unknown) | None => {
-            if super::system_keyring::is_available() {
-                CredentialBackend::SystemKeyring
-            } else {
-                CredentialBackend::File
-            }
-        }
+        // New Codex OAuth profiles default to the portable file backend unless a
+        // test override explicitly forces keyring-backed storage.
+        Some(LiveAuthStorage::Auto | LiveAuthStorage::Unknown) | None => CredentialBackend::File,
     }
 }
 
