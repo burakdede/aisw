@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 - 2026-03-31
+
+### Fixed
+
+- Fixed Claude Keychain import on macOS so `aisw init` correctly detects and imports live logged-in Claude credentials.
+- Refined platform-specific auth import policy, including preferring Keychain before file-based Claude credentials on macOS.
+- Tightened macOS-sensitive Claude auth tests so they remain deterministic and do not depend on ambient local login state.
+
 ## 0.2.0 - 2026-03-30
 
 ### Added
