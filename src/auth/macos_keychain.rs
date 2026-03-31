@@ -29,6 +29,13 @@ pub fn find_generic_password_account(service: &str) -> Result<Option<String>> {
         {
             return Ok(None);
         }
+        if is_user_canceled(&output.status, &stderr) {
+            bail!(
+                "Keychain access was denied.\n  \
+                 Run the command again and click 'Always Allow' so aisw can manage \
+                 credentials without repeated prompts."
+            );
+        }
         bail!(
             "could not inspect macOS Keychain generic password: {}",
             stderr.trim()
@@ -66,6 +73,13 @@ pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Opt
             || stderr.contains("not found in the keychain")
         {
             return Ok(None);
+        }
+        if is_user_canceled(&output.status, &stderr) {
+            bail!(
+                "Keychain access was denied.\n  \
+                 Run the command again and click 'Always Allow' so aisw can manage \
+                 credentials without repeated prompts."
+            );
         }
         bail!(
             "could not read macOS Keychain generic password: {}",
@@ -130,6 +144,13 @@ pub fn upsert_generic_password(
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
+    if is_user_canceled(&output.status, &stderr) {
+        bail!(
+            "Keychain access was denied.\n  \
+             Run the command again and click 'Always Allow' so aisw can manage \
+             credentials without repeated prompts."
+        );
+    }
     bail!(
         "could not update macOS Keychain generic password: {}",
         stderr.trim()
@@ -217,6 +238,15 @@ fn os_login_keychain_path() -> Option<PathBuf> {
     None
 }
 
+/// Returns true when the `security` CLI was denied by the user (clicked "Deny"
+/// or cancelled the Keychain authorisation dialog).
+///
+/// The CLI exits with code 128 and/or emits a stderr message containing
+/// "User canceled" (note: macOS spells "canceled" with one 'l').
+fn is_user_canceled(status: &std::process::ExitStatus, stderr: &str) -> bool {
+    status.code() == Some(128) || stderr.contains("User canceled")
+}
+
 fn parse_first_quoted_value(text: &str) -> Option<String> {
     let start = text.find('"')?;
     let rest = &text[start + 1..];
@@ -248,7 +278,41 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
     use tempfile::tempdir;
+
+    fn exit_status(code: i32) -> std::process::ExitStatus {
+        // Portable way to construct an ExitStatus with a known code.
+        Command::new("sh")
+            .args(["-c", &format!("exit {code}")])
+            .status()
+            .unwrap()
+    }
+
+    #[test]
+    fn is_user_canceled_detects_exit_128() {
+        assert!(is_user_canceled(&exit_status(128), "some other message"));
+    }
+
+    #[test]
+    fn is_user_canceled_detects_stderr_message() {
+        assert!(is_user_canceled(
+            &exit_status(1),
+            "User canceled the operation."
+        ));
+    }
+
+    #[test]
+    fn is_user_canceled_returns_false_for_other_errors() {
+        assert!(!is_user_canceled(
+            &exit_status(1),
+            "SecKeychainAddGenericPassword: item already exists"
+        ));
+        assert!(!is_user_canceled(
+            &exit_status(44),
+            "could not be found in the keychain"
+        ));
+    }
 
     struct EnvVarGuard {
         key: &'static str,
