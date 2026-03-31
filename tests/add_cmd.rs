@@ -193,6 +193,7 @@ fn add_claude_oauth_succeeds_with_mocked_binary() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn add_claude_oauth_succeeds_with_keychain_backed_credentials() {
     let env = TestEnv::new();
     env.add_script_tool(

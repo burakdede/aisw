@@ -1153,7 +1153,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     fn oauth_keychain_capture_persists_managed_credentials_file() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
@@ -1208,7 +1208,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     fn oauth_flow_accepts_existing_keychain_credentials_after_successful_login() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();

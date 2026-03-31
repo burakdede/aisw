@@ -147,6 +147,7 @@ fn init_imports_claude_credentials() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn init_imports_claude_credentials_from_keychain() {
     let env = TestEnv::new();
     add_fake_security_tool(&env);
