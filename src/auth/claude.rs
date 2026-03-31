@@ -433,7 +433,7 @@ fn run_oauth_flow(
         {
             if watch_keychain {
                 if let Some(current) = read_keychain_credentials()? {
-                    if keychain_before.is_none() {
+                    if status.success() || keychain_before.is_none() {
                         return Ok(current);
                     }
                 }
@@ -1070,6 +1070,61 @@ mod tests {
                 .unwrap()
                 .as_deref(),
             Some(br#"{"account":{"email":"work@example.com"}}"#.as_slice())
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_accepts_existing_keychain_credentials_after_successful_login() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let security_bin = bin_dir.join("security");
+        write_security_mock(&security_bin);
+        let claude_bin = bin_dir.join("claude");
+        fs::write(
+            &claude_bin,
+            "#!/bin/sh\n\
+             [ \"$1\" = \"auth\" ] || exit 9\n\
+             [ \"$2\" = \"login\" ] || exit 8\n\
+             [ \"$CLAUDE_CODE_SIMPLE\" = \"1\" ] || exit 7\n\
+             exit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&claude_bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+        let _security = EnvVarGuard::set(
+            "AISW_SECURITY_BIN",
+            security_bin
+                .to_str()
+                .expect("security path should be utf-8"),
+        );
+        let _user = EnvVarGuard::set("USER", "tester");
+
+        let existing = br#"{"account":{"email":"work@example.com"}}"#;
+        write_keychain_credentials(existing).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &claude_bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert_eq!(
+            secure_store::read_profile_secret(Tool::Claude, "work")
+                .unwrap()
+                .as_deref(),
+            Some(existing.as_slice())
         );
     }
 
