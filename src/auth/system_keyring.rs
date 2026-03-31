@@ -32,6 +32,10 @@ pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Opt
         return read_fake_password(&root, service, account);
     }
 
+    if cfg!(target_os = "macos") {
+        return macos_keychain::read_generic_password(service, account);
+    }
+
     let Some(account) = resolve_account(service, account)? else {
         return Ok(None);
     };
@@ -53,6 +57,10 @@ pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> R
         return write_fake_password(&root, service, account, secret);
     }
 
+    if cfg!(target_os = "macos") {
+        return macos_keychain::upsert_generic_password(service, account, secret);
+    }
+
     let secret = std::str::from_utf8(secret).context("keyring secret is not valid UTF-8")?;
     let entry = keyring::Entry::new(service, account).map_err(|err| {
         anyhow!("could not open system keyring entry for {service}/{account}: {err}")
@@ -65,6 +73,10 @@ pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> R
 pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
     if let Some(root) = fake_root() {
         return delete_fake_password(&root, service, account);
+    }
+
+    if cfg!(target_os = "macos") {
+        return macos_keychain::delete_generic_password(service, account);
     }
 
     let entry = keyring::Entry::new(service, account).map_err(|err| {
