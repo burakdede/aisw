@@ -908,7 +908,7 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             echo '{\"account\":{\"email\":\"burak@example.com\"}}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+             echo '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -919,7 +919,7 @@ mod tests {
             Tool::Claude,
             "work",
             CREDENTIALS_FILE,
-            br#"{"account":{"email":"burak@example.com"}}"#,
+            br#"{"oauthToken":"tok","account":{"email":"burak@example.com"}}"#,
         )
         .unwrap();
         cs.add_profile(

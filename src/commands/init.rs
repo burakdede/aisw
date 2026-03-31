@@ -974,6 +974,7 @@ mod tests {
 
     #[test]
     fn imports_claude_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("home");
@@ -1050,6 +1051,7 @@ mod tests {
 
     #[test]
     fn skip_import_if_default_profile_exists() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("home");
