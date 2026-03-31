@@ -377,6 +377,52 @@ fn init_imports_claude_credentials_from_keychain() {
 }
 
 #[test]
+fn init_prefers_claude_keychain_over_file_on_macos() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+
+    let env = TestEnv::new();
+    add_fake_claude_security_tool(&env);
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"token":"file-oauth"}"#,
+    )
+    .unwrap();
+    seed_keyring_item(
+        &env,
+        "Claude Code-credentials",
+        "tester",
+        br#"{"token":"keychain-oauth"}"#,
+    );
+
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .assert()
+        .success()
+        .stdout(contains("found system keyring"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["default"]["credential_backend"],
+        "system_keyring"
+    );
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .join(".credentials.json")
+        .exists());
+}
+
+#[test]
 fn init_reports_claude_local_state_without_importable_auth() {
     let env = TestEnv::new();
     add_fake_claude_security_tool(&env);

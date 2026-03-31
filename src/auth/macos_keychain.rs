@@ -39,6 +39,108 @@ pub fn find_generic_password_account(service: &str) -> Result<Option<String>> {
     Ok(parse_attribute_value(&combined, "acct"))
 }
 
+pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Option<Vec<u8>>> {
+    ensure_available()?;
+    let mut command = Command::new(security_bin());
+    command.args(["find-generic-password", "-s", service]);
+    if let Some(account) = account {
+        command.args(["-a", account]);
+    }
+    command.arg("-w");
+    if service != "aisw" {
+        if let Some(path) = explicit_keychain_path() {
+            command.arg(path);
+        }
+    }
+
+    let output = command
+        .output()
+        .context("could not read macOS Keychain generic password")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.status.code() == Some(44)
+            || stderr.contains("could not be found")
+            || stderr.contains("not found in the keychain")
+        {
+            return Ok(None);
+        }
+        bail!(
+            "could not read macOS Keychain generic password: {}",
+            stderr.trim()
+        );
+    }
+
+    Ok(Some(output.stdout))
+}
+
+pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> Result<()> {
+    ensure_available()?;
+    let secret = std::str::from_utf8(secret).context("keychain secret is not valid UTF-8")?;
+    let mut command = Command::new(security_bin());
+    command.args([
+        "add-generic-password",
+        "-U",
+        "-s",
+        service,
+        "-a",
+        account,
+        "-w",
+    ]);
+    let mut child = command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("could not write macOS Keychain generic password")?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        // `security add-generic-password ... -w` prompts without exposing the
+        // secret in argv. New items ask twice; updates accept the first entry.
+        stdin
+            .write_all(format!("{secret}\n{secret}\n").as_bytes())
+            .context("could not supply password data to security")?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .context("could not finish writing macOS Keychain generic password")?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    bail!(
+        "could not write macOS Keychain generic password: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+}
+
+pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
+    ensure_available()?;
+    let mut command = Command::new(security_bin());
+    command.args(["delete-generic-password", "-s", service, "-a", account]);
+    let output = command
+        .output()
+        .context("could not delete macOS Keychain generic password")?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if output.status.code() == Some(44)
+        || stderr.contains("could not be found")
+        || stderr.contains("not found in the keychain")
+    {
+        return Ok(());
+    }
+
+    bail!(
+        "could not delete macOS Keychain generic password: {}",
+        stderr.trim()
+    );
+}
+
 pub fn is_available() -> bool {
     cfg!(target_os = "macos")
         || test_overrides::var("AISW_SECURITY_BIN").is_some()
@@ -62,12 +164,12 @@ fn explicit_keychain_path() -> Option<PathBuf> {
         return Some(PathBuf::from(path));
     }
 
-    login_keychain_path()
+    login_keychain_path().or_else(os_login_keychain_path)
 }
 
 fn login_keychain_path() -> Option<PathBuf> {
     let output = Command::new(security_bin())
-        .args(["login-keychain", "-d", "user"])
+        .args(["list-keychains", "-d", "user"])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -80,6 +182,44 @@ fn login_keychain_path() -> Option<PathBuf> {
         String::from_utf8_lossy(&output.stderr)
     );
     parse_first_quoted_value(&combined).map(PathBuf::from)
+}
+
+#[cfg(unix)]
+fn os_login_keychain_path() -> Option<PathBuf> {
+    let uid = unsafe { libc::geteuid() };
+    let size = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+    let mut buf = vec![0u8; if size > 0 { size as usize } else { 4096 }];
+    let mut pwd = std::mem::MaybeUninit::<libc::passwd>::uninit();
+    let mut result = std::ptr::null_mut();
+
+    let rc = unsafe {
+        libc::getpwuid_r(
+            uid,
+            pwd.as_mut_ptr(),
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut result,
+        )
+    };
+    if rc != 0 || result.is_null() {
+        return None;
+    }
+
+    let pwd = unsafe { pwd.assume_init() };
+    if pwd.pw_dir.is_null() {
+        return None;
+    }
+
+    let home = unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) }
+        .to_str()
+        .ok()
+        .map(PathBuf::from)?;
+    Some(home.join("Library/Keychains/login.keychain-db"))
+}
+
+#[cfg(not(unix))]
+fn os_login_keychain_path() -> Option<PathBuf> {
+    None
 }
 
 fn parse_first_quoted_value(text: &str) -> Option<String> {
@@ -147,7 +287,7 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             if [ \"$1\" = \"login-keychain\" ]; then\n\
+             if [ \"$1\" = \"list-keychains\" ]; then\n\
                printf '    \"/tmp/test-login.keychain-db\"\\n'\n\
                exit 0\n\
              fi\n\
@@ -167,6 +307,31 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn explicit_keychain_path_falls_back_to_os_home_when_security_listing_is_empty() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"list-keychains\" ]; then\n\
+               exit 0\n\
+             fi\n\
+             exit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let _keychain = EnvVarGuard::set("AISW_SECURITY_KEYCHAIN", "");
+        std::env::remove_var("AISW_SECURITY_KEYCHAIN");
+
+        let expected = os_login_keychain_path().expect("os keychain path");
+        assert_eq!(explicit_keychain_path(), Some(expected));
+    }
+
+    #[test]
     fn find_generic_password_account_parses_blob_output() {
         let output = "keychain: \"/tmp/test-login.keychain-db\"\n\
                       class: \"genp\"\n\
@@ -177,6 +342,85 @@ mod tests {
         assert_eq!(
             parse_attribute_value(output, "acct"),
             Some("burak".to_owned())
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn read_generic_password_uses_account_when_provided() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        let marker = dir.path().join("args");
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\n\
+                 printf '%s ' \"$@\" > \"{}\"\n\
+                 if [ \"$1\" = \"find-generic-password\" ] && [ \"$2\" = \"-s\" ] && [ \"$3\" = \"Claude Code-credentials\" ] && [ \"$4\" = \"-a\" ] && [ \"$5\" = \"tester\" ] && [ \"$6\" = \"-w\" ]; then\n\
+                   printf '{{\"oauthToken\":\"tok\"}}'\n\
+                   exit 0\n\
+                 fi\n\
+                 exit 1\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+
+        let bytes = read_generic_password("Claude Code-credentials", Some("tester"))
+            .unwrap()
+            .expect("password");
+        assert_eq!(bytes, br#"{"oauthToken":"tok"}"#);
+        assert_eq!(
+            fs::read_to_string(marker).unwrap(),
+            format!(
+                "find-generic-password -s Claude Code-credentials -a tester -w {} ",
+                explicit_keychain_path().unwrap().display()
+            )
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn upsert_generic_password_writes_without_secret_in_args() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        let marker = dir.path().join("args");
+        let stdin_capture = dir.path().join("stdin");
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = \"list-keychains\" ]; then\n\
+                   printf '    \"/tmp/test-login.keychain-db\"\\n'\n\
+                   exit 0\n\
+                 fi\n\
+                 printf '%s ' \"$@\" > \"{}\"\n\
+                 cat > \"{}\"\n\
+                 exit 0\n",
+                marker.display(),
+                stdin_capture.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+
+        upsert_generic_password("aisw", "profile:claude:default", br#"{"oauthToken":"tok"}"#)
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(marker).unwrap(),
+            "add-generic-password -U -s aisw -a profile:claude:default -w "
+        );
+        assert_eq!(
+            fs::read_to_string(stdin_capture).unwrap(),
+            "{\"oauthToken\":\"tok\"}\n{\"oauthToken\":\"tok\"}\n"
         );
     }
 }
