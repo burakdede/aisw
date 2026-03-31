@@ -32,7 +32,7 @@ pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Opt
         return read_fake_password(&root, service, account);
     }
 
-    if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") && service != "aisw" {
         return macos_keychain::read_generic_password(service, account);
     }
 

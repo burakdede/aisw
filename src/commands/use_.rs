@@ -69,6 +69,12 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 if args.emit_env {
                     auth::claude::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
+                    if cfg!(target_os = "macos") && auth::claude::uses_live_keychain(user_home) {
+                        output::print_info(
+                            "Claude on macOS stores live auth in Keychain. Switching this profile may trigger a macOS Keychain prompt so aisw can update Claude's active credentials.",
+                        );
+                        output::print_blank_line();
+                    }
                     auth::claude::apply_live_credentials(
                         &profile_store,
                         &args.profile_name,
@@ -81,6 +87,12 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 if args.emit_env {
                     auth::claude::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
+                    if cfg!(target_os = "macos") && auth::claude::uses_live_keychain(user_home) {
+                        output::print_info(
+                            "Claude on macOS stores live auth in Keychain. Switching this profile may trigger a macOS Keychain prompt so aisw can update Claude's active credentials.",
+                        );
+                        output::print_blank_line();
+                    }
                     auth::claude::apply_live_credentials(
                         &profile_store,
                         &args.profile_name,

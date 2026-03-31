@@ -315,18 +315,12 @@ fn add_claude_oauth_succeeds_with_keychain_backed_credentials() {
         serde_json::from_str(&env.read_home_file("config.json")).unwrap();
     assert_eq!(
         config["profiles"]["claude"]["work"]["credential_backend"],
-        "system_keyring"
+        "file"
     );
     assert!(
-        !env.home_file("profiles/claude/work/.credentials.json")
+        env.home_file("profiles/claude/work/.credentials.json")
             .exists(),
-        "secure Claude OAuth profile should not persist a credentials file",
-    );
-    assert!(
-        env.fake_home
-            .join("keychain/aisw/profile:claude:work/secret")
-            .exists(),
-        "secure Claude OAuth profile should persist its secret in the fake keyring",
+        "Claude OAuth profile should persist a managed credentials file on macOS",
     );
 }
 

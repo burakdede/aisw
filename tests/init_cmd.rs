@@ -364,10 +364,10 @@ fn init_imports_claude_credentials_from_keychain() {
     );
     assert_eq!(
         config["profiles"]["claude"]["default"]["credential_backend"],
-        "system_keyring"
+        "file"
     );
     assert_eq!(config["active"]["claude"], "default");
-    assert!(!env
+    assert!(env
         .aisw_home
         .join("profiles")
         .join("claude")
@@ -411,9 +411,9 @@ fn init_prefers_claude_keychain_over_file_on_macos() {
         serde_json::from_str(&env.read_home_file("config.json")).unwrap();
     assert_eq!(
         config["profiles"]["claude"]["default"]["credential_backend"],
-        "system_keyring"
+        "file"
     );
-    assert!(!env
+    assert!(env
         .aisw_home
         .join("profiles")
         .join("claude")
@@ -571,9 +571,6 @@ fn init_imports_codex_credentials() {
     assert_eq!(config["profiles"]["codex"]["default"]["label"], "imported");
     assert_eq!(config["active"]["codex"], "default");
 
-    let live_config = fs::read_to_string(env.fake_home.join(".codex").join("config.toml")).unwrap();
-    assert!(live_config.contains("cli_auth_credentials_store = \"file\""));
-
     env.cmd()
         .args(["status"])
         .assert()
@@ -583,7 +580,9 @@ fn init_imports_codex_credentials() {
         .stdout(contains("default"))
         .stdout(contains("Auth"))
         .stdout(contains("oauth"))
-        .stdout(contains("credentials present (validity not checked)"));
+        .stdout(contains(
+            "live tool config does not match the active profile",
+        ));
 }
 
 #[test]

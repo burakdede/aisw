@@ -265,49 +265,9 @@ fn should_mark_import_active(config_store: &ConfigStore, tool: Tool) -> Result<b
 
 fn activate_imported_profile(
     tool: Tool,
-    auth_method: AuthMethod,
-    credential_backend: CredentialBackend,
-    profile_store: &ProfileStore,
     config_store: &ConfigStore,
     profile_name: &str,
-    user_home: &Path,
 ) -> Result<()> {
-    match tool {
-        Tool::Claude => {
-            auth::claude::apply_live_credentials(
-                profile_store,
-                profile_name,
-                credential_backend,
-                user_home,
-            )?;
-        }
-        Tool::Codex => {
-            auth::codex::apply_live_files(
-                profile_store,
-                profile_name,
-                credential_backend,
-                user_home,
-            )?;
-        }
-        Tool::Gemini => {
-            let gemini_dir = user_home.join(".gemini");
-            fs::create_dir_all(&gemini_dir)
-                .with_context(|| format!("could not create {}", gemini_dir.display()))?;
-            match auth_method {
-                AuthMethod::ApiKey => {
-                    auth::gemini::apply_env_file(
-                        profile_store,
-                        profile_name,
-                        &gemini_dir.join(".env"),
-                    )?;
-                }
-                AuthMethod::OAuth => {
-                    auth::gemini::apply_token_cache(profile_store, profile_name, &gemini_dir)?;
-                }
-            }
-        }
-    }
-
     config_store.set_active(tool, profile_name)?;
     Ok(())
 }
@@ -410,10 +370,11 @@ fn import_claude(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
-    let imported_backend = match snapshot.source {
-        auth::claude::LiveCredentialSource::File(_) => CredentialBackend::File,
-        auth::claude::LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
-    };
+    let imported_backend = auth::claude::imported_profile_backend(&snapshot.source);
+    let uses_live_keychain = matches!(
+        snapshot.source,
+        auth::claude::LiveCredentialSource::Keychain
+    );
     let (source_desc, source_bytes) = match snapshot.source {
         auth::claude::LiveCredentialSource::File(path) => {
             (format!("found {}", path.display()), snapshot.bytes)
@@ -480,6 +441,11 @@ fn import_claude(
             "oauth"
         },
     );
+    if cfg!(target_os = "macos") && uses_live_keychain {
+        output::print_info(
+            "Claude on macOS stores live auth in Keychain. Import may trigger a macOS Keychain prompt so aisw can read the current Claude credentials.",
+        );
+    }
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Claude, &profile_store, confirmed)?
     else {
@@ -526,15 +492,7 @@ fn import_claude(
         },
     )?;
     if mark_active {
-        activate_imported_profile(
-            Tool::Claude,
-            imported_method,
-            imported_backend,
-            &profile_store,
-            &config_store,
-            &profile_name,
-            user_home,
-        )?;
+        activate_imported_profile(Tool::Claude, &config_store, &profile_name)?;
         output::print_success(format!(
             "Imported Claude Code credentials as profile '{}' and marked it active.",
             profile_name
@@ -708,15 +666,7 @@ fn import_codex(
         },
     )?;
     if mark_active {
-        activate_imported_profile(
-            Tool::Codex,
-            AuthMethod::OAuth,
-            imported_backend,
-            &profile_store,
-            &config_store,
-            &profile_name,
-            user_home,
-        )?;
+        activate_imported_profile(Tool::Codex, &config_store, &profile_name)?;
         output::print_success(format!(
             "Imported Codex CLI credentials as profile '{}' and marked it active.",
             profile_name
@@ -860,15 +810,7 @@ fn import_gemini(
         },
     )?;
     if mark_active {
-        activate_imported_profile(
-            Tool::Gemini,
-            method,
-            CredentialBackend::File,
-            &profile_store,
-            &config_store,
-            &profile_name,
-            user_home,
-        )?;
+        activate_imported_profile(Tool::Gemini, &config_store, &profile_name)?;
         output::print_success(format!(
             "Imported Gemini CLI credentials as profile '{}' and marked it active.",
             profile_name

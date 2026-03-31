@@ -188,6 +188,10 @@ fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
 }
 
 fn oauth_stored_backend() -> CredentialBackend {
+    if cfg!(target_os = "macos") {
+        return CredentialBackend::File;
+    }
+
     match forced_auth_storage() {
         Some(ClaudeAuthStorage::File) => CredentialBackend::File,
         Some(ClaudeAuthStorage::Keychain) => CredentialBackend::SystemKeyring,
@@ -513,6 +517,21 @@ pub fn apply_live_credentials(
             write_keychain_credentials(&stored)
         }
     }
+}
+
+pub fn imported_profile_backend(source: &LiveCredentialSource) -> CredentialBackend {
+    if cfg!(target_os = "macos") && matches!(source, LiveCredentialSource::Keychain) {
+        CredentialBackend::File
+    } else {
+        match source {
+            LiveCredentialSource::File(_) => CredentialBackend::File,
+            LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
+        }
+    }
+}
+
+pub fn uses_live_keychain(user_home: &Path) -> bool {
+    cfg!(target_os = "macos") && matches!(auth_storage(user_home), ClaudeAuthStorage::Keychain)
 }
 
 pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode) {
@@ -1014,7 +1033,7 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn oauth_keychain_storage_keeps_managed_profile_secure() {
+    fn oauth_keychain_capture_persists_managed_credentials_file() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
@@ -1059,17 +1078,11 @@ mod tests {
         let config = cs.load().unwrap();
         assert_eq!(
             config.profiles_for(Tool::Claude)["work"].credential_backend,
-            CredentialBackend::SystemKeyring
+            CredentialBackend::File
         );
-        assert!(!ps
-            .profile_dir(Tool::Claude, "work")
-            .join(CREDENTIALS_FILE)
-            .exists());
         assert_eq!(
-            secure_store::read_profile_secret(Tool::Claude, "work")
-                .unwrap()
-                .as_deref(),
-            Some(br#"{"account":{"email":"work@example.com"}}"#.as_slice())
+            fs::read(ps.profile_dir(Tool::Claude, "work").join(CREDENTIALS_FILE)).unwrap(),
+            br#"{"account":{"email":"work@example.com"}}"#
         );
     }
 
@@ -1121,10 +1134,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            secure_store::read_profile_secret(Tool::Claude, "work")
-                .unwrap()
-                .as_deref(),
-            Some(existing.as_slice())
+            ps.read_file(Tool::Claude, "work", CREDENTIALS_FILE)
+                .unwrap(),
+            existing
         );
     }
 

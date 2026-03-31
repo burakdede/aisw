@@ -97,6 +97,16 @@ fn assess_live_state(
     }
 }
 
+fn should_skip_live_verification(
+    tool: Tool,
+    credential_backend: CredentialBackend,
+    user_home: &Path,
+) -> bool {
+    tool == Tool::Claude
+        && credential_backend == CredentialBackend::File
+        && auth::claude::uses_live_keychain(user_home)
+}
+
 pub(crate) fn collect_status(
     home: &Path,
     user_home: &Path,
@@ -142,20 +152,27 @@ pub(crate) fn collect_status(
                 profiles
                     .get(name)
                     .map(|m| {
-                        assess_live_state(
-                            tool,
-                            m.auth_method,
-                            m.credential_backend,
-                            &profile_store,
-                            name,
-                            user_home,
-                        )
+                        if should_skip_live_verification(tool, m.credential_backend, user_home) {
+                            Ok(None)
+                        } else {
+                            assess_live_state(
+                                tool,
+                                m.auth_method,
+                                m.credential_backend,
+                                &profile_store,
+                                name,
+                                user_home,
+                            )
+                            .map(|state| {
+                                Some(match state {
+                                    LiveActivation::Applied => true,
+                                    LiveActivation::NotApplied => false,
+                                })
+                            })
+                        }
                     })
                     .transpose()?
-                    .map(|state| match state {
-                        LiveActivation::Applied => true,
-                        LiveActivation::NotApplied => false,
-                    })
+                    .flatten()
             } else {
                 Some(false)
             };
@@ -251,6 +268,13 @@ fn status_message(s: &ToolStatus) -> &'static str {
     }
     if !s.permissions_ok {
         return "credentials present \u{2014} permissions too broad!";
+    }
+    if s.tool == Tool::Claude
+        && s.credential_backend.as_deref() == Some("file")
+        && cfg!(target_os = "macos")
+        && s.active_profile_applied.is_none()
+    {
+        return "credentials present (live macOS Keychain not checked)";
     }
     if s.active_profile_applied == Some(false) {
         return "credentials present, but live tool config does not match the active profile";
@@ -529,6 +553,35 @@ mod tests {
         .unwrap();
 
         assert_eq!(status, LiveActivation::NotApplied);
+    }
+
+    #[test]
+    fn macos_claude_file_profile_skips_live_keychain_verification() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let tmp = tempdir().unwrap();
+        let profile_store = ProfileStore::new(tmp.path());
+        let config_store = ConfigStore::new(tmp.path());
+        auth::claude::add_api_key(&profile_store, &config_store, "work", CLAUDE_KEY, None).unwrap();
+        config_store.set_active(Tool::Claude, "work").unwrap();
+
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_fake_binary(&bin_dir, "claude");
+
+        let statuses =
+            collect_status(tmp.path(), tmp.path(), &bin_dir.as_os_str().to_owned()).unwrap();
+        let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
+        assert_eq!(claude.credential_backend.as_deref(), Some("file"));
+        assert_eq!(claude.active_profile_applied, None);
+        assert_eq!(
+            status_message(claude),
+            "credentials present (live macOS Keychain not checked)"
+        );
     }
 
     #[test]
