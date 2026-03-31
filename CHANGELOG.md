@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0 - 2026-03-31
+
+### Added
+
+- System keyring-backed credential storage support for Claude Code and Codex profiles, including backup, rename, remove, restore, status, and switching coverage.
+- First-run `init` import support for Claude Code and Codex credentials discovered in the system keyring.
+- End-to-end secure-backend integration tests covering managed keyring profile lifecycles.
+
+### Changed
+
+- Claude and Codex auth capture flows now detect the active storage backend and persist managed credentials using either files or the system keyring as appropriate.
+- `list` and `status` now surface credential backend details so file-backed and secure-backend profiles are distinguishable.
+- Documentation and acceptance coverage now reflect the secure storage matrix and platform-specific backend behavior.
+
+### Fixed
+
+- Claude Code onboarding on macOS now handles keychain-backed auth instead of assuming a file-backed `.credentials.json` flow.
+- Codex Linux and macOS onboarding now imports and reapplies keyring-backed auth instead of failing closed when file-backed credentials are absent.
+- OAuth failure cleanup is hardened so interrupted secure-backend flows do not leave stale partially managed profile state behind.
+
 ## 0.2.0 - 2026-03-30
 
 ### Added

@@ -2,7 +2,7 @@
 
 > Documentation for aisw, a CLI for switching between Claude Code, Codex CLI, and Gemini CLI accounts.
 
-Current version: 0.2.0
+Current version: 0.3.0
 
 ## Docs
 
