@@ -570,17 +570,8 @@ fn import_codex(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
-    let imported_backend = auth::codex::managed_oauth_backend();
-    let (src_desc, source_bytes) = match snapshot.source {
-        auth::codex::LiveCredentialSource::File(path) => {
-            let bytes = snapshot.bytes;
-            (format!("found {}", path.display()), bytes)
-        }
-        auth::codex::LiveCredentialSource::Keychain => (
-            format!("found {}", auth::system_keyring::display_name()),
-            snapshot.bytes,
-        ),
-    };
+    let auth::codex::LiveCredentialSource::File(src_path) = snapshot.source;
+    let (src_desc, source_bytes) = (format!("found {}", src_path.display()), snapshot.bytes);
     if let Some(secret) = extract_json_string_field(&source_bytes, "token") {
         if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
             &profile_store,
@@ -635,27 +626,16 @@ fn import_codex(
     };
 
     profile_store.create(Tool::Codex, &profile_name)?;
-    match imported_backend {
-        CredentialBackend::File => {
-            auth::codex::write_file_store_config(&profile_store, &profile_name)?;
-            profile_store.write_file(Tool::Codex, &profile_name, "auth.json", &source_bytes)?;
-        }
-        CredentialBackend::SystemKeyring => {
-            auth::codex::write_keyring_store_config(&profile_store, &profile_name)?;
-            auth::secure_store::write_profile_secret(Tool::Codex, &profile_name, &source_bytes)?;
-        }
-    }
+    auth::codex::write_file_store_config(&profile_store, &profile_name)?;
+    profile_store.write_file(Tool::Codex, &profile_name, "auth.json", &source_bytes)?;
     auth::identity::ensure_unique_oauth_identity(
         &profile_store,
         &config_store,
         Tool::Codex,
         &profile_name,
-        imported_backend,
+        CredentialBackend::File,
     )
     .inspect_err(|_| {
-        if imported_backend == CredentialBackend::SystemKeyring {
-            let _ = auth::secure_store::delete_profile_secret(Tool::Codex, &profile_name);
-        }
         let _ = profile_store.delete(Tool::Codex, &profile_name);
     })?;
     config_store.add_profile(
@@ -664,7 +644,7 @@ fn import_codex(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
-            credential_backend: imported_backend,
+            credential_backend: CredentialBackend::File,
             label,
         },
     )?;

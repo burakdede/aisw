@@ -162,6 +162,191 @@ impl TestEnv {
     }
 }
 
+/// Installs a fake `security` binary for testing Claude Code's macOS Keychain
+/// integration. The mock stores items as plain files under `AISW_KEYRING_TEST_DIR`
+/// and supports `find-generic-password` and `add-generic-password`.
+pub fn add_fake_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
+         item_dir() {\n\
+           printf '%s/%s/%s' \"$store_root\" \"$1\" \"$2\"\n\
+         }\n\
+         first_item_dir() {\n\
+           dir=\"$store_root/$1\"\n\
+           [ -d \"$dir\" ] || return 1\n\
+           for item in \"$dir\"/*; do\n\
+             [ -d \"$item\" ] || continue\n\
+             printf '%s' \"$item\"\n\
+             return 0\n\
+           done\n\
+           return 1\n\
+         }\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         service=''\n\
+         account=''\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             if [ -n \"$account\" ]; then\n\
+               item=\"$(item_dir \"$service\" \"$account\")\"\n\
+             else\n\
+               item=\"$(first_item_dir \"$service\")\" || item=''\n\
+             fi\n\
+             if [ -f \"$item/secret\" ]; then\n\
+               /bin/cat \"$item/secret\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+                 -w)\n\
+                   shift\n\
+                   item=\"$(item_dir \"$service\" \"$account\")\"\n\
+                   /bin/mkdir -p \"$item\"\n\
+                   printf '%s' \"$account\" > \"$item/account\"\n\
+                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                     printf '%s' \"$1\" > \"$item/secret\"\n\
+                     exit 0\n\
+                   else\n\
+                     IFS= read -r secret || true\n\
+                     printf '%s' \"$secret\" > \"$item/secret\"\n\
+                     exit 0\n\
+                   fi\n\
+                   ;;\n\
+                 *)\n\
+                   shift\n\
+                   ;;\n\
+               esac\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
+/// Installs a fake `security` binary for testing Codex keyring integration.
+/// Uses the same file-backed store as `add_fake_security_tool` but omits the
+/// `-T` trusted-app flag that is specific to Claude's macOS Keychain writes.
+pub fn add_fake_codex_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
+         item_dir() {\n\
+           printf '%s/%s/%s' \"$store_root\" \"$1\" \"$2\"\n\
+         }\n\
+         first_item_dir() {\n\
+           dir=\"$store_root/$1\"\n\
+           [ -d \"$dir\" ] || return 1\n\
+           for item in \"$dir\"/*; do\n\
+             [ -d \"$item\" ] || continue\n\
+             printf '%s' \"$item\"\n\
+             return 0\n\
+           done\n\
+           return 1\n\
+         }\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             service=''\n\
+             account=''\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             if [ -n \"$account\" ]; then\n\
+               item=\"$(item_dir \"$service\" \"$account\")\"\n\
+             else\n\
+               item=\"$(first_item_dir \"$service\")\" || item=''\n\
+             fi\n\
+             if [ -f \"$item/secret\" ]; then\n\
+               /bin/cat \"$item/secret\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             service=''\n\
+             account=''\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+                 -w)\n\
+                   shift\n\
+                   item=\"$(item_dir \"$service\" \"$account\")\"\n\
+                   /bin/mkdir -p \"$item\"\n\
+                   printf '%s' \"$account\" > \"$item/account\"\n\
+                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                     secret=\"$1\"\n\
+                   else\n\
+                     IFS= read -r secret || true\n\
+                   fi\n\
+                   printf '%s' \"$secret\" > \"$item/secret\"\n\
+                   exit 0\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
 pub fn assert_output_redacts_secret(output: &std::process::Output, secret: &str) {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

@@ -77,6 +77,16 @@ fn auth_storage(user_home: &Path) -> ClaudeAuthStorage {
         return storage;
     }
 
+    // On macOS, Claude Code reads credentials from the Keychain even when a
+    // credentials file is also present on disk. Prefer Keychain here so that
+    // apply_live_credentials updates what Claude actually reads, not just the
+    // file that Claude ignores.
+    #[cfg(target_os = "macos")]
+    if super::system_keyring::is_available() && read_keychain_credentials().ok().flatten().is_some()
+    {
+        return ClaudeAuthStorage::Keychain;
+    }
+
     if live_credentials_path(user_home).exists() {
         ClaudeAuthStorage::File
     } else if super::system_keyring::is_available()
@@ -362,7 +372,8 @@ pub fn add_api_key(
 
     profile_store.create(Tool::Claude, name)?;
 
-    let credentials = format!("{{\"apiKey\":\"{}\"}}", key);
+    let credentials = serde_json::to_string(&serde_json::json!({ "apiKey": key }))
+        .context("could not serialize API key credentials")?;
     files::cleanup_profile_on_error(
         profile_store.write_file(Tool::Claude, name, CREDENTIALS_FILE, credentials.as_bytes()),
         profile_store,
@@ -523,14 +534,23 @@ fn run_oauth_flow(
         None
     };
 
-    output::print_info(
-        "Claude sign-in will continue in your browser. If the page shows an authentication code, you do not need to paste it into aisw. Complete the login there, then close the browser window and return here.",
-    );
+    output::print_info("Claude sign-in will continue in your browser.");
 
-    let mut child = Command::new(claude_bin)
-        .arg("auth")
-        .arg("login")
-        .env("CLAUDE_CONFIG_DIR", capture_dir)
+    // When the keychain watcher is active we let Claude write credentials to its
+    // normal location (real config dir + macOS Keychain). This avoids the
+    // `CLAUDE_CONFIG_DIR` override that causes Claude to fall back to the
+    // remote-callback / authentication-code flow (`code=true`).  The keychain
+    // watcher detects the new credential without needing a capture dir.
+    //
+    // When the keychain watcher is unavailable (non-macOS or keyring not
+    // available) we keep the capture-dir approach so the file poller can pick
+    // up credentials written to `CLAUDE_CONFIG_DIR`.
+    let mut cmd = Command::new(claude_bin);
+    cmd.arg("auth").arg("login");
+    if !watch_keychain {
+        cmd.env("CLAUDE_CONFIG_DIR", capture_dir);
+    }
+    let mut child = cmd
         .spawn()
         .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
 
@@ -670,7 +690,7 @@ pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode)
             let profile_dir = profile_store.profile_dir(Tool::Claude, name);
             println!(
                 "export CLAUDE_CONFIG_DIR={}",
-                shell_single_quote(&profile_dir.display().to_string())
+                files::shell_single_quote(&profile_dir.display().to_string())
             );
         }
         StateMode::Shared => {
@@ -700,7 +720,15 @@ pub fn live_credentials_match(
             let Some(live) = read_keychain_credentials()? else {
                 return Ok(false);
             };
-            Ok(live == stored)
+            // The Keychain only stores the claudeAiOauth subset (written by
+            // live_keychain_payload). Compare as parsed JSON values to handle
+            // the trailing newline added by the security CLI and key ordering.
+            let live_value = serde_json::from_slice::<serde_json::Value>(&live)
+                .context("could not parse live Keychain credentials")?;
+            let stored_payload = live_keychain_payload(&stored);
+            let stored_value = serde_json::from_slice::<serde_json::Value>(&stored_payload)
+                .context("could not parse stored credential payload")?;
+            Ok(live_value == stored_value)
         }
     }
 }
@@ -722,14 +750,8 @@ fn read_stored_credentials(
     }
 }
 
-fn shell_single_quote(value: &str) -> String {
-    let escaped = value.replace('\'', "'\"'\"'");
-    format!("'{}'", escaped)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
@@ -824,34 +846,7 @@ mod tests {
         fs::set_permissions(bin, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    struct EnvVarGuard {
-        key: &'static str,
-        previous: Option<OsString>,
-    }
-
-    impl EnvVarGuard {
-        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-            let previous = std::env::var_os(key);
-            // Tests that mutate this hold SPAWN_LOCK, so process-wide env access stays serialized.
-            unsafe {
-                std::env::set_var(key, value);
-            }
-            Self { key, previous }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            match &self.previous {
-                Some(value) => unsafe {
-                    std::env::set_var(self.key, value);
-                },
-                None => unsafe {
-                    std::env::remove_var(self.key);
-                },
-            }
-        }
-    }
+    use crate::auth::test_overrides::EnvVarGuard;
 
     #[test]
     fn validate_accepts_valid_key() {

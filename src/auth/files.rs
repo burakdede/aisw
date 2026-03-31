@@ -84,6 +84,15 @@ pub fn set_permissions_600(_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Wrap a shell word in single quotes, escaping any embedded single quotes.
+///
+/// Shared by the `emit_shell_env` implementations for each tool so the quoting
+/// logic stays in one place and the tool modules stay focused on auth.
+pub(crate) fn shell_single_quote(value: &str) -> String {
+    let escaped = value.replace('\'', "'\"'\"'");
+    format!("'{}'", escaped)
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::symlink;
