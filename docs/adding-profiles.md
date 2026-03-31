@@ -33,13 +33,15 @@ Official references:
 aisw add claude <name>
 ```
 
-Spawns Claude's dedicated auth command with `CLAUDE_CONFIG_DIR` set to the profile directory and `CLAUDE_CODE_SIMPLE=1` to keep the flow narrow:
+Spawns Claude's dedicated auth command with `CLAUDE_CONFIG_DIR` set to the profile directory:
 
 ```
-CLAUDE_CONFIG_DIR=~/.aisw/profiles/claude/<name> CLAUDE_CODE_SIMPLE=1 claude auth login
+CLAUDE_CONFIG_DIR=~/.aisw/profiles/claude/<name> claude auth login
 ```
 
 Claude's OAuth flow still opens a browser window, but `aisw` now uses the auth-specific login path instead of launching a full coding session.
+
+`aisw` waits for Claude to finish the browser login and then continues. If the browser page shows an authentication code, you do not need to paste it into `aisw`. After the browser reports success, close that window and return to the terminal.
 
 - On Linux and Windows, that is typically `.credentials.json` written into `CLAUDE_CONFIG_DIR`.
 - On macOS, newer Claude installs may keep auth in Keychain instead. aisw detects that and captures the resulting auth into the profile store once Claude finishes sign-in.

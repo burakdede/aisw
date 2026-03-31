@@ -11,6 +11,7 @@ use super::identity;
 use super::secure_backend::{self, SecureBackend};
 use super::secure_store;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
+use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
@@ -398,11 +399,14 @@ fn run_oauth_flow(
         None
     };
 
+    output::print_info(
+        "Claude sign-in will continue in your browser. If the page shows an authentication code, you do not need to paste it into aisw. Complete the login there, then close the browser window and return here.",
+    );
+
     let mut child = Command::new(claude_bin)
         .arg("auth")
         .arg("login")
         .env("CLAUDE_CONFIG_DIR", capture_dir)
-        .env("CLAUDE_CODE_SIMPLE", "1")
         .spawn()
         .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
 
@@ -867,14 +871,12 @@ mod tests {
         let body = if write_creds {
             "[ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             [ \"$CLAUDE_CODE_SIMPLE\" = \"1\" ] || exit 7\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
              echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n"
         } else {
             "[ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             [ \"$CLAUDE_CODE_SIMPLE\" = \"1\" ] || exit 7\n\
              exit 0\n"
         };
         fs::write(&bin, format!("#!/bin/sh\n{}", body)).unwrap();
@@ -1102,7 +1104,6 @@ mod tests {
             "#!/bin/sh\n\
              [ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             [ \"$CLAUDE_CODE_SIMPLE\" = \"1\" ] || exit 7\n\
              exit 0\n",
         )
         .unwrap();
@@ -1159,7 +1160,6 @@ mod tests {
             "#!/bin/sh\n\
              [ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             [ \"$CLAUDE_CODE_SIMPLE\" = \"1\" ] || exit 7\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
              echo \"$CLAUDE_CONFIG_DIR\" > \"$(dirname \"$CLAUDE_CONFIG_DIR\")/env_was_set\"\n\
              echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
@@ -1189,7 +1189,7 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn oauth_uses_auth_login_subcommand_in_simple_mode() {
+    fn oauth_uses_auth_login_subcommand() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         use std::fs;
@@ -1203,7 +1203,7 @@ mod tests {
             &bin,
             "#!/bin/sh\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             printf '%s %s %s' \"$1\" \"$2\" \"$CLAUDE_CODE_SIMPLE\" > \"$(dirname \"$CLAUDE_CONFIG_DIR\")/login_args\"\n\
+             printf '%s %s' \"$1\" \"$2\" > \"$(dirname \"$CLAUDE_CONFIG_DIR\")/login_args\"\n\
              echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
@@ -1223,7 +1223,7 @@ mod tests {
         .unwrap();
 
         let sentinel = ps.profile_dir(Tool::Claude, "work").join("login_args");
-        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "auth login 1");
+        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "auth login");
     }
 
     #[test]
