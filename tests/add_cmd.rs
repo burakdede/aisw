@@ -425,7 +425,6 @@ fn add_codex_oauth_succeeds_with_mocked_binary() {
            exit 0\n\
          fi\n\
          if [ \"$1\" = \"login\" ]; then\n\
-           [ \"$2\" = \"--device-auth\" ] || exit 8\n\
            /bin/mkdir -p \"$CODEX_HOME\"\n\
            printf '%s' '{\"token\":\"tok\"}' > \"$CODEX_HOME/auth.json\"\n\
            exit 0\n\
@@ -459,7 +458,6 @@ fn add_codex_oauth_stores_secure_backend_when_supported() {
            exit 0\n\
          fi\n\
          if [ \"$1\" = \"login\" ]; then\n\
-           [ \"$2\" = \"--device-auth\" ] || exit 8\n\
            /bin/mkdir -p \"$CODEX_HOME\"\n\
            printf '%s' '{\"token\":\"tok\",\"email\":\"work@example.com\"}' > \"$CODEX_HOME/auth.json\"\n\
            exit 0\n\
