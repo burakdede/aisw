@@ -13,7 +13,7 @@ use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
-const AUTH_FILE: &str = "auth.json";
+pub(crate) const AUTH_FILE: &str = "auth.json";
 const CONFIG_FILE: &str = "config.toml";
 
 // Codex reads credentials from a file rather than the OS keyring when this is set.
@@ -56,13 +56,9 @@ impl LiveAuthStorage {
     }
 }
 
-pub enum LiveCredentialSource {
-    File(PathBuf),
-}
-
 pub struct LiveCredentialSnapshot {
     pub bytes: Vec<u8>,
-    pub source: LiveCredentialSource,
+    pub source_path: PathBuf,
 }
 
 pub fn live_local_state_dir(user_home: &Path) -> Option<PathBuf> {
@@ -105,7 +101,7 @@ pub fn live_credentials_snapshot_for_import(
         fs::read(&auth_path).with_context(|| format!("could not read {}", auth_path.display()))?;
     Ok(Some(LiveCredentialSnapshot {
         bytes,
-        source: LiveCredentialSource::File(auth_path),
+        source_path: auth_path,
     }))
 }
 
@@ -424,12 +420,7 @@ pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> 
     })
 }
 
-pub fn apply_live_files(
-    profile_store: &ProfileStore,
-    name: &str,
-    _backend: CredentialBackend,
-    user_home: &Path,
-) -> Result<()> {
+pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Path) -> Result<()> {
     let live_dir = live_dir(user_home);
     std::fs::create_dir_all(&live_dir)
         .with_context(|| format!("could not create {}", live_dir.display()))?;
@@ -463,7 +454,6 @@ pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode)
 pub fn live_files_match(
     profile_store: &ProfileStore,
     name: &str,
-    _backend: CredentialBackend,
     user_home: &Path,
 ) -> Result<bool> {
     let config_dest = live_config_path(user_home);
@@ -528,7 +518,6 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::auth::test_overrides::EnvVarGuard;
     use crate::config::ConfigStore;
     use crate::profile::ProfileStore;
 
@@ -623,8 +612,10 @@ mod tests {
             .expect("snapshot should exist");
 
         assert_eq!(snapshot.bytes, br#"{"token":"tok"}"#);
-        let LiveCredentialSource::File(path) = snapshot.source;
-        assert_eq!(path, user_home.join(".codex").join(AUTH_FILE));
+        assert_eq!(
+            snapshot.source_path,
+            user_home.join(".codex").join(AUTH_FILE)
+        );
     }
 
     #[test]
@@ -653,7 +644,7 @@ mod tests {
         let (ps, cs) = stores(dir.path());
         add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
 
-        apply_live_files(&ps, "main", CredentialBackend::File, &user_home).unwrap();
+        apply_live_files(&ps, "main", &user_home).unwrap();
 
         let contents = std::fs::read_to_string(user_home.join(".codex").join(CONFIG_FILE)).unwrap();
         assert!(contents.contains("model = \"gpt-5.4\""));
@@ -758,7 +749,6 @@ mod tests {
     #[cfg(unix)]
     fn oauth_config_toml_written_before_spawn() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         // Verify config.toml exists in the profile dir when the mock binary runs.
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
@@ -804,7 +794,6 @@ mod tests {
     #[cfg(unix)]
     fn oauth_flow_succeeds() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
@@ -834,7 +823,6 @@ mod tests {
     #[cfg(unix)]
     fn oauth_flow_times_out_and_cleans_up() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
@@ -868,7 +856,6 @@ mod tests {
     #[cfg(unix)]
     fn oauth_auth_json_has_600_permissions() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
@@ -897,7 +884,6 @@ mod tests {
     #[cfg(unix)]
     fn oauth_uses_standard_login_command() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
@@ -936,7 +922,6 @@ mod tests {
     #[cfg(unix)]
     fn oauth_duplicate_identity_is_rejected_and_cleaned_up() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _storage = EnvVarGuard::set("AISW_CODEX_AUTH_STORAGE", "file");
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
@@ -989,5 +974,111 @@ mod tests {
 
         assert!(err.to_string().contains("already exists as 'work'"));
         assert!(!ps.exists(Tool::Codex, "alias"));
+    }
+
+    // ---- merge_file_store_config tests ----
+
+    #[test]
+    fn merge_file_store_config_replaces_existing_key() {
+        let input = "model = \"gpt-5.4\"\ncli_auth_credentials_store = \"keyring\"\n";
+        let output = merge_file_store_config(input);
+        assert_eq!(
+            output,
+            "model = \"gpt-5.4\"\ncli_auth_credentials_store = \"file\"\n"
+        );
+    }
+
+    #[test]
+    fn merge_file_store_config_appends_when_key_absent() {
+        let input = "model = \"gpt-5.4\"\n";
+        let output = merge_file_store_config(input);
+        assert_eq!(
+            output,
+            "model = \"gpt-5.4\"\ncli_auth_credentials_store = \"file\"\n"
+        );
+    }
+
+    #[test]
+    fn merge_file_store_config_handles_no_trailing_newline() {
+        // The function inserts a blank line when the existing content has no trailing
+        // newline, to ensure the appended key is separated from the final line.
+        let input = "model = \"gpt-5.4\"";
+        let output = merge_file_store_config(input);
+        assert_eq!(
+            output,
+            "model = \"gpt-5.4\"\n\ncli_auth_credentials_store = \"file\"\n"
+        );
+    }
+
+    #[test]
+    fn merge_file_store_config_is_idempotent() {
+        let first = merge_file_store_config("model = \"gpt-5.4\"\n");
+        let second = merge_file_store_config(&first);
+        assert_eq!(first, second);
+    }
+
+    // ---- config_uses_file_store tests ----
+
+    #[test]
+    fn config_uses_file_store_returns_true_for_file() {
+        assert!(config_uses_file_store(
+            "cli_auth_credentials_store = \"file\"\n"
+        ));
+    }
+
+    #[test]
+    fn config_uses_file_store_returns_false_for_keyring() {
+        assert!(!config_uses_file_store(
+            "cli_auth_credentials_store = \"keyring\"\n"
+        ));
+    }
+
+    #[test]
+    fn config_uses_file_store_returns_false_when_absent() {
+        assert!(!config_uses_file_store("model = \"gpt-5.4\"\n"));
+    }
+
+    // ---- live_files_match tests ----
+
+    #[test]
+    fn live_files_match_returns_true_when_auth_and_config_match() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+        apply_live_files(&ps, "main", &user_home).unwrap();
+
+        assert!(live_files_match(&ps, "main", &user_home).unwrap());
+    }
+
+    #[test]
+    fn live_files_match_returns_false_when_config_absent() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+        // write auth.json but no config.toml
+        let auth_bytes = ps.read_file(Tool::Codex, "main", AUTH_FILE).unwrap();
+        std::fs::write(user_home.join(".codex").join(AUTH_FILE), &auth_bytes).unwrap();
+
+        assert!(!live_files_match(&ps, "main", &user_home).unwrap());
+    }
+
+    #[test]
+    fn live_files_match_returns_false_when_auth_differs() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+        apply_live_files(&ps, "main", &user_home).unwrap();
+        // Overwrite live auth.json with a different key.
+        std::fs::write(
+            user_home.join(".codex").join(AUTH_FILE),
+            br#"{"token":"sk-different-key"}"#,
+        )
+        .unwrap();
+
+        assert!(!live_files_match(&ps, "main", &user_home).unwrap());
     }
 }

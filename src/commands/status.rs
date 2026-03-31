@@ -70,12 +70,7 @@ fn assess_live_state(
             credential_backend,
             user_home,
         )?,
-        Tool::Codex => auth::codex::live_files_match(
-            profile_store,
-            profile_name,
-            credential_backend,
-            user_home,
-        )?,
+        Tool::Codex => auth::codex::live_files_match(profile_store, profile_name, user_home)?,
         Tool::Gemini => match auth_method {
             AuthMethod::ApiKey => auth::gemini::live_env_matches(
                 profile_store,
@@ -590,8 +585,7 @@ mod tests {
         let profile_store = ProfileStore::new(tmp.path());
         let config_store = ConfigStore::new(tmp.path());
         auth::codex::add_api_key(&profile_store, &config_store, "work", CODEX_KEY, None).unwrap();
-        auth::codex::apply_live_files(&profile_store, "work", CredentialBackend::File, tmp.path())
-            .unwrap();
+        auth::codex::apply_live_files(&profile_store, "work", tmp.path()).unwrap();
 
         let status = assess_live_state(
             Tool::Codex,

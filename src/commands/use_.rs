@@ -107,12 +107,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 if args.emit_env {
                     auth::codex::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
-                    auth::codex::apply_live_files(
-                        &profile_store,
-                        &args.profile_name,
-                        profile_meta.credential_backend,
-                        user_home,
-                    )?;
+                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
                 }
             }
             AuthMethod::ApiKey => {
@@ -128,12 +123,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                         }
                     }
                 } else {
-                    auth::codex::apply_live_files(
-                        &profile_store,
-                        &args.profile_name,
-                        profile_meta.credential_backend,
-                        user_home,
-                    )?;
+                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
                 }
             }
         },

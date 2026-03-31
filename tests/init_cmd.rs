@@ -347,7 +347,7 @@ fn init_imports_codex_credentials() {
         serde_json::from_str(&env.read_home_file("config.json")).unwrap();
     assert_eq!(
         config["profiles"]["codex"]["default"]["auth_method"],
-        "o_auth"
+        "api_key"
     );
     assert_eq!(config["profiles"]["codex"]["default"]["label"], "imported");
     assert_eq!(config["active"]["codex"], "default");
@@ -364,7 +364,7 @@ fn init_imports_codex_credentials() {
         .stdout(contains("Active"))
         .stdout(contains("default"))
         .stdout(contains("Auth"))
-        .stdout(contains("oauth"))
+        .stdout(contains("api_key"))
         .stdout(contains(
             "live tool config does not match the active profile",
         ));

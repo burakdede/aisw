@@ -570,27 +570,33 @@ fn import_codex(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
-    let auth::codex::LiveCredentialSource::File(src_path) = snapshot.source;
+    let src_path = snapshot.source_path;
     let (src_desc, source_bytes) = (format!("found {}", src_path.display()), snapshot.bytes);
-    if let Some(secret) = extract_json_string_field(&source_bytes, "token") {
-        if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
-            &profile_store,
-            &config_store,
-            Tool::Codex,
-            &secret,
-        )? {
-            output::print_kv("Credentials", &src_desc);
-            output::print_kv("Auth", "api_key");
-            output::print_kv("Import", "already managed");
-            output::print_info(format!(
-                "Live credentials already match profile '{}'.",
-                existing_name
-            ));
-            output::print_blank_line();
-            return Ok(());
+
+    // Determine auth method from the credential content: a `token` field indicates an
+    // API key; anything with an OAuth identity (email / subject) is an OAuth credential.
+    let is_api_key = extract_json_string_field(&source_bytes, "token").is_some();
+
+    if is_api_key {
+        if let Some(secret) = extract_json_string_field(&source_bytes, "token") {
+            if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
+                &profile_store,
+                &config_store,
+                Tool::Codex,
+                &secret,
+            )? {
+                output::print_kv("Credentials", &src_desc);
+                output::print_kv("Auth", "api_key");
+                output::print_kv("Import", "already managed");
+                output::print_info(format!(
+                    "Live credentials already match profile '{}'.",
+                    existing_name
+                ));
+                output::print_blank_line();
+                return Ok(());
+            }
         }
-    }
-    if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
+    } else if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
         &profile_store,
         &config_store,
         Tool::Codex,
@@ -615,8 +621,14 @@ fn import_codex(
         return Ok(());
     }
 
+    let auth_method = if is_api_key {
+        AuthMethod::ApiKey
+    } else {
+        AuthMethod::OAuth
+    };
+
     output::print_kv("Credentials", &src_desc);
-    output::print_kv("Auth", "oauth");
+    output::print_kv("Auth", if is_api_key { "api_key" } else { "oauth" });
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Codex, &profile_store, confirmed)?
     else {
@@ -627,23 +639,30 @@ fn import_codex(
 
     profile_store.create(Tool::Codex, &profile_name)?;
     auth::codex::write_file_store_config(&profile_store, &profile_name)?;
-    profile_store.write_file(Tool::Codex, &profile_name, "auth.json", &source_bytes)?;
-    auth::identity::ensure_unique_oauth_identity(
-        &profile_store,
-        &config_store,
+    profile_store.write_file(
         Tool::Codex,
         &profile_name,
-        CredentialBackend::File,
-    )
-    .inspect_err(|_| {
-        let _ = profile_store.delete(Tool::Codex, &profile_name);
-    })?;
+        auth::codex::AUTH_FILE,
+        &source_bytes,
+    )?;
+    if auth_method == AuthMethod::OAuth {
+        auth::identity::ensure_unique_oauth_identity(
+            &profile_store,
+            &config_store,
+            Tool::Codex,
+            &profile_name,
+            CredentialBackend::File,
+        )
+        .inspect_err(|_| {
+            let _ = profile_store.delete(Tool::Codex, &profile_name);
+        })?;
+    }
     config_store.add_profile(
         Tool::Codex,
         &profile_name,
         ProfileMeta {
             added_at: Utc::now(),
-            auth_method: AuthMethod::OAuth,
+            auth_method,
             credential_backend: CredentialBackend::File,
             label,
         },
@@ -950,7 +969,7 @@ mod tests {
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert_eq!(
             config.profiles_for(Tool::Codex)["default"].auth_method,
-            AuthMethod::OAuth
+            AuthMethod::ApiKey
         );
     }
 
