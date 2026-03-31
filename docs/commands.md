@@ -52,6 +52,11 @@ aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active]
 
 Without `--api-key`, aisw presents an interactive menu to choose between browser OAuth login and API key entry.
 
+For OAuth capture, `aisw` uses the narrowest upstream login flow it can:
+- Claude: `claude auth login` with `CLAUDE_CODE_SIMPLE=1`
+- Codex: `codex login --device-auth`
+- Gemini: remains interactive for Google-account login because upstream headless mode requires preconfigured cached auth or env-based auth
+
 On success, `aisw add` prints a short next-step hint for activating or verifying the new profile.
 
 For OAuth profiles, aisw prevents duplicate aliases for the same resolved account identity when the stored credentials expose a reliable identifier. If identity cannot be resolved, the add still succeeds with a warning.
@@ -78,8 +83,8 @@ aisw use <tool> <profile_name> [--state-mode <isolated|shared>]
 ```
 
 `aisw use` applies the selected profile into the live config location each tool reads:
-- Claude: live credentials file
-- Codex: live `auth.json` plus file-store config in `~/.codex/config.toml`
+- Claude: live credentials file or system keyring, depending on the live Claude auth backend
+- Codex: live `auth.json` or system keyring, plus the matching auth-store config in `~/.codex/config.toml`
 - Gemini: live `~/.gemini/.env` or token cache
 
 `--state-mode` is supported for Claude and Codex:
@@ -185,7 +190,7 @@ Show the current state across all tools.
 aisw status [--json]
 ```
 
-Reports for each tool: whether the binary is installed, which profile is active, whether credential files are present, and whether the live tool config matches the configured active profile. Token validity, quota, and subscription state are not checked — aisw only verifies local file presence and that the local live state matches the selected profile.
+Reports for each tool: whether the binary is installed, which profile is active, which credential backend that profile uses, whether the managed credentials are present, and whether the live tool config matches the configured active profile. Token validity, quota, and subscription state are not checked — aisw only verifies local state and backend-specific credential presence.
 
 For Claude and Codex, `status` also reports the active state mode (`isolated` or `shared`). Gemini does not currently support configurable state mode and remains isolated-only.
 
@@ -211,6 +216,11 @@ aisw init
 ```
 
 Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool, and `aisw init` applies that active profile to the live tool config immediately. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
+
+For Claude Code, `aisw init` distinguishes local Claude state from importable auth:
+- file-backed Claude auth is imported from the live Claude config directory
+- on macOS, Claude auth can also be imported from the `Claude Code-credentials` Keychain item when present
+- if Claude local state exists but no importable auth is available, `aisw init` reports that explicitly instead of only saying credentials were “not found”
 
 When imported credentials are OAuth-based and aisw can resolve the authenticated account identity, it blocks importing a duplicate alias for an already stored account. If identity cannot be resolved, the import continues with a warning.
 

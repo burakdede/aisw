@@ -33,17 +33,20 @@ Official references:
 aisw add claude <name>
 ```
 
-Spawns `claude` with `CLAUDE_CONFIG_DIR` set to the profile directory:
+Spawns Claude's dedicated auth command with `CLAUDE_CONFIG_DIR` set to the profile directory and `CLAUDE_CODE_SIMPLE=1` to keep the flow narrow:
 
 ```
-CLAUDE_CONFIG_DIR=~/.aisw/profiles/claude/<name> claude
+CLAUDE_CONFIG_DIR=~/.aisw/profiles/claude/<name> CLAUDE_CODE_SIMPLE=1 claude auth login
 ```
 
-Claude's OAuth flow opens a browser window. Once you authenticate, Claude writes `.credentials.json` into `CLAUDE_CONFIG_DIR`. aisw polls for this file (every 500ms, up to 120 seconds) and registers the profile once it appears.
+Claude's OAuth flow still opens a browser window, but `aisw` now uses the auth-specific login path instead of launching a full coding session.
+
+- On Linux and Windows, that is typically `.credentials.json` written into `CLAUDE_CONFIG_DIR`.
+- On macOS, newer Claude installs may keep auth in Keychain instead. aisw detects that and captures the resulting auth into the profile store once Claude finishes sign-in.
 
 If aisw can resolve the authenticated OAuth account identity from the stored credentials, it prevents creating a second profile alias for the same account. If identity cannot be resolved reliably, the add still succeeds with a warning.
 
-**macOS Keychain is never used.** The `CLAUDE_CONFIG_DIR` override causes Claude to store credentials as a plain file instead of in Keychain. This is intentional — it is what makes profiles portable and switchable.
+On macOS, aisw now supports both Claude auth storage models: file-backed credentials when Claude writes `.credentials.json`, and Keychain-backed credentials when Claude keeps auth in the `Claude Code-credentials` Keychain item.
 
 ## Codex CLI — API key
 
@@ -71,7 +74,13 @@ Official references:
 aisw add codex <name>
 ```
 
-Spawns `codex` with `CODEX_HOME` set to the profile directory (with `config.toml` pre-written). Codex's login flow writes `auth.json` into `CODEX_HOME`. aisw polls for the file and registers the profile on success.
+Spawns Codex's headless-friendly device-auth login path with `CODEX_HOME` set to the profile directory (with `config.toml` pre-written):
+
+```
+CODEX_HOME=~/.aisw/profiles/codex/<name> codex login --device-auth
+```
+
+Codex's login flow writes `auth.json` into `CODEX_HOME`. `aisw` polls for the file and registers the profile on success.
 
 If aisw can resolve the authenticated OAuth account identity from the stored credentials, it prevents creating a second profile alias for the same account. If identity cannot be resolved reliably, the add still succeeds with a warning.
 
@@ -96,6 +105,8 @@ Official references:
 aisw add gemini <name>
 ```
 
-Spawns `gemini` with its config directory set to the profile directory. OAuth token files are written there and copied to the active location on switch.
+Spawns `gemini` with a scratch `HOME` and captures the resulting `~/.gemini/` token cache into the profile.
+
+Gemini CLI does support headless mode via `-p/--prompt`, but Google's official docs say headless mode only works with an already cached credential or env-based auth such as `GEMINI_API_KEY` or Vertex AI variables. There is no documented headless first-time Google-account browser-login flow for a clean `HOME`, so `aisw add gemini <name>` keeps the upstream interactive login behavior for OAuth capture.
 
 If aisw can resolve the authenticated OAuth account identity from the stored credentials, it prevents creating a second profile alias for the same account. If identity cannot be resolved reliably, the add still succeeds with a warning.

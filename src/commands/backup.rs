@@ -140,7 +140,7 @@ mod tests {
 
     use super::*;
     use crate::backup::BackupManager;
-    use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+    use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
     use crate::profile::ProfileStore;
     use crate::types::Tool;
 
@@ -156,6 +156,7 @@ mod tests {
             ProfileMeta {
                 added_at: chrono::Utc::now(),
                 auth_method: AuthMethod::ApiKey,
+                credential_backend: CredentialBackend::File,
                 label: None,
             },
         )

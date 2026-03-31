@@ -9,7 +9,7 @@ use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input};
 
 use crate::auth;
-use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
 use crate::runtime;
@@ -266,6 +266,7 @@ fn should_mark_import_active(config_store: &ConfigStore, tool: Tool) -> Result<b
 fn activate_imported_profile(
     tool: Tool,
     auth_method: AuthMethod,
+    credential_backend: CredentialBackend,
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
     profile_name: &str,
@@ -273,10 +274,20 @@ fn activate_imported_profile(
 ) -> Result<()> {
     match tool {
         Tool::Claude => {
-            auth::claude::apply_live_credentials(profile_store, profile_name, user_home)?;
+            auth::claude::apply_live_credentials(
+                profile_store,
+                profile_name,
+                credential_backend,
+                user_home,
+            )?;
         }
         Tool::Codex => {
-            auth::codex::apply_live_files(profile_store, profile_name, user_home)?;
+            auth::codex::apply_live_files(
+                profile_store,
+                profile_name,
+                credential_backend,
+                user_home,
+            )?;
         }
         Tool::Gemini => {
             let gemini_dir = user_home.join(".gemini");
@@ -372,15 +383,25 @@ fn import_claude(
     confirmed: bool,
 ) -> Result<()> {
     print_import_header(Tool::Claude, detected);
-    let candidates = [
-        user_home.join(".claude").join(".credentials.json"),
-        user_home
-            .join(".config")
-            .join("claude")
-            .join(".credentials.json"),
-    ];
-    let Some(src) = candidates.iter().find(|p| p.exists()) else {
-        output::print_kv("Credentials", "not found");
+    let local_state = auth::claude::live_local_state_dir(user_home);
+    output::print_kv(
+        "Local state",
+        local_state
+            .as_ref()
+            .map(|path| format!("found {}", path.display()))
+            .unwrap_or_else(|| "not found".to_owned()),
+    );
+
+    let Some(snapshot) = auth::claude::live_credentials_snapshot_for_import(user_home)? else {
+        if auth::claude::keychain_import_supported() && local_state.is_some() {
+            output::print_kv("Credentials", "not found in file or Keychain");
+            output::print_info(
+                "Claude local state exists, but aisw could not find importable auth in \
+                 ~/.claude/.credentials.json or the system keyring.",
+            );
+        } else {
+            output::print_kv("Credentials", "not found");
+        }
         output::print_blank_line();
         return Ok(());
     };
@@ -389,8 +410,19 @@ fn import_claude(
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
-    let source_bytes =
-        fs::read(src).with_context(|| format!("could not read {}", src.display()))?;
+    let imported_backend = match snapshot.source {
+        auth::claude::LiveCredentialSource::File(_) => CredentialBackend::File,
+        auth::claude::LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
+    };
+    let (source_desc, source_bytes) = match snapshot.source {
+        auth::claude::LiveCredentialSource::File(path) => {
+            (format!("found {}", path.display()), snapshot.bytes)
+        }
+        auth::claude::LiveCredentialSource::Keychain => (
+            format!("found {}", auth::system_keyring::display_name()),
+            snapshot.bytes,
+        ),
+    };
     let imported_method = if extract_json_string_field(&source_bytes, "apiKey").is_some() {
         AuthMethod::ApiKey
     } else {
@@ -403,7 +435,7 @@ fn import_claude(
             Tool::Claude,
             &api_key,
         )? {
-            output::print_kv("Credentials", format!("found {}", src.display()));
+            output::print_kv("Credentials", &source_desc);
             output::print_kv("Auth", "api_key");
             output::print_kv("Import", "already managed");
             output::print_info(format!(
@@ -420,7 +452,7 @@ fn import_claude(
         Tool::Claude,
         &source_bytes,
     )? {
-        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Credentials", &source_desc);
         output::print_kv("Auth", "oauth");
         output::print_kv("Import", "already managed");
         output::print_info(format!(
@@ -432,14 +464,14 @@ fn import_claude(
     }
 
     if confirmed && profile_store.exists(Tool::Claude, "default") {
-        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Credentials", &source_desc);
         output::print_kv("Import", "skipped");
         output::print_info("Profile 'default' already exists.");
         output::print_blank_line();
         return Ok(());
     }
 
-    output::print_kv("Credentials", format!("found {}", src.display()));
+    output::print_kv("Credentials", &source_desc);
     output::print_kv(
         "Auth",
         if imported_method == AuthMethod::ApiKey {
@@ -457,15 +489,29 @@ fn import_claude(
     };
 
     profile_store.create(Tool::Claude, &profile_name)?;
-    profile_store.copy_file_into(Tool::Claude, &profile_name, src, ".credentials.json")?;
+    match imported_backend {
+        CredentialBackend::File => profile_store.write_file(
+            Tool::Claude,
+            &profile_name,
+            ".credentials.json",
+            &source_bytes,
+        )?,
+        CredentialBackend::SystemKeyring => {
+            auth::secure_store::write_profile_secret(Tool::Claude, &profile_name, &source_bytes)?
+        }
+    }
     if imported_method == AuthMethod::OAuth {
         auth::identity::ensure_unique_oauth_identity(
             &profile_store,
             &config_store,
             Tool::Claude,
             &profile_name,
+            imported_backend,
         )
         .inspect_err(|_| {
+            if imported_backend == CredentialBackend::SystemKeyring {
+                let _ = auth::secure_store::delete_profile_secret(Tool::Claude, &profile_name);
+            }
             let _ = profile_store.delete(Tool::Claude, &profile_name);
         })?;
     }
@@ -475,6 +521,7 @@ fn import_claude(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: imported_method,
+            credential_backend: imported_backend,
             label,
         },
     )?;
@@ -482,6 +529,7 @@ fn import_claude(
         activate_imported_profile(
             Tool::Claude,
             imported_method,
+            imported_backend,
             &profile_store,
             &config_store,
             &profile_name,
@@ -512,19 +560,66 @@ fn import_codex(
     confirmed: bool,
 ) -> Result<()> {
     print_import_header(Tool::Codex, detected);
-    let src = user_home.join(".codex").join("auth.json");
-    if !src.exists() {
-        output::print_kv("Credentials", "not found");
+    let local_state = auth::codex::live_local_state_dir(user_home);
+    output::print_kv(
+        "Local state",
+        local_state
+            .as_ref()
+            .map(|path| format!("found {}", path.display()))
+            .unwrap_or_else(|| "not found".to_owned()),
+    );
+
+    let Some(snapshot) = auth::codex::live_credentials_snapshot_for_import(user_home)? else {
+        if local_state.is_some() {
+            let storage = auth::codex::live_auth_storage(user_home)?
+                .unwrap_or(auth::codex::LiveAuthStorage::Auto);
+            output::print_kv("Credentials", "not found in auth.json");
+            match storage {
+                auth::codex::LiveAuthStorage::Keyring => output::print_info(
+                    "Codex local state exists, but aisw could not find importable auth in \
+                     ~/.codex/auth.json or the system keyring. This install appears to use \
+                     keyring-backed auth, but aisw could not locate a readable credential there.",
+                ),
+                auth::codex::LiveAuthStorage::Auto => output::print_info(
+                    "Codex local state exists, but aisw could not find importable auth in \
+                     ~/.codex/auth.json. Codex defaults to its auto auth-storage mode here, \
+                     which may be using the system keyring instead of a file backend.",
+                ),
+                auth::codex::LiveAuthStorage::File => output::print_info(
+                    "Codex local state exists, but aisw could not find importable auth in \
+                     ~/.codex/auth.json even though the configured backend is file.",
+                ),
+                auth::codex::LiveAuthStorage::Unknown => output::print_info(
+                    "Codex local state exists, but aisw could not find importable auth in \
+                     ~/.codex/auth.json. The configured auth backend is not recognized.",
+                ),
+            }
+            output::print_kv("Auth storage", storage.description());
+        } else {
+            output::print_kv("Credentials", "not found");
+        }
         output::print_blank_line();
         return Ok(());
-    }
+    };
 
     let profile_store = ProfileStore::new(aisw_home);
     let config_store = ConfigStore::new(aisw_home);
     let mark_active = should_mark_import_active(&config_store, Tool::Codex)?;
 
-    let source_bytes =
-        fs::read(&src).with_context(|| format!("could not read {}", src.display()))?;
+    let imported_backend = match snapshot.source {
+        auth::codex::LiveCredentialSource::File(_) => CredentialBackend::File,
+        auth::codex::LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
+    };
+    let (src_desc, source_bytes) = match snapshot.source {
+        auth::codex::LiveCredentialSource::File(path) => {
+            let bytes = snapshot.bytes;
+            (format!("found {}", path.display()), bytes)
+        }
+        auth::codex::LiveCredentialSource::Keychain => (
+            format!("found {}", auth::system_keyring::display_name()),
+            snapshot.bytes,
+        ),
+    };
     if let Some(secret) = extract_json_string_field(&source_bytes, "token") {
         if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
             &profile_store,
@@ -532,7 +627,7 @@ fn import_codex(
             Tool::Codex,
             &secret,
         )? {
-            output::print_kv("Credentials", format!("found {}", src.display()));
+            output::print_kv("Credentials", &src_desc);
             output::print_kv("Auth", "api_key");
             output::print_kv("Import", "already managed");
             output::print_info(format!(
@@ -549,7 +644,7 @@ fn import_codex(
         Tool::Codex,
         &source_bytes,
     )? {
-        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Credentials", &src_desc);
         output::print_kv("Auth", "oauth");
         output::print_kv("Import", "already managed");
         output::print_info(format!(
@@ -561,14 +656,14 @@ fn import_codex(
     }
 
     if confirmed && profile_store.exists(Tool::Codex, "default") {
-        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Credentials", &src_desc);
         output::print_kv("Import", "skipped");
         output::print_info("Profile 'default' already exists.");
         output::print_blank_line();
         return Ok(());
     }
 
-    output::print_kv("Credentials", format!("found {}", src.display()));
+    output::print_kv("Credentials", &src_desc);
     output::print_kv("Auth", "oauth");
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Codex, &profile_store, confirmed)?
@@ -579,15 +674,27 @@ fn import_codex(
     };
 
     profile_store.create(Tool::Codex, &profile_name)?;
-    auth::codex::write_file_store_config(&profile_store, &profile_name)?;
-    profile_store.copy_file_into(Tool::Codex, &profile_name, &src, "auth.json")?;
+    match imported_backend {
+        CredentialBackend::File => {
+            auth::codex::write_file_store_config(&profile_store, &profile_name)?;
+            profile_store.write_file(Tool::Codex, &profile_name, "auth.json", &source_bytes)?;
+        }
+        CredentialBackend::SystemKeyring => {
+            auth::codex::write_keyring_store_config(&profile_store, &profile_name)?;
+            auth::secure_store::write_profile_secret(Tool::Codex, &profile_name, &source_bytes)?;
+        }
+    }
     auth::identity::ensure_unique_oauth_identity(
         &profile_store,
         &config_store,
         Tool::Codex,
         &profile_name,
+        imported_backend,
     )
     .inspect_err(|_| {
+        if imported_backend == CredentialBackend::SystemKeyring {
+            let _ = auth::secure_store::delete_profile_secret(Tool::Codex, &profile_name);
+        }
         let _ = profile_store.delete(Tool::Codex, &profile_name);
     })?;
     config_store.add_profile(
@@ -596,6 +703,7 @@ fn import_codex(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::OAuth,
+            credential_backend: imported_backend,
             label,
         },
     )?;
@@ -603,6 +711,7 @@ fn import_codex(
         activate_imported_profile(
             Tool::Codex,
             AuthMethod::OAuth,
+            imported_backend,
             &profile_store,
             &config_store,
             &profile_name,
@@ -633,14 +742,17 @@ fn import_gemini(
     confirmed: bool,
 ) -> Result<()> {
     print_import_header(Tool::Gemini, detected);
-    let gemini_dir = user_home.join(".gemini");
+    let gemini_dir = auth::gemini::live_dir(user_home);
     let env_file = gemini_dir.join(".env");
-    let settings_file = gemini_dir.join("settings.json");
+    let oauth_files = auth::gemini::live_oauth_files_for_import(user_home)?;
 
-    let (src, filename, method) = if env_file.exists() {
-        (&env_file, ".env", AuthMethod::ApiKey)
-    } else if settings_file.exists() {
-        (&settings_file, "settings.json", AuthMethod::OAuth)
+    let (src_desc, method) = if env_file.exists() {
+        (format!("found {}", env_file.display()), AuthMethod::ApiKey)
+    } else if let Some(primary_file) = auth::gemini::preferred_live_oauth_file(&oauth_files) {
+        (
+            auth::gemini::live_import_source_description(&primary_file.path, oauth_files.len()),
+            AuthMethod::OAuth,
+        )
     } else {
         output::print_kv("Credentials", "not found");
         output::print_blank_line();
@@ -652,8 +764,8 @@ fn import_gemini(
     let mark_active = should_mark_import_active(&config_store, Tool::Gemini)?;
 
     if method == AuthMethod::ApiKey {
-        let source_bytes =
-            fs::read(src).with_context(|| format!("could not read {}", src.display()))?;
+        let source_bytes = fs::read(&env_file)
+            .with_context(|| format!("could not read {}", env_file.display()))?;
         if let Some(api_key) = extract_gemini_api_key(&source_bytes) {
             if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
                 &profile_store,
@@ -661,7 +773,7 @@ fn import_gemini(
                 Tool::Gemini,
                 &api_key,
             )? {
-                output::print_kv("Credentials", format!("found {}", src.display()));
+                output::print_kv("Credentials", &src_desc);
                 output::print_kv("Auth", "api_key");
                 output::print_kv("Import", "already managed");
                 output::print_info(format!(
@@ -675,15 +787,12 @@ fn import_gemini(
     }
 
     if method == AuthMethod::OAuth {
-        let source_bytes =
-            fs::read(src).with_context(|| format!("could not read {}", src.display()))?;
-        if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
+        if let Some(existing_name) = auth::gemini::existing_oauth_profile_for_live_files(
             &profile_store,
             &config_store,
-            Tool::Gemini,
-            &source_bytes,
+            &oauth_files,
         )? {
-            output::print_kv("Credentials", format!("found {}", src.display()));
+            output::print_kv("Credentials", &src_desc);
             output::print_kv("Auth", "oauth");
             output::print_kv("Import", "already managed");
             output::print_info(format!(
@@ -696,14 +805,14 @@ fn import_gemini(
     }
 
     if confirmed && profile_store.exists(Tool::Gemini, "default") {
-        output::print_kv("Credentials", format!("found {}", src.display()));
+        output::print_kv("Credentials", &src_desc);
         output::print_kv("Import", "skipped");
         output::print_info("Profile 'default' already exists.");
         output::print_blank_line();
         return Ok(());
     }
 
-    output::print_kv("Credentials", format!("found {}", src.display()));
+    output::print_kv("Credentials", &src_desc);
     output::print_kv(
         "Auth",
         if method == AuthMethod::ApiKey {
@@ -721,17 +830,24 @@ fn import_gemini(
     };
 
     profile_store.create(Tool::Gemini, &profile_name)?;
-    profile_store.copy_file_into(Tool::Gemini, &profile_name, src, filename)?;
     if method == AuthMethod::OAuth {
+        auth::gemini::copy_live_oauth_files_into_profile(
+            &profile_store,
+            &profile_name,
+            &oauth_files,
+        )?;
         auth::identity::ensure_unique_oauth_identity(
             &profile_store,
             &config_store,
             Tool::Gemini,
             &profile_name,
+            CredentialBackend::File,
         )
         .inspect_err(|_| {
             let _ = profile_store.delete(Tool::Gemini, &profile_name);
         })?;
+    } else {
+        profile_store.copy_file_into(Tool::Gemini, &profile_name, &env_file, ".env")?;
     }
     config_store.add_profile(
         Tool::Gemini,
@@ -739,6 +855,7 @@ fn import_gemini(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: method,
+            credential_backend: CredentialBackend::File,
             label,
         },
     )?;
@@ -746,6 +863,7 @@ fn import_gemini(
         activate_imported_profile(
             Tool::Gemini,
             method,
+            CredentialBackend::File,
             &profile_store,
             &config_store,
             &profile_name,

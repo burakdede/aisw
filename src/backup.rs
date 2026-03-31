@@ -6,7 +6,8 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
+use crate::auth::secure_store;
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -50,6 +51,7 @@ impl BackupManager {
         profile_dir: &Path,
         profile_meta: &ProfileMeta,
     ) -> Result<PathBuf> {
+        profile_meta.credential_backend.validate_for_tool(tool)?;
         let backup_id = backup_id_now();
         let dest = self
             .backups_dir()
@@ -58,6 +60,10 @@ impl BackupManager {
             .join(name);
         fs::create_dir_all(&dest)
             .with_context(|| format!("could not create backup directory {}", dest.display()))?;
+
+        if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
+            secure_store::snapshot_profile_secret(tool, name, &backup_id)?;
+        }
 
         for entry in fs::read_dir(profile_dir)
             .with_context(|| format!("could not read profile dir {}", profile_dir.display()))?
@@ -173,7 +179,13 @@ impl BackupManager {
 
                 let profile_meta =
                     restore_profile_meta(config_store, tool, &profile_name, &profile_path)?;
-                config_store.upsert_profile(tool, &profile_name, profile_meta)?;
+                profile_meta.credential_backend.validate_for_tool(tool)?;
+                config_store.upsert_profile(tool, &profile_name, profile_meta.clone())?;
+
+                if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
+                    secure_store::restore_profile_secret(tool, &profile_name, backup_id)?;
+                    restored += 1;
+                }
 
                 for file_entry in fs::read_dir(&profile_path)? {
                     let file_entry = file_entry?;
@@ -222,6 +234,24 @@ impl BackupManager {
 
         for old in backup_ids.into_iter().skip(max_backups) {
             let path = base.join(&old);
+            for tool in Tool::ALL {
+                let tool_path = path.join(tool.dir_name());
+                if !tool_path.is_dir() {
+                    continue;
+                }
+                for profile_entry in fs::read_dir(&tool_path)? {
+                    let profile_entry = profile_entry?;
+                    let profile_path = profile_entry.path();
+                    if !profile_path.is_dir() || profile_path.is_symlink() {
+                        continue;
+                    }
+                    if let Some(profile_name) =
+                        profile_path.file_name().and_then(|name| name.to_str())
+                    {
+                        let _ = secure_store::delete_backup_secret(tool, profile_name, &old);
+                    }
+                }
+            }
             fs::remove_dir_all(&path)
                 .with_context(|| format!("could not remove old backup {}", path.display()))?;
         }
@@ -278,6 +308,7 @@ fn restore_profile_meta(
     Ok(ProfileMeta {
         added_at: Utc::now(),
         auth_method: infer_auth_method(tool, profile_path)?,
+        credential_backend: CredentialBackend::File,
         label: None,
     })
 }
@@ -347,11 +378,14 @@ fn set_permissions_600(_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs;
+    use std::os::unix::fs::PermissionsExt;
 
     use tempfile::tempdir;
 
     use super::*;
+    use crate::auth::secure_store;
 
     fn manager(dir: &Path) -> BackupManager {
         BackupManager::new(dir)
@@ -374,8 +408,101 @@ mod tests {
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: crate::config::AuthMethod::ApiKey,
+            credential_backend: CredentialBackend::File,
             label: Some("Test".to_owned()),
         }
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe { std::env::set_var(self.key, value) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
+    }
+
+    fn write_security_mock(bin: &Path) {
+        fs::write(
+            bin,
+            "#!/bin/sh\n\
+             cmd=\"$1\"\n\
+             shift\n\
+             case \"$cmd\" in\n\
+               find-generic-password)\n\
+                 service=''\n\
+                 account=''\n\
+                 while [ \"$#\" -gt 0 ]; do\n\
+                   case \"$1\" in\n\
+                     -s) shift; service=\"$1\" ;;\n\
+                     -a) shift; account=\"$1\" ;;\n\
+                   esac\n\
+                   shift\n\
+                 done\n\
+                 key=$(printf '%s' \"$service-$account\" | tr ' /:' '___')\n\
+                 store=\"$HOME/$key.json\"\n\
+                 if [ -f \"$store\" ]; then cat \"$store\"; exit 0; fi\n\
+                 echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+                 exit 44\n\
+                 ;;\n\
+               add-generic-password)\n\
+                 service=''\n\
+                 account=''\n\
+                 secret=''\n\
+                 while [ \"$#\" -gt 0 ]; do\n\
+                   case \"$1\" in\n\
+                     -s) shift; service=\"$1\" ;;\n\
+                     -a) shift; account=\"$1\" ;;\n\
+                     -w)\n\
+                       shift\n\
+                       if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                         secret=\"$1\"\n\
+                       else\n\
+                         IFS= read -r secret || true\n\
+                         continue\n\
+                       fi\n\
+                       ;;\n\
+                   esac\n\
+                   shift\n\
+                 done\n\
+                 key=$(printf '%s' \"$service-$account\" | tr ' /:' '___')\n\
+                 printf '%s' \"$secret\" > \"$HOME/$key.json\"\n\
+                 exit 0\n\
+                 ;;\n\
+               delete-generic-password)\n\
+                 service=''\n\
+                 account=''\n\
+                 while [ \"$#\" -gt 0 ]; do\n\
+                   case \"$1\" in\n\
+                     -s) shift; service=\"$1\" ;;\n\
+                     -a) shift; account=\"$1\" ;;\n\
+                   esac\n\
+                   shift\n\
+                 done\n\
+                 key=$(printf '%s' \"$service-$account\" | tr ' /:' '___')\n\
+                 rm -f \"$HOME/$key.json\"\n\
+                 exit 0\n\
+                 ;;\n\
+             esac\n\
+             exit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(bin, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
     fn write_legacy_backup(
@@ -735,6 +862,57 @@ mod tests {
         assert_eq!(
             ps.read_file(Tool::Gemini, "default", ".env").unwrap(),
             b"GEMINI_API_KEY=AIzaLegacy\n"
+        );
+    }
+
+    #[test]
+    fn snapshot_and_restore_secure_profile_secret() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let security_bin = bin_dir.join("security");
+        write_security_mock(&security_bin);
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+        let _security = EnvVarGuard::set(
+            "AISW_SECURITY_BIN",
+            security_bin
+                .to_str()
+                .expect("security path should be utf-8"),
+        );
+
+        let ps = profile_store(dir.path());
+        let cs = ConfigStore::new(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        secure_store::write_profile_secret(Tool::Claude, "work", br#"{"token":"tok"}"#).unwrap();
+        let meta = ProfileMeta {
+            added_at: Utc::now(),
+            auth_method: AuthMethod::OAuth,
+            credential_backend: CredentialBackend::SystemKeyring,
+            label: None,
+        };
+        cs.add_profile(Tool::Claude, "work", meta.clone()).unwrap();
+
+        let profile_dir = ps.profile_dir(Tool::Claude, "work");
+        let backup_path = manager(dir.path())
+            .snapshot(Tool::Claude, "work", &profile_dir, &meta)
+            .unwrap();
+        let backup_id = backup_path
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.file_name())
+            .and_then(|p| p.to_str())
+            .unwrap()
+            .to_owned();
+
+        secure_store::delete_profile_secret(Tool::Claude, "work").unwrap();
+        manager(dir.path()).restore(&backup_id, &ps, &cs).unwrap();
+
+        assert_eq!(
+            secure_store::read_profile_secret(Tool::Claude, "work")
+                .unwrap()
+                .as_deref(),
+            Some(br#"{"token":"tok"}"#.as_slice())
         );
     }
 }

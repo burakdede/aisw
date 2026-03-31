@@ -61,11 +61,14 @@ Spawns `claude` with `CLAUDE_CONFIG_DIR` set to the profile directory:
 CLAUDE_CONFIG_DIR=~/.aisw/profiles/claude/<name> claude
 ```
 
-Claude's OAuth flow opens a browser window. Once you authenticate, Claude writes `.credentials.json` into `CLAUDE_CONFIG_DIR`. aisw polls for this file (every 500ms, up to 120 seconds) and registers the profile once it appears.
+Claude's OAuth flow opens a browser window. aisw starts Claude with `CLAUDE_CONFIG_DIR` pointed at the profile directory and waits for Claude auth to become capturable.
+
+- On Linux and Windows, that is typically `.credentials.json` written into `CLAUDE_CONFIG_DIR`.
+- On macOS, newer Claude installs may keep auth in Keychain instead. aisw detects that and captures the resulting auth into the profile store once Claude finishes sign-in.
 
 If aisw can resolve the authenticated OAuth account identity from the stored credentials, it prevents creating a second profile alias for the same account. If identity cannot be resolved reliably, the add still succeeds with a warning.
 
-**macOS Keychain is never used.** The `CLAUDE_CONFIG_DIR` override causes Claude to store credentials as a plain file instead of in Keychain. This is intentional — it is what makes profiles portable and switchable.
+On macOS, aisw now supports both Claude auth storage models: file-backed credentials when Claude writes `.credentials.json`, and Keychain-backed credentials when Claude keeps auth in the `Claude Code-credentials` Keychain item.
 
 ## Codex CLI — API key
 

@@ -53,6 +53,9 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
             args.tool
         )
     })?;
+    profile_meta
+        .credential_backend
+        .validate_for_tool(args.tool)?;
 
     if config.settings.backup_on_switch {
         let backup_manager = BackupManager::new(home);
@@ -69,6 +72,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                     auth::claude::apply_live_credentials(
                         &profile_store,
                         &args.profile_name,
+                        profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
@@ -80,6 +84,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                     auth::claude::apply_live_credentials(
                         &profile_store,
                         &args.profile_name,
+                        profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
@@ -90,7 +95,12 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 if args.emit_env {
                     auth::codex::emit_shell_env(&args.profile_name, &profile_store, state_mode);
                 } else {
-                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+                    auth::codex::apply_live_files(
+                        &profile_store,
+                        &args.profile_name,
+                        profile_meta.credential_backend,
+                        user_home,
+                    )?;
                 }
             }
             AuthMethod::ApiKey => {
@@ -106,7 +116,12 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                         }
                     }
                 } else {
-                    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+                    auth::codex::apply_live_files(
+                        &profile_store,
+                        &args.profile_name,
+                        profile_meta.credential_backend,
+                        user_home,
+                    )?;
                 }
             }
         },
@@ -153,6 +168,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         output::print_kv("Tool", args.tool.display_name());
         output::print_kv("Active profile", &args.profile_name);
         output::print_kv("Auth", auth_label(profile_meta.auth_method));
+        output::print_kv("Backend", profile_meta.credential_backend.display_name());
         if args.tool.supports_state_mode() {
             output::print_kv("State mode", state_mode.display_name());
         }
@@ -196,6 +212,7 @@ fn auth_label(method: AuthMethod) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs;
     use std::path::Path;
 
@@ -207,6 +224,34 @@ mod tests {
     use crate::config::ConfigStore;
     use crate::profile::ProfileStore;
     use crate::types::Tool;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     fn claude_key() -> &'static str {
         "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -246,6 +291,7 @@ mod tests {
 
     #[test]
     fn claude_api_key_emit_env_updates_active() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let user_home = tmp.path().join("uhome");
@@ -262,6 +308,7 @@ mod tests {
 
     #[test]
     fn use_updates_active_in_config() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let user_home = tmp.path().join("uhome");
@@ -276,6 +323,7 @@ mod tests {
 
     #[test]
     fn use_creates_backup_when_enabled() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let user_home = tmp.path().join("uhome");

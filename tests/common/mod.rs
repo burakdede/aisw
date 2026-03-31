@@ -66,7 +66,8 @@ impl TestEnv {
         let mut cmd = Command::cargo_bin("aisw").expect("aisw binary not found");
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("PATH", &self.bin_dir)
-            .env("HOME", &self.fake_home);
+            .env("HOME", &self.fake_home)
+            .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"));
         cmd
     }
 
@@ -117,7 +118,8 @@ impl TestEnv {
 
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("HOME", &self.fake_home)
-            .env("PATH", self.shell_path());
+            .env("PATH", self.shell_path())
+            .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"));
 
         Some(cmd)
     }

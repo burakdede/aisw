@@ -5,7 +5,7 @@ use anyhow::Result;
 
 use crate::auth;
 use crate::cli::StatusArgs;
-use crate::config::{AuthMethod, ConfigStore};
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend};
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::tool_detection;
@@ -23,6 +23,7 @@ pub(crate) struct ToolStatus {
     pub stored_profiles: usize,
     pub active_profile: Option<String>,
     pub auth_method: Option<String>,
+    pub credential_backend: Option<String>,
     pub state_mode: Option<String>,
     pub active_profile_applied: Option<bool>,
     pub credentials_present: bool,
@@ -57,15 +58,24 @@ pub(crate) fn run_in(
 fn assess_live_state(
     tool: Tool,
     auth_method: AuthMethod,
+    credential_backend: crate::config::CredentialBackend,
     profile_store: &ProfileStore,
     profile_name: &str,
     user_home: &Path,
 ) -> Result<LiveActivation> {
     let applied = match tool {
-        Tool::Claude => {
-            auth::claude::live_credentials_match(profile_store, profile_name, user_home)?
-        }
-        Tool::Codex => auth::codex::live_files_match(profile_store, profile_name, user_home)?,
+        Tool::Claude => auth::claude::live_credentials_match(
+            profile_store,
+            profile_name,
+            credential_backend,
+            user_home,
+        )?,
+        Tool::Codex => auth::codex::live_files_match(
+            profile_store,
+            profile_name,
+            credential_backend,
+            user_home,
+        )?,
         Tool::Gemini => match auth_method {
             AuthMethod::ApiKey => auth::gemini::live_env_matches(
                 profile_store,
@@ -112,27 +122,46 @@ pub(crate) fn collect_status(
         let (
             active_profile,
             auth_method,
+            credential_backend,
             active_profile_applied,
             credentials_present,
             permissions_ok,
         ) = if let Some(name) = active_name {
             let profiles = config.profiles_for(tool);
+            let profile_meta = &profiles[name];
+            let profile_dir = profile_store.profile_dir(tool, name);
+            let (creds, perms) =
+                check_profile_storage(&profile_dir, tool, name, profile_meta.credential_backend);
             let auth = profiles
                 .get(name)
                 .map(|m| auth_label(m.auth_method).to_owned());
-            let applied = profiles
+            let backend = profiles
                 .get(name)
-                .map(|m| assess_live_state(tool, m.auth_method, &profile_store, name, user_home))
-                .transpose()?
-                .map(|state| match state {
-                    LiveActivation::Applied => true,
-                    LiveActivation::NotApplied => false,
-                });
-            let profile_dir = profile_store.profile_dir(tool, name);
-            let (creds, perms) = check_profile_dir(&profile_dir);
-            (Some(name.to_owned()), auth, applied, creds, perms)
+                .map(|m| m.credential_backend.display_name().to_owned());
+            let applied = if creds {
+                profiles
+                    .get(name)
+                    .map(|m| {
+                        assess_live_state(
+                            tool,
+                            m.auth_method,
+                            m.credential_backend,
+                            &profile_store,
+                            name,
+                            user_home,
+                        )
+                    })
+                    .transpose()?
+                    .map(|state| match state {
+                        LiveActivation::Applied => true,
+                        LiveActivation::NotApplied => false,
+                    })
+            } else {
+                Some(false)
+            };
+            (Some(name.to_owned()), auth, backend, applied, creds, perms)
         } else {
-            (None, None, None, false, true)
+            (None, None, None, None, false, true)
         };
 
         statuses.push(ToolStatus {
@@ -141,6 +170,7 @@ pub(crate) fn collect_status(
             stored_profiles,
             active_profile,
             auth_method,
+            credential_backend,
             state_mode,
             active_profile_applied,
             credentials_present,
@@ -160,7 +190,12 @@ fn auth_label(method: AuthMethod) -> &'static str {
 /// Returns (credentials_present, permissions_ok).
 /// credentials_present: at least one regular file exists in the dir.
 /// permissions_ok: all regular files have 0600 permissions (unix only).
-fn check_profile_dir(dir: &Path) -> (bool, bool) {
+fn check_profile_storage(
+    dir: &Path,
+    tool: Tool,
+    profile_name: &str,
+    credential_backend: CredentialBackend,
+) -> (bool, bool) {
     if !dir.is_dir() {
         return (false, true);
     }
@@ -185,7 +220,17 @@ fn check_profile_dir(dir: &Path) -> (bool, bool) {
             }
         }
     }
-    (found_file, perms_ok)
+    let credentials_present = match credential_backend {
+        CredentialBackend::File => found_file,
+        CredentialBackend::SystemKeyring => {
+            auth::secure_store::read_profile_secret(tool, profile_name)
+                .ok()
+                .flatten()
+                .is_some()
+        }
+    };
+
+    (credentials_present, perms_ok)
 }
 
 fn status_message(s: &ToolStatus) -> &'static str {
@@ -199,7 +244,10 @@ fn status_message(s: &ToolStatus) -> &'static str {
         return "no active profile";
     }
     if !s.credentials_present {
-        return "credential files missing";
+        return match s.credential_backend.as_deref() {
+            Some("system_keyring") => "secure credentials missing from the managed system keyring",
+            _ => "credential files missing",
+        };
     }
     if !s.permissions_ok {
         return "credentials present \u{2014} permissions too broad!";
@@ -219,6 +267,9 @@ fn print_text(statuses: &[ToolStatus]) {
         if let Some(auth) = s.auth_method.as_deref() {
             output::print_kv("Auth", auth);
         }
+        if let Some(backend) = s.credential_backend.as_deref() {
+            output::print_kv("Backend", backend);
+        }
         if let Some(mode) = s.state_mode.as_deref() {
             output::print_kv("State mode", mode);
         }
@@ -237,6 +288,7 @@ fn print_json(statuses: &[ToolStatus]) -> Result<()> {
                 "stored_profiles":      s.stored_profiles,
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
+                "credential_backend":   s.credential_backend,
                 "state_mode":           s.state_mode,
                 "active_profile_applied": s.active_profile_applied,
                 "credentials_present":  s.credentials_present,
@@ -267,6 +319,34 @@ mod tests {
     const CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     const CODEX_KEY: &str = "sk-codex-test-key-12345";
     const GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     fn empty_path() -> OsString {
         OsString::from("")
@@ -306,6 +386,7 @@ mod tests {
 
     #[test]
     fn active_profile_reflected_in_status() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let ps = ProfileStore::new(tmp.path());
         let cs = ConfigStore::new(tmp.path());
@@ -319,7 +400,8 @@ mod tests {
         .unwrap();
         cs.set_active(Tool::Claude, "work").unwrap();
 
-        auth::claude::apply_live_credentials(&ps, "work", tmp.path()).unwrap();
+        auth::claude::apply_live_credentials(&ps, "work", CredentialBackend::File, tmp.path())
+            .unwrap();
 
         let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
@@ -388,6 +470,7 @@ mod tests {
         let status = assess_live_state(
             Tool::Gemini,
             AuthMethod::ApiKey,
+            CredentialBackend::File,
             &profile_store,
             "work",
             tmp.path(),
@@ -399,15 +482,24 @@ mod tests {
 
     #[test]
     fn claude_live_state_is_applied_when_live_credentials_match() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let profile_store = ProfileStore::new(tmp.path());
         let config_store = ConfigStore::new(tmp.path());
         auth::claude::add_api_key(&profile_store, &config_store, "work", CLAUDE_KEY, None).unwrap();
-        auth::claude::apply_live_credentials(&profile_store, "work", tmp.path()).unwrap();
+        auth::claude::apply_live_credentials(
+            &profile_store,
+            "work",
+            CredentialBackend::File,
+            tmp.path(),
+        )
+        .unwrap();
 
         let status = assess_live_state(
             Tool::Claude,
             AuthMethod::ApiKey,
+            CredentialBackend::File,
             &profile_store,
             "work",
             tmp.path(),
@@ -419,6 +511,8 @@ mod tests {
 
     #[test]
     fn claude_live_state_is_not_applied_when_live_credentials_are_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let profile_store = ProfileStore::new(tmp.path());
         let config_store = ConfigStore::new(tmp.path());
@@ -427,6 +521,7 @@ mod tests {
         let status = assess_live_state(
             Tool::Claude,
             AuthMethod::ApiKey,
+            CredentialBackend::File,
             &profile_store,
             "work",
             tmp.path(),
@@ -442,11 +537,13 @@ mod tests {
         let profile_store = ProfileStore::new(tmp.path());
         let config_store = ConfigStore::new(tmp.path());
         auth::codex::add_api_key(&profile_store, &config_store, "work", CODEX_KEY, None).unwrap();
-        auth::codex::apply_live_files(&profile_store, "work", tmp.path()).unwrap();
+        auth::codex::apply_live_files(&profile_store, "work", CredentialBackend::File, tmp.path())
+            .unwrap();
 
         let status = assess_live_state(
             Tool::Codex,
             AuthMethod::ApiKey,
+            CredentialBackend::File,
             &profile_store,
             "work",
             tmp.path(),
@@ -466,6 +563,7 @@ mod tests {
         let status = assess_live_state(
             Tool::Codex,
             AuthMethod::ApiKey,
+            CredentialBackend::File,
             &profile_store,
             "work",
             tmp.path(),
@@ -502,6 +600,7 @@ mod tests {
         let status = assess_live_state(
             Tool::Gemini,
             AuthMethod::OAuth,
+            CredentialBackend::File,
             &profile_store,
             "work",
             tmp.path(),
@@ -528,6 +627,7 @@ mod tests {
         let status = assess_live_state(
             Tool::Gemini,
             AuthMethod::OAuth,
+            CredentialBackend::File,
             &profile_store,
             "work",
             tmp.path(),

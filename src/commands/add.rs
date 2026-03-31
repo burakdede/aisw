@@ -19,6 +19,15 @@ pub fn run(args: AddArgs, home: &Path) -> Result<()> {
 pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<()> {
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
+    let config = config_store.load()?;
+
+    if profile_store.exists(args.tool, &args.profile_name)
+        && !config
+            .profiles_for(args.tool)
+            .contains_key(&args.profile_name)
+    {
+        profile_store.delete(args.tool, &args.profile_name)?;
+    }
 
     // Guard: tool binary must be on PATH before we create any profile state.
     let detected = tool_detection::require_in(args.tool, tool_path)?;

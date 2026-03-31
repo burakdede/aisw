@@ -3,8 +3,8 @@ use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use serde_json::Value;
 
-use super::{claude, codex, gemini};
-use crate::config::{AuthMethod, Config, ConfigStore};
+use super::{claude, codex, gemini, secure_store};
+use crate::config::{AuthMethod, Config, ConfigStore, CredentialBackend};
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
@@ -18,8 +18,11 @@ pub fn ensure_unique_oauth_identity(
     config_store: &ConfigStore,
     tool: Tool,
     pending_name: &str,
+    pending_backend: CredentialBackend,
 ) -> Result<()> {
-    let Some(identity) = resolve_oauth_identity(profile_store, tool, pending_name)? else {
+    let Some(identity) =
+        resolve_oauth_identity(profile_store, tool, pending_name, pending_backend)?
+    else {
         output::print_warning_stderr(format!(
             "Could not verify whether {} OAuth profile '{}' belongs to a distinct account identity.",
             tool, pending_name
@@ -33,7 +36,9 @@ pub fn ensure_unique_oauth_identity(
             continue;
         }
 
-        let Some(existing_identity) = resolve_oauth_identity(profile_store, tool, existing_name)?
+        let backend = config.profiles_for(tool)[existing_name].credential_backend;
+        let Some(existing_identity) =
+            resolve_oauth_identity(profile_store, tool, existing_name, backend)?
         else {
             continue;
         };
@@ -63,7 +68,9 @@ pub fn existing_oauth_profile_for_json_bytes(
 
     let config = config_store.load()?;
     for existing_name in oauth_profile_names(&config, tool) {
-        let Some(existing_identity) = resolve_oauth_identity(profile_store, tool, existing_name)?
+        let backend = config.profiles_for(tool)[existing_name].credential_backend;
+        let Some(existing_identity) =
+            resolve_oauth_identity(profile_store, tool, existing_name, backend)?
         else {
             continue;
         };
@@ -141,7 +148,19 @@ fn resolve_oauth_identity(
     profile_store: &ProfileStore,
     tool: Tool,
     profile_name: &str,
+    backend: CredentialBackend,
 ) -> Result<Option<String>> {
+    if backend == CredentialBackend::SystemKeyring {
+        let bytes = match tool {
+            Tool::Claude | Tool::Codex => secure_store::read_profile_secret(tool, profile_name)?,
+            Tool::Gemini => None,
+        };
+        return match bytes {
+            Some(bytes) => resolve_identity_from_json_bytes(&bytes),
+            None => Ok(None),
+        };
+    }
+
     let mut candidates = Vec::new();
     match tool {
         Tool::Claude => candidates.push(CLAUDE_CREDENTIALS_FILE),
@@ -164,7 +183,7 @@ fn resolve_oauth_identity(
     Ok(None)
 }
 
-fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<String>> {
+pub(crate) fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<String>> {
     let value: Value = match serde_json::from_slice(bytes) {
         Ok(value) => value,
         Err(_) => return Ok(None),

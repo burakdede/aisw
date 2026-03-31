@@ -11,6 +11,177 @@ const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 
+fn add_fake_claude_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
+         item_dir() {\n\
+           printf '%s/%s/%s' \"$store_root\" \"$1\" \"$2\"\n\
+         }\n\
+         first_item_dir() {\n\
+           dir=\"$store_root/$1\"\n\
+           [ -d \"$dir\" ] || return 1\n\
+           for item in \"$dir\"/*; do\n\
+             [ -d \"$item\" ] || continue\n\
+             printf '%s' \"$item\"\n\
+             return 0\n\
+           done\n\
+           return 1\n\
+         }\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         service=''\n\
+         account=''\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             if [ -n \"$account\" ]; then\n\
+               item=\"$(item_dir \"$service\" \"$account\")\"\n\
+             else\n\
+               item=\"$(first_item_dir \"$service\")\" || item=''\n\
+             fi\n\
+             if [ -f \"$item/secret\" ]; then\n\
+               /bin/cat \"$item/secret\"\n\
+               exit 0\n\
+             fi\n\
+             echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+             exit 44\n\
+             ;;\n\
+           add-generic-password)\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+                 -w)\n\
+                   shift\n\
+                   item=\"$(item_dir \"$service\" \"$account\")\"\n\
+                   /bin/mkdir -p \"$item\"\n\
+                   printf '%s' \"$account\" > \"$item/account\"\n\
+                   if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
+                     printf '%s' \"$1\" > \"$item/secret\"\n\
+                     exit 0\n\
+                   else\n\
+                     IFS= read -r secret || true\n\
+                     printf '%s' \"$secret\" > \"$item/secret\"\n\
+                     exit 0\n\
+                   fi\n\
+                   ;;\n\
+                 *)\n\
+                   shift\n\
+                   ;;\n\
+               esac\n\
+             done\n\
+             echo 'missing -w password' >&2\n\
+             exit 1\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
+fn add_fake_codex_security_tool(env: &TestEnv) {
+    env.add_script_tool(
+        "security",
+        "#!/bin/sh\n\
+         store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
+         service_path() {\n\
+           printf '%s/%s' \"$store_root\" \"$1\"\n\
+         }\n\
+         item_dir() {\n\
+           printf '%s/%s' \"$(service_path \"$1\")\" \"$2\"\n\
+         }\n\
+         first_item_dir() {\n\
+           dir=\"$(service_path \"$1\")\"\n\
+           [ -d \"$dir\" ] || return 1\n\
+           for item in \"$dir\"/*; do\n\
+             [ -d \"$item\" ] || continue\n\
+             printf '%s' \"$item\"\n\
+             return 0\n\
+           done\n\
+           return 1\n\
+         }\n\
+         if [ \"$1\" = \"login-keychain\" ]; then\n\
+           printf '\"%s/login.keychain-db\"\\n' \"$HOME/Library/Keychains\"\n\
+           exit 0\n\
+         fi\n\
+         cmd=\"$1\"\n\
+         shift\n\
+         service=''\n\
+         account=''\n\
+         want_secret='false'\n\
+         while [ \"$#\" -gt 0 ]; do\n\
+           case \"$1\" in\n\
+             -s)\n\
+               shift\n\
+               service=\"$1\"\n\
+               ;;\n\
+             -a)\n\
+               shift\n\
+               account=\"$1\"\n\
+               ;;\n\
+             -w)\n\
+               want_secret='true'\n\
+               ;;\n\
+           esac\n\
+           shift\n\
+         done\n\
+         case \"$cmd\" in\n\
+           find-generic-password)\n\
+             if [ -n \"$account\" ]; then\n\
+               item=\"$(item_dir \"$service\" \"$account\")\"\n\
+             else\n\
+               item=\"$(first_item_dir \"$service\")\" || item=''\n\
+             fi\n\
+             if [ -z \"$item\" ] || [ ! -f \"$item/secret\" ]; then\n\
+               echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+               exit 44\n\
+             fi\n\
+             if [ \"$want_secret\" = 'true' ]; then\n\
+               /bin/cat \"$item/secret\"\n\
+             else\n\
+               acct=$(/bin/cat \"$item/account\")\n\
+               printf 'keychain: \"/fake/login.keychain-db\"\\n'\n\
+               printf 'attributes:\\n'\n\
+               printf '    \"acct\"<blob>=\"%s\"\\n' \"$acct\"\n\
+             fi\n\
+             ;;\n\
+           *)\n\
+             echo \"unexpected security command: $cmd\" >&2\n\
+             exit 1\n\
+             ;;\n\
+         esac\n",
+    );
+}
+
+fn seed_keyring_item(env: &TestEnv, service: &str, account: &str, secret: &str) {
+    let item_dir = env.fake_home.join("keychain").join(service).join(account);
+    std::fs::create_dir_all(&item_dir).unwrap();
+    std::fs::write(item_dir.join("account"), account).unwrap();
+    std::fs::write(item_dir.join("secret"), secret).unwrap();
+}
+
 fn add_claude_profile(env: &TestEnv, name: &str) {
     env.add_fake_tool("claude", "claude 2.3.0");
     env.cmd()
@@ -493,6 +664,139 @@ fn failed_codex_switch_rolls_back_partial_live_writes() {
 }
 
 #[test]
+fn use_codex_system_keyring_profile_fails_closed_without_live_account() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    add_fake_codex_security_tool(&env);
+
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = \"keyring\"\n",
+    )
+    .unwrap();
+    seed_keyring_item(
+        &env,
+        "aisw",
+        "profile:codex:work",
+        "{\"token\":\"tok\",\"email\":\"codex@example.com\"}",
+    );
+
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 1,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {
+                    "work": {
+                        "added_at": "2026-03-30T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "system_keyring",
+                        "label": null
+                    }
+                },
+                "gemini": {}
+            },
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        }),
+    );
+
+    env.cmd()
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("AISW_CODEX_AUTH_STORAGE", "keychain")
+        .args(["use", "codex", "work"])
+        .assert()
+        .failure()
+        .stderr(contains(
+            "could not determine the live Codex keyring account",
+        ))
+        .stderr(contains("Sign in with Codex once on this machine"));
+}
+
+#[test]
+fn use_codex_system_keyring_profile_prefers_identity_named_live_account() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    add_fake_codex_security_tool(&env);
+
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = \"keyring\"\n",
+    )
+    .unwrap();
+    seed_keyring_item(
+        &env,
+        "aisw",
+        "profile:codex:work",
+        "{\"token\":\"new\",\"email\":\"work@example.com\"}",
+    );
+    seed_keyring_item(&env, "Codex Auth", "a-stale", "{\"token\":\"stale\"}");
+    seed_keyring_item(
+        &env,
+        "Codex Auth",
+        "work@example.com",
+        "{\"token\":\"old\"}",
+    );
+
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 1,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {
+                    "work": {
+                        "added_at": "2026-03-30T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "system_keyring",
+                        "label": null
+                    }
+                },
+                "gemini": {}
+            },
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        }),
+    );
+
+    env.cmd()
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("AISW_CODEX_AUTH_STORAGE", "keychain")
+        .env("USER", "someone-else")
+        .args(["use", "codex", "work"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join("keychain")
+                .join("Codex Auth")
+                .join("work@example.com")
+                .join("secret"),
+        )
+        .unwrap(),
+        "{\"token\":\"new\",\"email\":\"work@example.com\"}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join("keychain")
+                .join("Codex Auth")
+                .join("a-stale")
+                .join("secret"),
+        )
+        .unwrap(),
+        "{\"token\":\"stale\"}"
+    );
+}
+
+#[test]
 fn failed_claude_switch_does_not_advance_active_profile_or_live_credentials() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -599,6 +903,32 @@ fn use_quiet_suppresses_human_summary_output() {
         stdout.trim().is_empty(),
         "expected quiet use to be silent: {stdout}"
     );
+}
+
+#[test]
+fn use_claude_writes_keychain_when_keychain_backend_selected() {
+    let env = TestEnv::new();
+    add_fake_claude_security_tool(&env);
+    add_claude_profile(&env, "work");
+
+    env.cmd()
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .args(["use", "claude", "work"])
+        .assert()
+        .success();
+
+    let stored = std::fs::read(env.home_file("profiles/claude/work/.credentials.json")).unwrap();
+    let live = std::fs::read(
+        env.fake_home
+            .join("keychain")
+            .join("Claude Code-credentials")
+            .join("tester")
+            .join("secret"),
+    )
+    .unwrap();
+    assert_eq!(live, stored);
 }
 
 #[test]
