@@ -47,10 +47,8 @@ pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Opt
         command.args(["-a", account]);
     }
     command.arg("-w");
-    if service != "aisw" {
-        if let Some(path) = explicit_keychain_path() {
-            command.arg(path);
-        }
+    if let Some(path) = explicit_keychain_path() {
+        command.arg(path);
     }
 
     let output = command
@@ -311,6 +309,44 @@ mod tests {
             fs::read_to_string(marker).unwrap(),
             format!(
                 "find-generic-password -s Claude Code-credentials -a tester -w {} ",
+                explicit_keychain_path().unwrap().display()
+            )
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn read_generic_password_uses_explicit_keychain_path_for_aisw_service() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        let marker = dir.path().join("args");
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\n\
+                 printf '%s ' \"$@\" > \"{}\"\n\
+                 if [ \"$1\" = \"find-generic-password\" ] && [ \"$2\" = \"-s\" ] && [ \"$3\" = \"aisw\" ] && [ \"$4\" = \"-a\" ] && [ \"$5\" = \"profile:claude:default\" ] && [ \"$6\" = \"-w\" ]; then\n\
+                   printf 'secret'\n\
+                   exit 0\n\
+                 fi\n\
+                 exit 1\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+
+        let bytes = read_generic_password("aisw", Some("profile:claude:default"))
+            .unwrap()
+            .expect("password");
+        assert_eq!(bytes, b"secret");
+        assert_eq!(
+            fs::read_to_string(marker).unwrap(),
+            format!(
+                "find-generic-password -s aisw -a profile:claude:default -w {} ",
                 explicit_keychain_path().unwrap().display()
             )
         );
