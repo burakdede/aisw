@@ -24,7 +24,7 @@ async function main() {
   const indexHtml = await fs.readFile(path.join(distRoot, 'index.html'), 'utf8');
   assertContains(indexHtml, `<link rel="canonical" href="${siteUrl}"/>`, 'root canonical URL');
   assertContains(indexHtml, 'application/ld+json', 'structured data');
-  assertContains(indexHtml, 'Current release: v0.3.0.', 'release-aware hero tagline');
+  assertContains(indexHtml, 'Current release: v0.3.1.', 'release-aware hero tagline');
   assertContains(indexHtml, 'href="/aisw/quickstart/"', 'base-aware internal docs link');
   assertNotContains(indexHtml, '/aisw/aisw/', 'duplicate base path in root HTML');
   assertNotContains(indexHtml, 'href="/quickstart/"', 'root-relative docs link without base');
@@ -37,12 +37,12 @@ async function main() {
   assertContains(robotsTxt, 'Sitemap: https://burakdede.github.io/aisw/sitemap-index.xml', 'robots sitemap');
 
   const llmsFull = await fs.readFile(path.join(distRoot, 'llms-full.txt'), 'utf8');
-  assertContains(llmsFull, 'Current version: 0.3.0', 'llms-full current version');
+  assertContains(llmsFull, 'Current version: 0.3.1', 'llms-full current version');
   assertContains(llmsFull, '## Quickstart', 'llms-full quickstart entry');
   assertContains(llmsFull, 'Headings:', 'llms-full heading inventory');
 
   const versionJson = await fs.readFile(path.join(distRoot, 'version.json'), 'utf8');
-  assertContains(versionJson, '"version": "0.3.0"', 'version metadata artifact');
+  assertContains(versionJson, '"version": "0.3.1"', 'version metadata artifact');
 }
 
 async function assertFile(target) {
