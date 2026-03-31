@@ -21,6 +21,15 @@ Install from crates.io:
 cargo install aisw
 ```
 
+If `aisw` is not available immediately in the same shell session, add `~/.local/bin` to your shell config and reload it:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+If that `PATH` line is already present, `source ~/.zshrc` is enough.
+
 For local development, build from the checked out repository:
 
 ```sh

@@ -44,6 +44,15 @@ curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
 cargo install aisw
 ```
 
+If `aisw` is not available immediately in the same shell session, refresh `PATH` in that shell:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+If that `PATH` line is already in your shell config, just run `source ~/.zshrc`.
+
 ## Quickstart
 
 You hit your Claude Code quota mid-session. You have a second account. Switch in seconds:
