@@ -1080,15 +1080,13 @@ fn init_skips_duplicate_gemini_oauth_identity_without_failing() {
 }
 
 #[test]
-fn init_allows_unresolved_oauth_identity_with_warning() {
+fn init_allows_unresolved_oauth_identity_without_warning() {
     let env = TestEnv::new();
     let codex_dir = env.fake_home.join(".codex");
     fs::create_dir_all(&codex_dir).unwrap();
     fs::write(codex_dir.join("auth.json"), br#"{"token":"opaque-token"}"#).unwrap();
 
-    run_init(&env).success().stderr(contains(
-        "Could not verify whether codex OAuth profile 'default'",
-    ));
+    run_init(&env).success();
 
     assert!(env
         .aisw_home

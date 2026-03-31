@@ -5,7 +5,6 @@ use serde_json::Value;
 
 use super::{claude, codex, gemini, secure_store};
 use crate::config::{AuthMethod, Config, ConfigStore, CredentialBackend};
-use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -23,10 +22,6 @@ pub fn ensure_unique_oauth_identity(
     let Some(identity) =
         resolve_oauth_identity(profile_store, tool, pending_name, pending_backend)?
     else {
-        output::print_warning_stderr(format!(
-            "Could not verify whether {} OAuth profile '{}' belongs to a distinct account identity.",
-            tool, pending_name
-        ));
         return Ok(());
     };
 

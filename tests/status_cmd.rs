@@ -128,7 +128,11 @@ fn status_json_has_expected_keys() {
     assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
     assert_eq!(claude["state_mode"], "isolated");
-    assert_eq!(claude["active_profile_applied"], true);
+    if cfg!(target_os = "macos") {
+        assert!(claude["active_profile_applied"].is_null());
+    } else {
+        assert_eq!(claude["active_profile_applied"], true);
+    }
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
 }
@@ -161,13 +165,14 @@ fn status_reports_live_tool_config_mismatch_for_active_claude_profile() {
 
     std::fs::remove_file(env.fake_home.join(".claude").join(".credentials.json")).unwrap();
 
-    env.cmd()
-        .args(["status"])
-        .assert()
-        .success()
-        .stdout(contains(
+    let assertion = env.cmd().args(["status"]).assert().success();
+    if cfg!(target_os = "macos") {
+        assertion.stdout(contains("live macOS Keychain not checked"));
+    } else {
+        assertion.stdout(contains(
             "live tool config does not match the active profile",
         ));
+    }
 }
 
 #[test]

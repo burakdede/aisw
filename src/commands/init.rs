@@ -351,6 +351,14 @@ fn import_claude(
             .map(|path| format!("found {}", path.display()))
             .unwrap_or_else(|| "not found".to_owned()),
     );
+    let may_prompt_for_claude_keychain_import = cfg!(target_os = "macos")
+        && local_state.is_some()
+        && auth::claude::keychain_import_supported();
+    if may_prompt_for_claude_keychain_import {
+        output::print_info(
+            "Claude on macOS stores live auth in Keychain. Import may trigger a macOS Keychain prompt so aisw can read the current Claude credentials.",
+        );
+    }
 
     let Some(snapshot) = auth::claude::live_credentials_snapshot_for_import(user_home)? else {
         if auth::claude::keychain_import_supported() && local_state.is_some() {
@@ -371,10 +379,6 @@ fn import_claude(
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
     let imported_backend = auth::claude::imported_profile_backend(&snapshot.source);
-    let uses_live_keychain = matches!(
-        snapshot.source,
-        auth::claude::LiveCredentialSource::Keychain
-    );
     let (source_desc, source_bytes) = match snapshot.source {
         auth::claude::LiveCredentialSource::File(path) => {
             (format!("found {}", path.display()), snapshot.bytes)
@@ -441,11 +445,6 @@ fn import_claude(
             "oauth"
         },
     );
-    if cfg!(target_os = "macos") && uses_live_keychain {
-        output::print_info(
-            "Claude on macOS stores live auth in Keychain. Import may trigger a macOS Keychain prompt so aisw can read the current Claude credentials.",
-        );
-    }
     let Some((profile_name, label)) =
         import_name_and_label(Tool::Claude, &profile_store, confirmed)?
     else {

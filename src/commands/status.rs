@@ -97,14 +97,10 @@ fn assess_live_state(
     }
 }
 
-fn should_skip_live_verification(
-    tool: Tool,
-    credential_backend: CredentialBackend,
-    user_home: &Path,
-) -> bool {
-    tool == Tool::Claude
+fn should_skip_live_verification(tool: Tool, credential_backend: CredentialBackend) -> bool {
+    cfg!(target_os = "macos")
+        && tool == Tool::Claude
         && credential_backend == CredentialBackend::File
-        && auth::claude::uses_live_keychain(user_home)
 }
 
 pub(crate) fn collect_status(
@@ -152,7 +148,7 @@ pub(crate) fn collect_status(
                 profiles
                     .get(name)
                     .map(|m| {
-                        if should_skip_live_verification(tool, m.credential_backend, user_home) {
+                        if should_skip_live_verification(tool, m.credential_backend) {
                             Ok(None)
                         } else {
                             assess_live_state(
@@ -430,7 +426,11 @@ mod tests {
         let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
         assert_eq!(claude.active_profile.as_deref(), Some("work"));
-        assert_eq!(claude.active_profile_applied, Some(true));
+        if cfg!(target_os = "macos") {
+            assert_eq!(claude.active_profile_applied, None);
+        } else {
+            assert_eq!(claude.active_profile_applied, Some(true));
+        }
         assert!(claude.credentials_present);
         assert!(claude.permissions_ok);
     }
