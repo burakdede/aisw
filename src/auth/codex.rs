@@ -440,13 +440,10 @@ pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode)
     match mode {
         StateMode::Isolated => {
             let profile_dir = profile_store.profile_dir(Tool::Codex, name);
-            println!(
-                "export CODEX_HOME={}",
-                files::shell_single_quote(&profile_dir.display().to_string())
-            );
+            files::emit_export("CODEX_HOME", &profile_dir.display().to_string());
         }
         StateMode::Shared => {
-            println!("unset CODEX_HOME");
+            files::emit_unset("CODEX_HOME");
         }
     }
 }

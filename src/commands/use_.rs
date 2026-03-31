@@ -10,11 +10,6 @@ use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
-fn emit_export(name: &str, value: &str) {
-    let escaped = value.replace('\'', "'\"'\"'");
-    println!("export {}='{}'", name, escaped);
-}
-
 pub fn run(args: UseArgs, home: &Path) -> Result<()> {
     let user_home = dirs::home_dir().context("could not determine home directory")?;
     run_in(args, home, &user_home)
@@ -119,7 +114,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                             state_mode,
                         ),
                         StateMode::Shared => {
-                            println!("unset CODEX_HOME");
+                            crate::auth::files::emit_unset("CODEX_HOME");
                         }
                     }
                 } else {
@@ -135,7 +130,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 AuthMethod::ApiKey => {
                     if args.emit_env {
                         let key = auth::gemini::read_api_key(&profile_store, &args.profile_name)?;
-                        emit_export("GEMINI_API_KEY", &key);
+                        crate::auth::files::emit_export("GEMINI_API_KEY", &key);
                     } else {
                         auth::gemini::apply_env_file(
                             &profile_store,
@@ -146,7 +141,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
                 }
                 AuthMethod::OAuth => {
                     if args.emit_env {
-                        println!("unset GEMINI_API_KEY");
+                        crate::auth::files::emit_unset("GEMINI_API_KEY");
                     } else {
                         auth::gemini::apply_token_cache(
                             &profile_store,

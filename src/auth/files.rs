@@ -86,11 +86,36 @@ pub fn set_permissions_600(_path: &Path) -> Result<()> {
 
 /// Wrap a shell word in single quotes, escaping any embedded single quotes.
 ///
-/// Shared by the `emit_shell_env` implementations for each tool so the quoting
-/// logic stays in one place and the tool modules stay focused on auth.
+/// Produces POSIX-compatible quoting (`'value'`, with embedded `'` replaced by
+/// `'"'"'`).  Fish also accepts this quoting style, so a single function covers
+/// both `emit_export` variants.
 pub(crate) fn shell_single_quote(value: &str) -> String {
     let escaped = value.replace('\'', "'\"'\"'");
     format!("'{}'", escaped)
+}
+
+/// Emit a shell assignment for `key=value`, choosing the correct syntax for the
+/// active shell.
+///
+/// Fish cannot `eval` POSIX `export KEY=value` lines; it needs `set -gx KEY value`.
+/// We detect Fish by checking for `FISH_VERSION`, which Fish always exports into
+/// child-process environments.
+pub(crate) fn emit_export(key: &str, value: &str) {
+    if std::env::var_os("FISH_VERSION").is_some() {
+        println!("set -gx {} {}", key, shell_single_quote(value));
+    } else {
+        println!("export {}={}", key, shell_single_quote(value));
+    }
+}
+
+/// Emit a shell unset statement for `key`, choosing the correct syntax for the
+/// active shell.
+pub(crate) fn emit_unset(key: &str) {
+    if std::env::var_os("FISH_VERSION").is_some() {
+        println!("set -e {}", key);
+    } else {
+        println!("unset {}", key);
+    }
 }
 
 #[cfg(test)]
@@ -157,5 +182,27 @@ mod tests {
             &live
         )
         .unwrap());
+    }
+
+    // ---- shell quoting tests ----
+    // emit_export / emit_unset are thin wrappers around shell_single_quote plus a
+    // FISH_VERSION env check — the quoting correctness is fully covered here.
+
+    #[test]
+    fn shell_single_quote_wraps_plain_value() {
+        assert_eq!(shell_single_quote("hello"), "'hello'");
+    }
+
+    #[test]
+    fn shell_single_quote_escapes_embedded_single_quote() {
+        assert_eq!(shell_single_quote("it's"), "'it'\"'\"'s'");
+    }
+
+    #[test]
+    fn shell_single_quote_escapes_path_with_spaces() {
+        assert_eq!(
+            shell_single_quote("/home/user/my profiles/codex"),
+            "'/home/user/my profiles/codex'"
+        );
     }
 }

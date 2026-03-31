@@ -16,27 +16,15 @@ aisw() {
 }
 ";
 
-// Fish cannot eval POSIX `export KEY=VALUE`; parse line-by-line with set -gx.
+// Fish cannot eval POSIX `export KEY=VALUE`. aisw detects Fish via FISH_VERSION
+// and emits native `set -gx` / `set -e` lines, so the hook just evals them directly.
 const FISH_HOOK: &str = "\
 # Added by aisw \u{2014} do not edit manually
 set -gx AISW_SHELL_HOOK 1
 
 function aisw
   if test \"$argv[1]\" = \"use\"
-    set -l _aisw_env (command aisw $argv --emit-env 2>/dev/null)
-    if test $status -ne 0
-      command aisw $argv
-      return $status
-    end
-    for line in $_aisw_env
-      if string match -q 'unset *' -- $line
-        set -l var (string replace 'unset ' '' -- $line)
-        set -e $var
-      else
-        set -l parts (string replace 'export ' '' -- $line | string split '=' -m1)
-        set -gx $parts[1] (string unescape --style=script -- $parts[2])
-      end
-    end
+    eval (command aisw $argv --emit-env 2>/dev/null)
     command aisw $argv
   else
     command aisw $argv
@@ -106,11 +94,12 @@ mod tests {
     }
 
     #[test]
-    fn fish_hook_parses_env_lines() {
-        assert!(FISH_HOOK.contains("string replace"));
-        assert!(FISH_HOOK.contains("string split"));
-        assert!(FISH_HOOK.contains("string unescape --style=script"));
-        assert!(FISH_HOOK.contains("unset "));
-        assert!(FISH_HOOK.contains("set -e"));
+    fn fish_hook_evals_native_fish_output() {
+        // The hook should use eval directly — aisw emits native `set -gx` / `set -e`
+        // when FISH_VERSION is set, so no POSIX line-by-line parsing is needed.
+        assert!(FISH_HOOK.contains("eval"));
+        assert!(!FISH_HOOK.contains("string replace"));
+        assert!(!FISH_HOOK.contains("string split"));
+        assert!(!FISH_HOOK.contains("string unescape"));
     }
 }

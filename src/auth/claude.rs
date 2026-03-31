@@ -688,13 +688,10 @@ pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode)
     match mode {
         StateMode::Isolated => {
             let profile_dir = profile_store.profile_dir(Tool::Claude, name);
-            println!(
-                "export CLAUDE_CONFIG_DIR={}",
-                files::shell_single_quote(&profile_dir.display().to_string())
-            );
+            files::emit_export("CLAUDE_CONFIG_DIR", &profile_dir.display().to_string());
         }
         StateMode::Shared => {
-            println!("unset CLAUDE_CONFIG_DIR");
+            files::emit_unset("CLAUDE_CONFIG_DIR");
         }
     }
 }
