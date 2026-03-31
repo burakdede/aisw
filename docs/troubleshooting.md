@@ -29,6 +29,12 @@ aisw uninstall --dry-run
 aisw uninstall --yes
 ```
 
+If you installed `aisw` with Cargo and want to remove the binary too, run:
+
+```sh
+cargo uninstall aisw
+```
+
 ---
 
 ## 2. "Tool not installed" error

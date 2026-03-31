@@ -247,6 +247,8 @@ By default, `aisw uninstall` removes only the `aisw`-managed shell hook block fr
 
 Use `--dry-run` first to preview what will change. Use `--remove-data` if you also want to delete `~/.aisw` after shell integration is removed.
 
+After uninstalling shell integration, `aisw` does not remove its own binary automatically. If you installed via Cargo, run `cargo uninstall aisw`. Otherwise remove the installed `aisw` binary manually.
+
 | Flag | Description |
 |---|---|
 | `--dry-run` | Preview the uninstall plan without changing any files |

@@ -86,7 +86,7 @@ pub(crate) fn run_inner(args: UninstallArgs, home: &Path, user_home: &Path) -> R
     );
     output::print_blank_line();
     output::print_next_step(
-        "Restart your shell or source your rc file, then remove the aisw binary manually if you no longer want it installed.",
+        "Restart your shell or source your rc file. If you installed via Cargo, run 'cargo uninstall aisw' to remove the binary; otherwise remove the installed aisw binary manually.",
     );
 
     Ok(())

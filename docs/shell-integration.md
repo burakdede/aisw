@@ -106,3 +106,5 @@ aisw uninstall --yes
 ```
 
 `aisw uninstall` is conservative by default: it removes the `aisw` shell hook block and keeps `~/.aisw` unless you explicitly add `--remove-data`.
+
+If you also want to remove the `aisw` binary itself, run `cargo uninstall aisw` for Cargo installs. Otherwise remove the installed binary manually.

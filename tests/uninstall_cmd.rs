@@ -87,7 +87,8 @@ fn uninstall_removes_all_managed_shell_hooks_and_keeps_data_by_default() {
         .stdout(contains("Uninstall complete"))
         .stdout(contains("Kept"))
         .stdout(contains("Did not modify upstream tool directories"))
-        .stdout(contains("remove the aisw binary manually"));
+        .stdout(contains("cargo uninstall aisw"))
+        .stdout(contains("remove the installed aisw binary manually"));
 
     assert!(
         env.aisw_home.exists(),
