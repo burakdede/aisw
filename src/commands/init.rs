@@ -984,21 +984,27 @@ mod tests {
             b"{\"token\":\"oauth\"}",
         )
         .unwrap();
+        std::env::set_var("AISW_CLAUDE_AUTH_STORAGE", "file");
 
-        run(&aisw_home, &user_home, None).unwrap();
+        let result = run(&aisw_home, &user_home, None);
+        std::env::remove_var("AISW_CLAUDE_AUTH_STORAGE");
+        result.unwrap();
 
         let ps = ProfileStore::new(&aisw_home);
         assert!(ps.exists(Tool::Claude, "default"));
-        let contents = ps
-            .read_file(Tool::Claude, "default", ".credentials.json")
-            .unwrap();
-        assert_eq!(contents, b"{\"token\":\"oauth\"}");
-
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert!(config.profiles_for(Tool::Claude).contains_key("default"));
         assert_eq!(
             config.profiles_for(Tool::Claude)["default"].auth_method,
             AuthMethod::OAuth
+        );
+        let contents = ps
+            .read_file(Tool::Claude, "default", ".credentials.json")
+            .unwrap();
+        assert_eq!(contents, b"{\"token\":\"oauth\"}");
+        assert_eq!(
+            config.profiles_for(Tool::Claude)["default"].credential_backend,
+            CredentialBackend::File
         );
     }
 
@@ -1050,12 +1056,15 @@ mod tests {
         let claude_dir = user_home.join(".claude");
         fs::create_dir_all(&claude_dir).unwrap();
         fs::write(claude_dir.join(".credentials.json"), b"{\"token\":\"v1\"}").unwrap();
+        std::env::set_var("AISW_CLAUDE_AUTH_STORAGE", "file");
 
         // First run: import succeeds.
         run(&aisw_home, &user_home, None).unwrap();
 
         // Second run: skip without error.
-        run(&aisw_home, &user_home, None).unwrap();
+        let result = run(&aisw_home, &user_home, None);
+        std::env::remove_var("AISW_CLAUDE_AUTH_STORAGE");
+        result.unwrap();
 
         // Profile still exists, credentials not overwritten.
         let ps = ProfileStore::new(&aisw_home);

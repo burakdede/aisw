@@ -52,6 +52,12 @@ Important limits:
 - Codex keyring-backed support is strongest on platforms where the live keyring account can be discovered authoritatively
 - Claude Linux and Windows secure-storage behavior is still more weakly documented upstream than Codex
 
+Observed runtime notes:
+- On Linux, Claude has been observed storing live auth in `~/.claude/.credentials.json`
+- On Linux, Codex has been observed storing live auth in `~/.codex/auth.json`
+- On Linux, Gemini has been observed storing OAuth state in `~/.gemini/settings.json` and `~/.gemini/oauth_creds.json`
+- Those observations align well with the official docs for Codex and Gemini, but Claude's Linux auth-file location is more strongly runtime-confirmed than vendor-documented
+
 For the vendor storage details behind this policy, see [Auth Storage Matrix](../AUTH_STORAGE_MATRIX.md).
 For the current verified end-to-end behavior, see [Acceptance Matrix](./acceptance-matrix.md).
 

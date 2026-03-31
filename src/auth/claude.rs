@@ -116,6 +116,9 @@ fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
 }
 
 pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
+    if forced_auth_storage() == Some(ClaudeAuthStorage::File) {
+        return Ok(None);
+    }
     if keychain_import_supported() {
         read_keychain_credentials()
     } else {
@@ -127,6 +130,30 @@ pub fn live_credentials_snapshot_for_import(
     user_home: &Path,
 ) -> Result<Option<LiveCredentialSnapshot>> {
     let live_path = live_credentials_path(user_home);
+    let local_state = live_local_state_dir(user_home);
+
+    if cfg!(target_os = "macos") {
+        if local_state.is_some() {
+            if let Some(bytes) = read_live_keychain_credentials_for_import()? {
+                return Ok(Some(LiveCredentialSnapshot {
+                    bytes,
+                    source: LiveCredentialSource::Keychain,
+                }));
+            }
+        }
+
+        if live_path.exists() {
+            let bytes = std::fs::read(&live_path)
+                .with_context(|| format!("could not read {}", live_path.display()))?;
+            return Ok(Some(LiveCredentialSnapshot {
+                bytes,
+                source: LiveCredentialSource::File(live_path),
+            }));
+        }
+
+        return Ok(None);
+    }
+
     if live_path.exists() {
         let bytes = std::fs::read(&live_path)
             .with_context(|| format!("could not read {}", live_path.display()))?;
@@ -136,7 +163,7 @@ pub fn live_credentials_snapshot_for_import(
         }));
     }
 
-    if live_local_state_dir(user_home).is_none() {
+    if local_state.is_none() {
         return Ok(None);
     }
 
