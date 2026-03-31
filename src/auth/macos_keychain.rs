@@ -74,73 +74,6 @@ pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Opt
     Ok(Some(output.stdout))
 }
 
-pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> Result<()> {
-    ensure_available()?;
-    let secret = std::str::from_utf8(secret).context("keychain secret is not valid UTF-8")?;
-    let mut command = Command::new(security_bin());
-    command.args([
-        "add-generic-password",
-        "-U",
-        "-s",
-        service,
-        "-a",
-        account,
-        "-w",
-    ]);
-    let mut child = command
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .context("could not write macOS Keychain generic password")?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        // `security add-generic-password ... -w` prompts without exposing the
-        // secret in argv. New items ask twice; updates accept the first entry.
-        stdin
-            .write_all(format!("{secret}\n{secret}\n").as_bytes())
-            .context("could not supply password data to security")?;
-    }
-
-    let output = child
-        .wait_with_output()
-        .context("could not finish writing macOS Keychain generic password")?;
-    if output.status.success() {
-        return Ok(());
-    }
-
-    bail!(
-        "could not write macOS Keychain generic password: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-    );
-}
-
-pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
-    ensure_available()?;
-    let mut command = Command::new(security_bin());
-    command.args(["delete-generic-password", "-s", service, "-a", account]);
-    let output = command
-        .output()
-        .context("could not delete macOS Keychain generic password")?;
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if output.status.code() == Some(44)
-        || stderr.contains("could not be found")
-        || stderr.contains("not found in the keychain")
-    {
-        return Ok(());
-    }
-
-    bail!(
-        "could not delete macOS Keychain generic password: {}",
-        stderr.trim()
-    );
-}
-
 pub fn is_available() -> bool {
     cfg!(target_os = "macos")
         || test_overrides::var("AISW_SECURITY_BIN").is_some()
@@ -380,47 +313,6 @@ mod tests {
                 "find-generic-password -s Claude Code-credentials -a tester -w {} ",
                 explicit_keychain_path().unwrap().display()
             )
-        );
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn upsert_generic_password_writes_without_secret_in_args() {
-        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let dir = tempdir().unwrap();
-        let bin = dir.path().join("security");
-        let marker = dir.path().join("args");
-        let stdin_capture = dir.path().join("stdin");
-        fs::write(
-            &bin,
-            format!(
-                "#!/bin/sh\n\
-                 if [ \"$1\" = \"list-keychains\" ]; then\n\
-                   printf '    \"/tmp/test-login.keychain-db\"\\n'\n\
-                   exit 0\n\
-                 fi\n\
-                 printf '%s ' \"$@\" > \"{}\"\n\
-                 cat > \"{}\"\n\
-                 exit 0\n",
-                marker.display(),
-                stdin_capture.display()
-            ),
-        )
-        .unwrap();
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
-
-        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
-
-        upsert_generic_password("aisw", "profile:claude:default", br#"{"oauthToken":"tok"}"#)
-            .unwrap();
-
-        assert_eq!(
-            fs::read_to_string(marker).unwrap(),
-            "add-generic-password -U -s aisw -a profile:claude:default -w "
-        );
-        assert_eq!(
-            fs::read_to_string(stdin_capture).unwrap(),
-            "{\"oauthToken\":\"tok\"}\n{\"oauthToken\":\"tok\"}\n"
         );
     }
 }

@@ -57,10 +57,9 @@ pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> R
         return write_fake_password(&root, service, account, secret);
     }
 
-    if cfg!(target_os = "macos") {
-        return macos_keychain::upsert_generic_password(service, account, secret);
-    }
-
+    // Use the native keyring backend for writes on every platform. On macOS
+    // this avoids `security add-generic-password` TTY prompts leaking into
+    // normal CLI flows when aisw stores its own managed secure profiles.
     let secret = std::str::from_utf8(secret).context("keyring secret is not valid UTF-8")?;
     let entry = keyring::Entry::new(service, account).map_err(|err| {
         anyhow!("could not open system keyring entry for {service}/{account}: {err}")
@@ -73,10 +72,6 @@ pub fn upsert_generic_password(service: &str, account: &str, secret: &[u8]) -> R
 pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
     if let Some(root) = fake_root() {
         return delete_fake_password(&root, service, account);
-    }
-
-    if cfg!(target_os = "macos") {
-        return macos_keychain::delete_generic_password(service, account);
     }
 
     let entry = keyring::Entry::new(service, account).map_err(|err| {
