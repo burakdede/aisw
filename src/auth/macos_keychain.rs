@@ -1,7 +1,11 @@
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use std::process::Stdio;
 
 use anyhow::{bail, Context, Result};
+#[cfg(target_os = "macos")]
+use security_framework::passwords;
 
 use super::test_overrides;
 
@@ -70,6 +74,66 @@ pub fn read_generic_password(service: &str, account: Option<&str>) -> Result<Opt
     }
 
     Ok(Some(output.stdout))
+}
+
+pub fn upsert_generic_password(
+    service: &str,
+    account: &str,
+    secret: &[u8],
+    trusted_apps: &[PathBuf],
+) -> Result<()> {
+    ensure_available()?;
+
+    if test_overrides::var("AISW_SECURITY_BIN").is_none()
+        && test_overrides::var("AISW_SECURITY_KEYCHAIN").is_none()
+    {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = trusted_apps;
+            return passwords::set_generic_password(service, account, secret)
+                .context("could not update macOS Keychain generic password");
+        }
+    }
+
+    let mut command = Command::new(security_bin());
+    command.args(["add-generic-password", "-U", "-s", service, "-a", account]);
+    for app in trusted_apps {
+        if let Some(path) = app.to_str() {
+            command.args(["-T", path]);
+        }
+    }
+    command.arg("-w");
+    command.stdin(Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .context("could not update macOS Keychain generic password")?;
+
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("could not open stdin for macOS Keychain update")?;
+        stdin
+            .write_all(secret)
+            .context("could not write macOS Keychain secret")?;
+        stdin
+            .write_all(b"\n")
+            .context("could not finalize macOS Keychain secret write")?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .context("could not wait for macOS Keychain update")?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    bail!(
+        "could not update macOS Keychain generic password: {}",
+        stderr.trim()
+    );
 }
 
 pub fn is_available() -> bool {
@@ -349,6 +413,55 @@ mod tests {
                 "find-generic-password -s aisw -a profile:claude:default -w {} ",
                 explicit_keychain_path().unwrap().display()
             )
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn upsert_generic_password_writes_secret_via_stdin_and_trusts_apps() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        let marker = dir.path().join("args");
+        let stdin_capture = dir.path().join("stdin");
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\n\
+                 printf '%s ' \"$@\" > \"{}\"\n\
+                 cat > \"{}\"\n\
+                 exit 0\n",
+                marker.display(),
+                stdin_capture.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let trusted = dir.path().join("claude");
+        fs::write(&trusted, "").unwrap();
+        fs::set_permissions(&trusted, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+
+        upsert_generic_password(
+            "Claude Code-credentials",
+            "tester",
+            br#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
+            std::slice::from_ref(&trusted),
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(marker).unwrap(),
+            format!(
+                "add-generic-password -U -s Claude Code-credentials -a tester -T {} -w ",
+                trusted.display()
+            )
+        );
+        assert_eq!(
+            fs::read_to_string(stdin_capture).unwrap(),
+            "{\"claudeAiOauth\":{\"accessToken\":\"tok\"}}\n"
         );
     }
 }

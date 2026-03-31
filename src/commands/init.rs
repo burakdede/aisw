@@ -466,6 +466,13 @@ fn import_claude(
         }
     }
     if imported_method == AuthMethod::OAuth {
+        auth::claude::capture_live_oauth_account_metadata(
+            &profile_store,
+            &profile_name,
+            user_home,
+        )?;
+    }
+    if imported_method == AuthMethod::OAuth {
         auth::identity::ensure_unique_oauth_identity(
             &profile_store,
             &config_store,

@@ -13,9 +13,11 @@ use super::secure_store;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::output;
 use crate::profile::ProfileStore;
+use crate::tool_detection;
 use crate::types::{StateMode, Tool};
 
 const CREDENTIALS_FILE: &str = ".credentials.json";
+const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
 const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -50,6 +52,10 @@ fn live_credentials_path(user_home: &Path) -> PathBuf {
     } else {
         primary
     }
+}
+
+fn live_account_metadata_path(user_home: &Path) -> PathBuf {
+    user_home.join(".claude.json")
 }
 
 pub fn live_local_state_dir(user_home: &Path) -> Option<PathBuf> {
@@ -179,6 +185,16 @@ pub fn live_credentials_snapshot_for_import(
 }
 
 fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
+    if cfg!(target_os = "macos") && super::test_overrides::var("AISW_KEYRING_TEST_DIR").is_none() {
+        return super::macos_keychain::upsert_generic_password(
+            KEYCHAIN_SERVICE,
+            &keychain_account(),
+            bytes,
+            &trusted_claude_app_paths(),
+        )
+        .context("could not write Claude Code credentials into the system keyring");
+    }
+
     secure_backend::upsert_generic_password(
         KEYCHAIN_BACKEND,
         KEYCHAIN_SERVICE,
@@ -186,6 +202,12 @@ fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
         bytes,
     )
     .context("could not write Claude Code credentials into the system keyring")
+}
+
+fn trusted_claude_app_paths() -> Vec<PathBuf> {
+    tool_detection::detect(Tool::Claude)
+        .map(|detected| vec![detected.binary_path])
+        .unwrap_or_default()
 }
 
 fn oauth_stored_backend() -> CredentialBackend {
@@ -224,6 +246,96 @@ fn persist_oauth_storage(
             secure_store::write_profile_secret(Tool::Claude, name, auth_bytes)
         }
     }
+}
+
+fn live_keychain_payload(credentials: &[u8]) -> Vec<u8> {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(credentials) else {
+        return credentials.to_vec();
+    };
+    let Some(claude_ai_oauth) = value.get("claudeAiOauth") else {
+        return credentials.to_vec();
+    };
+    serde_json::to_vec(&serde_json::json!({ "claudeAiOauth": claude_ai_oauth }))
+        .unwrap_or_else(|_| credentials.to_vec())
+}
+
+fn read_live_oauth_account_metadata(user_home: &Path) -> Result<Option<Vec<u8>>> {
+    let path = live_account_metadata_path(user_home);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents = fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_slice(&contents)
+        .with_context(|| format!("could not parse {}", path.display()))?;
+    let Some(oauth_account) = value.get("oauthAccount") else {
+        return Ok(None);
+    };
+
+    serde_json::to_vec(oauth_account)
+        .map(Some)
+        .context("could not serialize Claude oauthAccount metadata")
+}
+
+fn persist_live_oauth_account_metadata(
+    profile_store: &ProfileStore,
+    name: &str,
+    user_home: &Path,
+) -> Result<()> {
+    let Some(metadata) = read_live_oauth_account_metadata(user_home)? else {
+        return Ok(());
+    };
+    profile_store.write_file(Tool::Claude, name, OAUTH_ACCOUNT_FILE, &metadata)
+}
+
+pub fn capture_live_oauth_account_metadata(
+    profile_store: &ProfileStore,
+    name: &str,
+    user_home: &Path,
+) -> Result<()> {
+    persist_live_oauth_account_metadata(profile_store, name, user_home)
+}
+
+fn apply_live_oauth_account_metadata(
+    profile_store: &ProfileStore,
+    name: &str,
+    user_home: &Path,
+) -> Result<()> {
+    let profile_path = profile_store
+        .profile_dir(Tool::Claude, name)
+        .join(OAUTH_ACCOUNT_FILE);
+    if !profile_path.exists() {
+        return Ok(());
+    }
+
+    let oauth_account = profile_store.read_file(Tool::Claude, name, OAUTH_ACCOUNT_FILE)?;
+    let oauth_account_value: serde_json::Value = serde_json::from_slice(&oauth_account)
+        .with_context(|| format!("could not parse {}", profile_path.display()))?;
+
+    let live_path = live_account_metadata_path(user_home);
+    let mut live_json = if live_path.exists() {
+        serde_json::from_slice::<serde_json::Value>(
+            &fs::read(&live_path)
+                .with_context(|| format!("could not read {}", live_path.display()))?,
+        )
+        .with_context(|| format!("could not parse {}", live_path.display()))?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !live_json.is_object() {
+        live_json = serde_json::json!({});
+    }
+
+    if let Some(obj) = live_json.as_object_mut() {
+        obj.insert("oauthAccount".to_owned(), oauth_account_value);
+    }
+
+    let bytes = serde_json::to_vec_pretty(&live_json)
+        .context("could not serialize Claude metadata for live state")?;
+    fs::write(&live_path, bytes)
+        .with_context(|| format!("could not write {}", live_path.display()))?;
+    files::set_permissions_600(&live_path)
 }
 
 pub fn add_api_key(
@@ -336,6 +448,18 @@ fn add_oauth_with(
     .inspect_err(|_| {
         let _ = fs::remove_dir_all(&capture_dir);
     })?;
+
+    if let Some(user_home) = dirs::home_dir() {
+        files::cleanup_profile_on_error(
+            persist_live_oauth_account_metadata(profile_store, name, &user_home),
+            profile_store,
+            Tool::Claude,
+            name,
+        )
+        .inspect_err(|_| {
+            let _ = fs::remove_dir_all(&capture_dir);
+        })?;
+    }
 
     files::cleanup_profile_on_error(
         identity::ensure_unique_oauth_identity(
@@ -518,9 +642,11 @@ pub fn apply_live_credentials(
         ),
         ClaudeAuthStorage::Keychain => {
             let stored = read_stored_credentials(profile_store, name, backend)?;
-            write_keychain_credentials(&stored)
+            write_keychain_credentials(&live_keychain_payload(&stored))
         }
-    }
+    }?;
+
+    apply_live_oauth_account_metadata(profile_store, name, user_home)
 }
 
 pub fn imported_profile_backend(source: &LiveCredentialSource) -> CredentialBackend {
@@ -656,6 +782,7 @@ mod tests {
                case \"$1\" in\n\
                  -s) shift; service=\"$1\" ;;\n\
                  -a) shift; account=\"$1\" ;;\n\
+                 -T) shift ;;\n\
                  -w)\n\
                    shift\n\
                    if [ \"$#\" -gt 0 ] && [ \"${1#-}\" = \"$1\" ]; then\n\
@@ -1224,6 +1351,95 @@ mod tests {
 
         let sentinel = ps.profile_dir(Tool::Claude, "work").join("login_args");
         assert_eq!(fs::read_to_string(&sentinel).unwrap(), "auth login");
+    }
+
+    #[test]
+    fn capture_live_oauth_account_metadata_persists_profile_file() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"org-123"},"numStartups":3}"#,
+        )
+        .unwrap();
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+
+        capture_live_oauth_account_metadata(&ps, "work", &user_home).unwrap();
+
+        let stored = ps
+            .read_file(Tool::Claude, "work", OAUTH_ACCOUNT_FILE)
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&stored).unwrap(),
+            serde_json::json!({
+                "emailAddress": "work@example.com",
+                "organizationUuid": "org-123"
+            })
+        );
+    }
+
+    #[test]
+    fn apply_live_credentials_updates_oauth_account_metadata() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"old@example.com"},"numStartups":7}"#,
+        )
+        .unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            CREDENTIALS_FILE,
+            br#"{"claudeAiOauth":{"accessToken":"tok"},"mcpOAuth":{"x":{"clientId":"abc"}}}"#,
+        )
+        .unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            OAUTH_ACCOUNT_FILE,
+            br#"{"emailAddress":"new@example.com","organizationUuid":"org-456"}"#,
+        )
+        .unwrap();
+        secure_backend::upsert_generic_password(
+            KEYCHAIN_BACKEND,
+            KEYCHAIN_SERVICE,
+            "tester",
+            br#"{"claudeAiOauth":{"accessToken":"old"}}"#,
+        )
+        .unwrap();
+
+        apply_live_credentials(&ps, "work", CredentialBackend::File, &user_home).unwrap();
+
+        let live_keychain = read_keychain_credentials().unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&live_keychain).unwrap(),
+            serde_json::json!({
+                "claudeAiOauth": {
+                    "accessToken": "tok"
+                }
+            })
+        );
+
+        let live_metadata: serde_json::Value =
+            serde_json::from_slice(&fs::read(user_home.join(".claude.json")).unwrap()).unwrap();
+        assert_eq!(
+            live_metadata["oauthAccount"]["emailAddress"],
+            "new@example.com"
+        );
+        assert_eq!(live_metadata["oauthAccount"]["organizationUuid"], "org-456");
+        assert_eq!(live_metadata["numStartups"], 7);
     }
 
     #[test]
