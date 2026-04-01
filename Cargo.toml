@@ -52,8 +52,9 @@ keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Keep the native Secret Service backend plus Rust crypto support enabled on
-# Linux so aisw does not depend on OpenSSL for keyring operations.
-keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
+# Linux. Also vendor libdbus so release and CI builds do not require the
+# system dbus development package to be preinstalled.
+keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust", "vendored"] }
 
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }
