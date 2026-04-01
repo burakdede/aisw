@@ -24,13 +24,22 @@
   </a>
 </p>
 
-## The problem
+`aisw` manages multiple accounts for Claude Code, Codex CLI, and Gemini CLI.
 
-AI coding CLI tools have daily and weekly usage quotas. When a quota runs out, work stops. There is no unified tool for switching between accounts across Claude Code, Codex CLI, and Gemini CLI.
+It is built for a simple problem: AI coding CLIs make it easy to get blocked by quota limits, account separation, or messy credential state. Switching between work, personal, and backup accounts is usually manual and tool-specific.
+
+`aisw` gives you one workflow for:
+
+- switching to another account when a quota is exhausted
+- keeping work and personal accounts separate
+- importing the account a tool is already using
+- managing profiles across Claude Code, Codex CLI, and Gemini CLI with one CLI
+
+It stores named profiles under `~/.aisw/` and applies the selected profile to the live config each tool actually reads.
 
 ## Install
 
-Full install options and setup notes: [Quickstart](https://burakdede.github.io/aisw/quickstart/).
+Full install and setup details: [Quickstart](https://burakdede.github.io/aisw/quickstart/).
 
 **curl (Linux, macOS):**
 
@@ -55,85 +64,40 @@ If that `PATH` line is already in your shell config, just run `source ~/.zshrc`.
 
 ## Quickstart
 
-You hit your Claude Code quota mid-session. You have a second account. Switch in seconds:
-
-```sh
-# Add the second account (opens browser for OAuth, or paste an API key with --api-key).
-aisw add claude personal
-
-# Switch to it.
-aisw use claude personal
-
-# Claude Code now reads credentials from the personal profile.
-# Switch back any time.
-aisw use claude work
-```
-
-First time? Run the setup wizard:
+First time:
 
 ```sh
 aisw init
 ```
 
-It detects installed tools, installs the shell hook, and offers to import the current live credentials each upstream tool is using, with sensible defaults: profile name `default` and label `imported`. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool.
-When `init` marks an imported profile active, it also applies that profile to the live tool config right away.
-Because `init` inspects live upstream state, the account it reports may have changed outside `aisw`.
+That detects installed tools, installs shell integration if needed, and offers to import the live account each tool is already using.
 
-For the full first-run flow, examples, and supported auth modes, see [Quickstart](https://burakdede.github.io/aisw/quickstart/) and [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/).
+Example: switch Claude accounts when one hits quota.
 
-## Command reference
+```sh
+aisw add claude personal
+aisw use claude personal
+```
 
-| Command | Description |
-|---|---|
-| `aisw add <tool> <name>` | Add a new account profile |
-| `aisw use <tool> <name>` | Switch to a profile |
-| `aisw list [tool]` | List all stored profiles |
-| `aisw rename <tool> <old> <new>` | Rename a stored profile |
-| `aisw remove <tool> <name>` | Delete a profile |
-| `aisw status` | Show active profiles and credential health |
-| `aisw backup list` | List credential backups |
-| `aisw backup restore <backup_id>` | Restore credentials from a backup |
-| `aisw init` | First-run setup wizard |
-| `aisw uninstall [--dry-run] [--remove-data]` | Remove shell integration and optionally delete `~/.aisw` |
-| `aisw shell-hook <shell>` | Print the shell integration snippet |
+Useful commands:
 
-See the full [Commands](https://burakdede.github.io/aisw/commands/) reference for flags and examples.
-
-Successful `init`, `add`, `use`, and `backup restore` commands also print a short next-step hint to help move through the common workflow without adding noise to inventory or status commands.
-
-Automation, prompt behavior, JSON output, and stdout/stderr expectations are documented in [Automation and Scripting](https://burakdede.github.io/aisw/automation/).
-
-## How it works
-
-- aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.
-- `aisw use` applies the selected profile into the live config location each tool actually reads.
-- `aisw init` inspects the current live upstream credentials, imports them as profiles when needed, and applies them immediately when it marks them active.
-- No proxy, no traffic interception, no network calls. aisw touches only credential files on disk.
-
-## Security
-
-- All credential files are stored with `0600` permissions (owner read/write only).
-- `aisw status` checks and reports if any credential file has permissions broader than `0600`.
-- aisw never prints credential values to stdout or stderr.
-- No credentials are sent over the network by aisw itself.
+```sh
+aisw add <tool> <name>
+aisw use <tool> <name>
+aisw list [tool]
+aisw status
+```
 
 ## Shell integration
 
-`aisw use` now applies the selected profile directly to the live tool config locations, so normal switching does not depend on shell hooks. The shell hook remains available as an optional integration for manual or advanced shell workflows.
-
-Add to your shell config:
+Normal switching works without shell hooks, but shell integration is available if you want it.
 
 ```sh
-# Bash (~/.bashrc) or Zsh (~/.zshrc)
 eval "$(aisw shell-hook bash)"
-
-# Fish (~/.config/fish/config.fish)
 aisw shell-hook fish | source
 ```
 
-Or run `aisw init` — it adds the line automatically.
-
-See [Shell Integration](https://burakdede.github.io/aisw/shell-integration/) for details.
+`aisw init` can add this automatically.
 
 ## Supported tools
 
@@ -143,7 +107,13 @@ See [Shell Integration](https://burakdede.github.io/aisw/shell-integration/) for
 | Codex CLI | `codex` | OAuth (ChatGPT), API key |
 | Gemini CLI | `gemini` | OAuth (Google), API key |
 
-More detail: [Supported Tools](https://burakdede.github.io/aisw/supported-tools/) and [Configuration](https://burakdede.github.io/aisw/configuration/).
+## Docs
+
+- [Quickstart](https://burakdede.github.io/aisw/quickstart/)
+- [Commands](https://burakdede.github.io/aisw/commands/)
+- [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/)
+- [Shell Integration](https://burakdede.github.io/aisw/shell-integration/)
+- [Supported Tools](https://burakdede.github.io/aisw/supported-tools/)
 
 ## License
 
