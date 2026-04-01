@@ -51,6 +51,8 @@ security-framework = "3"
 keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Keep the native Secret Service backend plus Rust crypto support enabled on
+# Linux so aisw does not depend on OpenSSL for keyring operations.
 keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
 [build-dependencies]

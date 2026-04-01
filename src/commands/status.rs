@@ -273,6 +273,13 @@ fn status_message(s: &ToolStatus) -> &'static str {
     "credentials present (validity not checked)"
 }
 
+fn backend_diagnostic(s: &ToolStatus) -> Option<String> {
+    if s.credential_backend.as_deref() == Some("system_keyring") {
+        return auth::system_keyring::usability_diagnostic();
+    }
+    None
+}
+
 fn print_text(statuses: &[ToolStatus]) {
     output::print_title("Status");
 
@@ -289,6 +296,9 @@ fn print_text(statuses: &[ToolStatus]) {
             output::print_kv("State mode", mode);
         }
         output::print_kv("State", status_message(s));
+        if let Some(diagnostic) = backend_diagnostic(s) {
+            output::print_warning(diagnostic);
+        }
         output::print_blank_line();
     }
 }

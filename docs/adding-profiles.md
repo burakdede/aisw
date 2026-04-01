@@ -43,6 +43,8 @@ Claude's OAuth flow still opens a browser window, but `aisw` now uses the auth-s
 
 `aisw` waits for Claude to finish the browser login and then continues. If the browser page shows an authentication code, you do not need to paste it into `aisw`. After the browser reports success, close that window and return to the terminal.
 
+Claude's browser flow may reuse the account already signed in on `claude.com`. If you need to add a different Claude account and Claude keeps opening the currently signed-in one, fully sign out of `claude.com` first and then rerun `aisw add claude <name>`.
+
 - On Linux and Windows, that is typically `.credentials.json` written into `CLAUDE_CONFIG_DIR`.
 - On macOS, newer Claude installs may keep auth in Keychain instead. aisw detects that and captures the resulting auth into the profile store once Claude finishes sign-in.
 
@@ -108,6 +110,7 @@ aisw add gemini <name>
 ```
 
 Spawns `gemini` with a scratch `HOME` and captures the resulting `~/.gemini/` token cache into the profile.
+Once Gemini writes the OAuth cache, `aisw` captures it and ends the temporary Gemini session so you do not need to manually exit back out of the tool just to finish profile creation.
 
 Gemini CLI does support headless mode via `-p/--prompt`, but Google's official docs say headless mode only works with an already cached credential or env-based auth such as `GEMINI_API_KEY` or Vertex AI variables. There is no documented headless first-time Google-account browser-login flow for a clean `HOME`, so `aisw add gemini <name>` keeps the upstream interactive login behavior for OAuth capture.
 

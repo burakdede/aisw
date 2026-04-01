@@ -229,13 +229,44 @@ fn oauth_stored_backend() -> CredentialBackend {
         Some(ClaudeAuthStorage::File) => CredentialBackend::File,
         Some(ClaudeAuthStorage::Keychain) => CredentialBackend::SystemKeyring,
         None => {
-            if super::system_keyring::is_available() {
+            if super::system_keyring::is_available() && super::system_keyring::is_usable() {
                 CredentialBackend::SystemKeyring
             } else {
                 CredentialBackend::File
             }
         }
     }
+}
+
+pub fn preferred_import_backend(source: &LiveCredentialSource) -> CredentialBackend {
+    if cfg!(target_os = "macos") && matches!(source, LiveCredentialSource::Keychain) {
+        return CredentialBackend::File;
+    }
+
+    match source {
+        LiveCredentialSource::File(_) => CredentialBackend::File,
+        LiveCredentialSource::Keychain => {
+            if super::system_keyring::is_usable() {
+                CredentialBackend::SystemKeyring
+            } else {
+                CredentialBackend::File
+            }
+        }
+    }
+}
+
+pub fn storage_fallback_note(requested_backend: CredentialBackend) -> Option<String> {
+    if requested_backend == CredentialBackend::SystemKeyring && !super::system_keyring::is_usable()
+    {
+        return super::system_keyring::usability_diagnostic().map(|message| {
+            format!(
+                "{}\n  aisw will store the managed Claude profile in encrypted local files instead of the system keyring on this machine.",
+                message
+            )
+        });
+    }
+
+    None
 }
 
 fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {
@@ -285,6 +316,10 @@ fn read_live_oauth_account_metadata(user_home: &Path) -> Result<Option<Vec<u8>>>
     serde_json::to_vec(oauth_account)
         .map(Some)
         .context("could not serialize Claude oauthAccount metadata")
+}
+
+pub fn read_live_oauth_account_metadata_for_import(user_home: &Path) -> Result<Option<Vec<u8>>> {
+    read_live_oauth_account_metadata(user_home)
 }
 
 fn persist_live_oauth_account_metadata(
@@ -443,6 +478,10 @@ fn add_oauth_with(
     fs::create_dir_all(&capture_dir)
         .with_context(|| format!("could not create {}", capture_dir.display()))?;
 
+    if let Some(note) = storage_fallback_note(CredentialBackend::SystemKeyring) {
+        output::print_warning(note);
+    }
+
     let auth_bytes = files::cleanup_profile_on_error(
         run_oauth_flow(claude_bin, &capture_dir, timeout, poll_interval),
         profile_store,
@@ -535,19 +574,40 @@ fn run_oauth_flow(
     };
 
     output::print_info("Claude sign-in will continue in your browser.");
+    output::print_warning(
+        "Claude may reuse the account already signed in in your browser. \
+If you need a different Claude account, fully sign out of claude.com first, then rerun 'aisw add claude <name>'.",
+    );
 
-    // When the keychain watcher is active we let Claude write credentials to its
-    // normal location (real config dir + macOS Keychain). This avoids the
-    // `CLAUDE_CONFIG_DIR` override that causes Claude to fall back to the
-    // remote-callback / authentication-code flow (`code=true`).  The keychain
-    // watcher detects the new credential without needing a capture dir.
+    // On macOS, avoid `CLAUDE_CONFIG_DIR` entirely for OAuth login. Claude's
+    // browser flow falls back to the auth-code URL shape (`code=true`) when the
+    // config dir is overridden, while the normal callback-based flow uses the
+    // default live locations. We therefore observe the real live locations on
+    // macOS and only use the capture-dir approach on other platforms.
     //
-    // When the keychain watcher is unavailable (non-macOS or keyring not
-    // available) we keep the capture-dir approach so the file poller can pick
+    // On non-macOS, keep the capture-dir approach so the file poller can pick
     // up credentials written to `CLAUDE_CONFIG_DIR`.
+    let use_capture_dir = !cfg!(target_os = "macos");
+    let live_credentials_path_before = if cfg!(target_os = "macos") {
+        dirs::home_dir().map(|home| live_credentials_path(&home))
+    } else {
+        None
+    };
+    let file_before = live_credentials_path_before
+        .as_ref()
+        .filter(|path| path.exists())
+        .map(fs::read)
+        .transpose()
+        .with_context(|| {
+            live_credentials_path_before
+                .as_ref()
+                .map(|path| format!("could not read {}", path.display()))
+                .unwrap_or_else(|| "could not read Claude live credentials".to_owned())
+        })?;
+
     let mut cmd = Command::new(claude_bin);
     cmd.arg("auth").arg("login");
-    if !watch_keychain {
+    if use_capture_dir {
         cmd.env("CLAUDE_CONFIG_DIR", capture_dir);
     }
     let mut child = cmd
@@ -558,7 +618,7 @@ fn run_oauth_flow(
     let deadline = Instant::now() + timeout;
 
     loop {
-        if credentials_path.exists() {
+        if use_capture_dir && credentials_path.exists() {
             // Give the binary a moment to finish writing, then kill it if still running.
             let _ = child.kill();
             let _ = child.wait();
@@ -579,6 +639,19 @@ fn run_oauth_flow(
             }
         }
 
+        if let Some(live_path) = &live_credentials_path_before {
+            if live_path.exists() {
+                let current = fs::read(live_path)
+                    .with_context(|| format!("could not read {}", live_path.display()))?;
+                let changed = file_before.as_deref() != Some(current.as_slice());
+                if changed {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(current);
+                }
+            }
+        }
+
         if let Some(status) = child
             .try_wait()
             .with_context(|| format!("could not poll {}", claude_bin.display()))?
@@ -588,6 +661,13 @@ fn run_oauth_flow(
                     if status.success() || keychain_before.is_none() {
                         return Ok(current);
                     }
+                }
+            }
+
+            if let Some(live_path) = &live_credentials_path_before {
+                if live_path.exists() && status.success() {
+                    return fs::read(live_path)
+                        .with_context(|| format!("could not read {}", live_path.display()));
                 }
             }
 
@@ -670,14 +750,7 @@ pub fn apply_live_credentials(
 }
 
 pub fn imported_profile_backend(source: &LiveCredentialSource) -> CredentialBackend {
-    if cfg!(target_os = "macos") && matches!(source, LiveCredentialSource::Keychain) {
-        CredentialBackend::File
-    } else {
-        match source {
-            LiveCredentialSource::File(_) => CredentialBackend::File,
-            LiveCredentialSource::Keychain => CredentialBackend::SystemKeyring,
-        }
-    }
+    preferred_import_backend(source)
 }
 
 pub fn uses_live_keychain(user_home: &Path) -> bool {
@@ -981,7 +1054,7 @@ mod tests {
     ///
     /// No `sleep` is used — `sleep` spawns a child process that becomes an orphan
     /// when the parent shell is SIGKILL'd, which can cause ETXTBSY on path reuse.
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn make_oauth_mock(dir: &std::path::Path, write_creds: bool) -> PathBuf {
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
@@ -1004,7 +1077,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_flow_succeeds_when_credentials_appear() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
@@ -1034,7 +1107,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_duplicate_identity_is_rejected_and_cleaned_up() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
@@ -1090,7 +1163,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_flow_errors_when_claude_exits_without_credentials() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
@@ -1124,7 +1197,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_credentials_file_has_600_permissions() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
@@ -1261,7 +1334,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_sets_claude_config_dir_env() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
@@ -1307,7 +1380,60 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    fn oauth_on_macos_avoids_claude_config_dir_and_reads_live_file() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let _home = EnvVarGuard::set("HOME", &home);
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             [ \"$1\" = \"auth\" ] || exit 9\n\
+             [ \"$2\" = \"login\" ] || exit 8\n\
+             [ -z \"$CLAUDE_CONFIG_DIR\" ] || { echo \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"; exit 7; }\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$HOME/.claude/.credentials.json\"\n\
+             exit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert!(
+            !home.join("env_was_set").exists(),
+            "CLAUDE_CONFIG_DIR should not be set during macOS OAuth login"
+        );
+        let stored = ps
+            .read_file(Tool::Claude, "work", CREDENTIALS_FILE)
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(stored).unwrap().trim(),
+            r#"{"oauthToken":"tok"}"#
+        );
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_uses_auth_login_subcommand() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
@@ -1343,6 +1469,50 @@ mod tests {
 
         let sentinel = ps.profile_dir(Tool::Claude, "work").join("login_args");
         assert_eq!(fs::read_to_string(&sentinel).unwrap(), "auth login");
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn oauth_on_macos_uses_auth_login_subcommand() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let _home = EnvVarGuard::set("HOME", &home);
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             echo '{}' > \"$HOME/.claude/.credentials.json\"\n\
+             exit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(home.join("login_args")).unwrap(),
+            "auth login"
+        );
     }
 
     #[test]

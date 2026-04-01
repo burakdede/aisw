@@ -197,6 +197,84 @@ fn init_imports_claude_credentials_from_keychain() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
+fn init_skips_duplicate_claude_keychain_oauth_using_account_metadata() {
+    let env = TestEnv::new();
+    add_fake_security_tool(&env);
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(claude_dir.join("settings.json"), b"{\"theme\":\"dark\"}").unwrap();
+    fs::write(
+        env.fake_home.join(".claude.json"),
+        r#"{"oauthAccount":{"emailAddress":"burak@burakdede.com","organizationUuid":"org-123"}}"#,
+    )
+    .unwrap();
+    seed_keyring_item(
+        &env,
+        "Claude Code-credentials",
+        "tester",
+        br#"{"claudeAiOauth":{"accessToken":"tok"}}"#,
+    );
+
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .assert()
+        .success()
+        .stdout(contains(
+            "Imported Claude Code credentials as profile 'default' and marked it active.",
+        ));
+
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "active": { "claude": "burak", "codex": null, "gemini": null },
+            "profiles": {
+                "claude": {
+                    "burak": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": "burak@burakdede.com"
+                    }
+                },
+                "codex": {},
+                "gemini": {}
+            },
+            "settings": { "backup_on_switch": true, "max_backups": 10 }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::rename(
+        env.aisw_home
+            .join("profiles")
+            .join("claude")
+            .join("default"),
+        env.aisw_home.join("profiles").join("claude").join("burak"),
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
+        .env("USER", "tester")
+        .assert()
+        .success()
+        .stdout(contains("already managed"))
+        .stdout(contains(
+            "Current live credentials match stored profile 'burak'.",
+        ))
+        .stdout(contains(
+            "aisw also records 'burak' as the active profile for claude.",
+        ));
+}
+
+#[test]
 fn init_prefers_claude_keychain_over_file_on_macos() {
     if !cfg!(target_os = "macos") {
         return;
@@ -658,7 +736,12 @@ fn init_blocks_import_of_duplicate_oauth_identity() {
     run_init(&env)
         .success()
         .stdout(contains("already managed"))
-        .stdout(contains("Live credentials already match profile 'work'."));
+        .stdout(contains(
+            "Current live credentials match stored profile 'work'.",
+        ))
+        .stdout(contains(
+            "aisw does not currently record an active profile for claude.",
+        ));
 
     assert!(!env
         .aisw_home
@@ -721,7 +804,12 @@ fn init_skips_duplicate_codex_oauth_identity_without_failing() {
         .success()
         .stdout(contains("Codex CLI"))
         .stdout(contains("already managed"))
-        .stdout(contains("Live credentials already match profile 'burak'."));
+        .stdout(contains(
+            "Current live credentials match stored profile 'burak'.",
+        ))
+        .stdout(contains(
+            "aisw also records 'burak' as the active profile for codex.",
+        ));
 
     assert!(!env
         .aisw_home
@@ -759,7 +847,12 @@ fn init_skips_duplicate_claude_api_key_without_failing() {
         .success()
         .stdout(contains("Claude Code"))
         .stdout(contains("already managed"))
-        .stdout(contains("Live credentials already match profile 'work'."));
+        .stdout(contains(
+            "Current live credentials match stored profile 'work'.",
+        ))
+        .stdout(contains(
+            "aisw does not currently record an active profile for claude.",
+        ));
 
     assert!(!env
         .aisw_home
@@ -797,7 +890,12 @@ fn init_skips_duplicate_gemini_api_key_without_failing() {
         .success()
         .stdout(contains("Gemini CLI"))
         .stdout(contains("already managed"))
-        .stdout(contains("Live credentials already match profile 'work'."));
+        .stdout(contains(
+            "Current live credentials match stored profile 'work'.",
+        ))
+        .stdout(contains(
+            "aisw does not currently record an active profile for gemini.",
+        ));
 
     assert!(!env
         .aisw_home
@@ -855,7 +953,12 @@ fn init_skips_duplicate_gemini_oauth_identity_without_failing() {
         .success()
         .stdout(contains("Gemini CLI"))
         .stdout(contains("already managed"))
-        .stdout(contains("Live credentials already match profile 'work'."));
+        .stdout(contains(
+            "Current live credentials match stored profile 'work'.",
+        ))
+        .stdout(contains(
+            "aisw also records 'work' as the active profile for gemini.",
+        ));
 
     assert!(!env
         .aisw_home

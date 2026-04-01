@@ -15,6 +15,35 @@ pub fn is_available() -> bool {
         ))
 }
 
+pub fn usability_diagnostic() -> Option<String> {
+    if fake_root().is_some() {
+        return None;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let probe_account = "__aisw_probe__";
+        match read_generic_password("aisw", Some(probe_account)) {
+            Ok(_) => None,
+            Err(_) => Some(
+                "Linux system keyring is not currently usable. aisw can fall back to file-backed storage where supported.\n  \
+                 To enable secure keyring storage, make sure a session D-Bus is available and a Secret Service provider such as GNOME Keyring or KWallet is installed and running.\n  \
+                 If you are on a headless or minimal Linux system, also check DBUS_SESSION_BUS_ADDRESS and your desktop/session keyring setup."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+pub fn is_usable() -> bool {
+    usability_diagnostic().is_none()
+}
+
 pub fn display_name() -> &'static str {
     if fake_root().is_some() {
         "system keyring"

@@ -280,7 +280,10 @@ fn import_credentials(
 ) -> Result<()> {
     output::print_section("Credential onboarding");
     output::print_info(
-        "Each tool is checked for existing live credentials that can be imported into aisw.",
+        "Each tool is checked for the current live upstream credentials that can be imported into aisw.",
+    );
+    output::print_info(
+        "The live account shown here is whatever the upstream tool is using right now and may have changed outside aisw.",
     );
     output::print_blank_line();
     import_claude(
@@ -301,6 +304,44 @@ fn import_credentials(
         detected.get(&Tool::Gemini).and_then(|entry| entry.as_ref()),
         confirmed,
     )?;
+    Ok(())
+}
+
+fn print_already_managed_live_match(
+    tool: Tool,
+    config_store: &ConfigStore,
+    auth: &str,
+    existing_name: &str,
+) -> Result<()> {
+    output::print_kv("Auth", auth);
+    output::print_kv("Import", "already managed");
+    output::print_info(format!(
+        "Current live credentials match stored profile '{}'.",
+        existing_name
+    ));
+
+    match config_store.load()?.active_for(tool) {
+        Some(active_name) if active_name == existing_name => {
+            output::print_info(format!(
+                "aisw also records '{}' as the active profile for {}.",
+                existing_name, tool
+            ));
+        }
+        Some(active_name) => {
+            output::print_warning(format!(
+                "aisw records '{}' as the active profile for {}, but the current live upstream credentials match '{}'.",
+                active_name, tool, existing_name
+            ));
+        }
+        None => {
+            output::print_info(format!(
+                "aisw does not currently record an active profile for {}.",
+                tool
+            ));
+        }
+    }
+
+    output::print_blank_line();
     Ok(())
 }
 
@@ -379,6 +420,14 @@ fn import_claude(
     let mark_active = should_mark_import_active(&config_store, Tool::Claude)?;
 
     let imported_backend = auth::claude::imported_profile_backend(&snapshot.source);
+    if let Some(note) = auth::claude::storage_fallback_note(CredentialBackend::SystemKeyring) {
+        if matches!(
+            snapshot.source,
+            auth::claude::LiveCredentialSource::Keychain
+        ) {
+            output::print_warning(note);
+        }
+    }
     let (source_desc, source_bytes) = match snapshot.source {
         auth::claude::LiveCredentialSource::File(path) => {
             (format!("found {}", path.display()), snapshot.bytes)
@@ -401,13 +450,12 @@ fn import_claude(
             &api_key,
         )? {
             output::print_kv("Credentials", &source_desc);
-            output::print_kv("Auth", "api_key");
-            output::print_kv("Import", "already managed");
-            output::print_info(format!(
-                "Live credentials already match profile '{}'.",
-                existing_name
-            ));
-            output::print_blank_line();
+            print_already_managed_live_match(
+                Tool::Claude,
+                &config_store,
+                "api_key",
+                &existing_name,
+            )?;
             return Ok(());
         }
     }
@@ -418,14 +466,22 @@ fn import_claude(
         &source_bytes,
     )? {
         output::print_kv("Credentials", &source_desc);
-        output::print_kv("Auth", "oauth");
-        output::print_kv("Import", "already managed");
-        output::print_info(format!(
-            "Live credentials already match profile '{}'.",
-            existing_name
-        ));
-        output::print_blank_line();
+        print_already_managed_live_match(Tool::Claude, &config_store, "oauth", &existing_name)?;
         return Ok(());
+    }
+    if let Some(account_bytes) =
+        auth::claude::read_live_oauth_account_metadata_for_import(user_home)?
+    {
+        if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
+            &profile_store,
+            &config_store,
+            Tool::Claude,
+            &account_bytes,
+        )? {
+            output::print_kv("Credentials", &source_desc);
+            print_already_managed_live_match(Tool::Claude, &config_store, "oauth", &existing_name)?;
+            return Ok(());
+        }
     }
 
     if confirmed && profile_store.exists(Tool::Claude, "default") {
@@ -586,13 +642,12 @@ fn import_codex(
                 &secret,
             )? {
                 output::print_kv("Credentials", &src_desc);
-                output::print_kv("Auth", "api_key");
-                output::print_kv("Import", "already managed");
-                output::print_info(format!(
-                    "Live credentials already match profile '{}'.",
-                    existing_name
-                ));
-                output::print_blank_line();
+                print_already_managed_live_match(
+                    Tool::Codex,
+                    &config_store,
+                    "api_key",
+                    &existing_name,
+                )?;
                 return Ok(());
             }
         }
@@ -603,13 +658,7 @@ fn import_codex(
         &source_bytes,
     )? {
         output::print_kv("Credentials", &src_desc);
-        output::print_kv("Auth", "oauth");
-        output::print_kv("Import", "already managed");
-        output::print_info(format!(
-            "Live credentials already match profile '{}'.",
-            existing_name
-        ));
-        output::print_blank_line();
+        print_already_managed_live_match(Tool::Codex, &config_store, "oauth", &existing_name)?;
         return Ok(());
     }
 
@@ -726,13 +775,12 @@ fn import_gemini(
                 &api_key,
             )? {
                 output::print_kv("Credentials", &src_desc);
-                output::print_kv("Auth", "api_key");
-                output::print_kv("Import", "already managed");
-                output::print_info(format!(
-                    "Live credentials already match profile '{}'.",
-                    existing_name
-                ));
-                output::print_blank_line();
+                print_already_managed_live_match(
+                    Tool::Gemini,
+                    &config_store,
+                    "api_key",
+                    &existing_name,
+                )?;
                 return Ok(());
             }
         }
@@ -745,13 +793,7 @@ fn import_gemini(
             &oauth_files,
         )? {
             output::print_kv("Credentials", &src_desc);
-            output::print_kv("Auth", "oauth");
-            output::print_kv("Import", "already managed");
-            output::print_info(format!(
-                "Live credentials already match profile '{}'.",
-                existing_name
-            ));
-            output::print_blank_line();
+            print_already_managed_live_match(Tool::Gemini, &config_store, "oauth", &existing_name)?;
             return Ok(());
         }
     }

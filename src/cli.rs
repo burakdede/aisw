@@ -71,7 +71,7 @@ pub enum Command {
     /// Show current active profiles and credential status
     Status(StatusArgs),
 
-    /// First-run setup: shell integration and credential import
+    /// First-run setup: shell integration and import of current live upstream credentials
     Init(InitArgs),
 
     /// Remove aisw shell integration and optionally delete aisw-managed data

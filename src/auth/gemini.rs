@@ -11,6 +11,7 @@ use super::identity;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
+use crate::terminal::TerminalGuard;
 use crate::types::Tool;
 
 const ENV_FILE: &str = ".env";
@@ -23,6 +24,8 @@ const KEY_VAR: &str = "GEMINI_API_KEY";
 // $HOME/.gemini/ (see auth::gemini::apply_token_cache).
 const GEMINI_CACHE_DIR: &str = ".gemini";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
+const OAUTH_PRIMARY_FILES: &[&str] = &["oauth_creds.json"];
+const POST_AUTH_EXIT_GRACE: Duration = Duration::from_secs(2);
 
 pub fn live_dir(user_home: &Path) -> PathBuf {
     user_home.join(GEMINI_CACHE_DIR)
@@ -280,27 +283,149 @@ fn run_oauth_flow(
     poll_interval: Duration,
 ) -> Result<usize> {
     let scratch = create_scratch_dir()?;
+    let scratch_workdir = scratch.join("workspace");
+    std::fs::create_dir(&scratch_workdir).with_context(|| {
+        format!(
+            "could not create Gemini scratch workspace {}",
+            scratch_workdir.display()
+        )
+    })?;
+    prepare_scratch_home(&scratch, &scratch_workdir)?;
 
     let result = (|| {
-        let mut child = Command::new(gemini_bin)
-            .env("HOME", &scratch)
-            .spawn()
-            .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
-
-        let status = wait_with_timeout(&mut child, timeout, poll_interval)?;
-        if !status.success() {
-            bail!(
-                "gemini exited with status {}. Check for errors above.",
-                status
-            );
-        }
+        let terminal = TerminalGuard::capture();
+        let (mut child, wrapped_in_pty) =
+            spawn_oauth_child(gemini_bin, &scratch, &scratch_workdir)?;
 
         let cache_dir = scratch.join(GEMINI_CACHE_DIR);
-        capture_cache_into_profile(&cache_dir, profile_dir)
+        let deadline = std::time::Instant::now() + timeout;
+
+        loop {
+            let captured = capture_oauth_cache_into_profile(&cache_dir, profile_dir)?;
+            if captured > 0 {
+                terminal.restore();
+                finalize_child_after_success(&mut child, POST_AUTH_EXIT_GRACE, wrapped_in_pty);
+                return Ok(captured);
+            }
+
+            if let Some(status) = child.try_wait().context("could not poll child process")? {
+                terminal.restore();
+                if !status.success() {
+                    bail!(
+                        "gemini exited with status {}. Check for errors above.",
+                        status
+                    );
+                }
+                return capture_oauth_cache_into_profile(&cache_dir, profile_dir);
+            }
+
+            if std::time::Instant::now() >= deadline {
+                terminal.restore();
+                stop_interactive_child(&mut child);
+                bail!("Gemini login timed out after {}s.", timeout.as_secs());
+            }
+
+            std::thread::sleep(poll_interval);
+        }
     })();
 
-    let _ = std::fs::remove_dir_all(&scratch);
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
     result
+}
+
+fn spawn_oauth_child(
+    gemini_bin: &Path,
+    scratch: &Path,
+    scratch_workdir: &Path,
+) -> Result<(std::process::Child, bool)> {
+    #[cfg(target_os = "macos")]
+    {
+        let child = Command::new("/usr/bin/script")
+            .arg("-q")
+            .arg("/dev/null")
+            .arg(gemini_bin)
+            .env("HOME", scratch)
+            .current_dir(scratch_workdir)
+            .spawn()
+            .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
+        Ok((child, true))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let child = Command::new(gemini_bin)
+            .env("HOME", scratch)
+            .current_dir(scratch_workdir)
+            .spawn()
+            .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
+        Ok((child, false))
+    }
+}
+
+fn stop_interactive_child(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let pid = child.id() as i32;
+        let _ = unsafe { libc::kill(pid, libc::SIGINT) };
+        for _ in 0..10 {
+            if child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+        for _ in 0..10 {
+            if child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn finalize_child_after_success(
+    child: &mut std::process::Child,
+    grace: Duration,
+    wrapped_in_pty: bool,
+) {
+    let deadline = std::time::Instant::now() + grace;
+    while std::time::Instant::now() < deadline {
+        if child.try_wait().ok().flatten().is_some() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    if wrapped_in_pty {
+        stop_interactive_child(child);
+    }
+}
+
+fn prepare_scratch_home(scratch: &Path, scratch_workdir: &Path) -> Result<()> {
+    let gemini_dir = scratch.join(GEMINI_CACHE_DIR);
+    std::fs::create_dir(&gemini_dir)
+        .with_context(|| format!("could not create {}", gemini_dir.display()))?;
+    let trusted_folders = serde_json::json!({
+        scratch_workdir.display().to_string(): "TRUST_FOLDER"
+    });
+    std::fs::write(
+        gemini_dir.join("trustedFolders.json"),
+        serde_json::to_vec_pretty(&trusted_folders)
+            .context("could not serialize Gemini trusted folders")?,
+    )
+    .with_context(|| {
+        format!(
+            "could not write {}",
+            gemini_dir.join("trustedFolders.json").display()
+        )
+    })?;
+    Ok(())
 }
 
 fn create_scratch_dir() -> Result<std::path::PathBuf> {
@@ -316,30 +441,13 @@ fn create_scratch_dir() -> Result<std::path::PathBuf> {
     Ok(dir)
 }
 
-fn wait_with_timeout(
-    child: &mut std::process::Child,
-    timeout: Duration,
-    poll_interval: Duration,
-) -> Result<std::process::ExitStatus> {
-    use std::time::Instant;
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(status) = child.try_wait().context("could not poll child process")? {
-            return Ok(status);
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("Gemini login timed out after {}s.", timeout.as_secs());
-        }
-        std::thread::sleep(poll_interval);
-    }
-}
-
 /// Copy every file from `cache_dir` into `profile_dir`, enforcing 0600.
 /// Returns count of files copied.
-fn capture_cache_into_profile(cache_dir: &Path, profile_dir: &Path) -> Result<usize> {
+fn capture_oauth_cache_into_profile(cache_dir: &Path, profile_dir: &Path) -> Result<usize> {
     if !cache_dir.exists() {
+        return Ok(0);
+    }
+    if !has_oauth_credentials(cache_dir)? {
         return Ok(0);
     }
     let mut count = 0;
@@ -356,6 +464,19 @@ fn capture_cache_into_profile(cache_dir: &Path, profile_dir: &Path) -> Result<us
         count += 1;
     }
     Ok(count)
+}
+
+fn has_oauth_credentials(cache_dir: &Path) -> Result<bool> {
+    for file in files::list_regular_files(cache_dir)? {
+        let name = file.file_name.to_string_lossy();
+        if OAUTH_PRIMARY_FILES
+            .iter()
+            .any(|candidate| *candidate == name)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Copy token cache files from a profile dir back to `~/.gemini/` (the active location).
@@ -556,11 +677,10 @@ mod tests {
 
     /// Creates a mock gemini binary.
     ///
-    /// `write_creds=true`  → writes oauth_creds.json to $HOME/.gemini/ and exits 0
+    /// `write_creds=true, long_running=false`  → writes oauth_creds.json and exits 0
+    /// `write_creds=true, long_running=true`   → writes oauth_creds.json and keeps running
     /// `write_creds=false, long_running=false` → exits 0 immediately, no files
-    /// `write_creds=false, long_running=true`  → sleeps briefly so wait_with_timeout
-    ///     can fire; sleep duration (0.5s) is long enough to outlast the short test
-    ///     timeout (200ms) but short enough that any orphaned process exits quickly.
+    /// `write_creds=false, long_running=true`  → sleeps briefly so timeout can fire.
     #[cfg(unix)]
     fn make_oauth_mock(dir: &std::path::Path, write_creds: bool, long_running: bool) -> PathBuf {
         use std::fs;
@@ -569,9 +689,15 @@ mod tests {
         let bin = dir.join("gemini");
         let body = match (write_creds, long_running) {
             (true, _) => {
-                "mkdir -p \"$HOME/.gemini\"\n\
-                 echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
-                 exit 0\n"
+                if long_running {
+                    "mkdir -p \"$HOME/.gemini\"\n\
+                     echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                     sleep 5\n"
+                } else {
+                    "mkdir -p \"$HOME/.gemini\"\n\
+                     echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                     exit 0\n"
+                }
             }
             (false, false) => "exit 0\n",
             // Sleep briefly — long enough to outlast a 200ms test timeout, short
@@ -614,6 +740,123 @@ mod tests {
             .profile_dir(Tool::Gemini, "default")
             .join("oauth_creds.json")
             .exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_captures_credentials_without_waiting_for_gemini_shell_exit() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true, true);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert!(ps
+            .profile_dir(Tool::Gemini, "default")
+            .join("oauth_creds.json")
+            .exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_ignores_non_auth_startup_files() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let bin = bin_dir.join("gemini");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             mkdir -p \"$HOME/.gemini\"\n\
+             echo '{\"theme\":\"dark\"}' > \"$HOME/.gemini/settings.json\"\n\
+             sleep 0.5\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_millis(200),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("timed out"));
+        assert!(!ps.exists(Tool::Gemini, "default"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_runs_gemini_in_isolated_workspace() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let bin = bin_dir.join("gemini");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             [ \"$(basename \"$PWD\")\" = \"workspace\" ] || exit 7\n\
+             mkdir -p \"$HOME/.gemini\"\n\
+             echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+        assert!(ps
+            .profile_dir(Tool::Gemini, "default")
+            .join("oauth_creds.json")
+            .exists());
+    }
+
+    #[test]
+    fn prepare_scratch_home_pretrusts_workspace() {
+        let dir = tempdir().unwrap();
+        let scratch = dir.path().join("scratch");
+        let workspace = scratch.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        prepare_scratch_home(&scratch, &workspace).unwrap();
+
+        let trusted =
+            std::fs::read_to_string(scratch.join(".gemini").join("trustedFolders.json")).unwrap();
+        assert!(trusted.contains(&workspace.display().to_string()));
+        assert!(trusted.contains("TRUST_FOLDER"));
     }
 
     #[test]

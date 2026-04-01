@@ -9,6 +9,7 @@ use crate::profile::ProfileStore;
 use crate::types::Tool;
 
 const CLAUDE_CREDENTIALS_FILE: &str = ".credentials.json";
+const CLAUDE_OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
 const CODEX_AUTH_FILE: &str = "auth.json";
 const GEMINI_OAUTH_FILES: &[&str] = &["settings.json", "oauth_creds.json"];
 
@@ -158,7 +159,10 @@ fn resolve_oauth_identity(
 
     let mut candidates = Vec::new();
     match tool {
-        Tool::Claude => candidates.push(CLAUDE_CREDENTIALS_FILE),
+        Tool::Claude => {
+            candidates.push(CLAUDE_CREDENTIALS_FILE);
+            candidates.push(CLAUDE_OAUTH_ACCOUNT_FILE);
+        }
         Tool::Codex => candidates.push(CODEX_AUTH_FILE),
         Tool::Gemini => candidates.extend_from_slice(GEMINI_OAUTH_FILES),
     }
@@ -196,7 +200,11 @@ fn resolve_identity_from_value(value: &Value) -> Option<String> {
 fn find_email(value: &Value) -> Option<String> {
     walk_json(value, &|key, raw| {
         let trimmed = raw.trim();
-        if matches!(key, Some("email" | "email_address" | "mail")) && looks_like_email(trimmed) {
+        if matches!(
+            key,
+            Some("email" | "email_address" | "emailAddress" | "mail")
+        ) && looks_like_email(trimmed)
+        {
             return Some(trimmed.to_owned());
         }
 
@@ -313,6 +321,17 @@ mod tests {
     fn resolves_direct_email_identity() {
         let value: Value =
             serde_json::from_str(r#"{"account":{"email":"Burak@Example.com"}}"#).unwrap();
+        assert_eq!(
+            resolve_identity_from_value(&value),
+            Some("burak@example.com".to_owned())
+        );
+    }
+
+    #[test]
+    fn resolves_camel_case_email_identity() {
+        let value: Value =
+            serde_json::from_str(r#"{"oauthAccount":{"emailAddress":"Burak@Example.com"}}"#)
+                .unwrap();
         assert_eq!(
             resolve_identity_from_value(&value),
             Some("burak@example.com".to_owned())

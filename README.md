@@ -75,8 +75,9 @@ First time? Run the setup wizard:
 aisw init
 ```
 
-It detects installed tools, installs the shell hook, and offers to import your existing credentials with sensible defaults: profile name `default` and label `imported`. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool.
+It detects installed tools, installs the shell hook, and offers to import the current live credentials each upstream tool is using, with sensible defaults: profile name `default` and label `imported`. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool.
 When `init` marks an imported profile active, it also applies that profile to the live tool config right away.
+Because `init` inspects live upstream state, the account it reports may have changed outside `aisw`.
 
 For the full first-run flow, examples, and supported auth modes, see [Quickstart](https://burakdede.github.io/aisw/quickstart/) and [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/).
 
@@ -106,7 +107,7 @@ Automation, prompt behavior, JSON output, and stdout/stderr expectations are doc
 
 - aisw stores named credential profiles under `~/.aisw/profiles/<tool>/<name>/`.
 - `aisw use` applies the selected profile into the live config location each tool actually reads.
-- `aisw init` imports detected live credentials as profiles and applies them immediately when it marks them active.
+- `aisw init` inspects the current live upstream credentials, imports them as profiles when needed, and applies them immediately when it marks them active.
 - No proxy, no traffic interception, no network calls. aisw touches only credential files on disk.
 
 ## Security

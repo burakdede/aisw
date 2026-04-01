@@ -61,7 +61,11 @@ Spawns `claude` with `CLAUDE_CONFIG_DIR` set to the profile directory:
 CLAUDE_CONFIG_DIR=~/.aisw/profiles/claude/<name> claude
 ```
 
-Claude's OAuth flow opens a browser window. aisw starts Claude with `CLAUDE_CONFIG_DIR` pointed at the profile directory and waits for Claude auth to become capturable.
+Claude's OAuth flow still opens a browser window, but `aisw` now uses the auth-specific login path instead of launching a full coding session.
+
+`aisw` waits for Claude to finish the browser login and then continues. If the browser page shows an authentication code, you do not need to paste it into `aisw`. After the browser reports success, close that window and return to the terminal.
+
+Claude's browser flow may reuse the account already signed in on `claude.com`. If you need to add a different Claude account and Claude keeps opening the currently signed-in one, fully sign out of `claude.com` first and then rerun `aisw add claude <name>`.
 
 - On Linux and Windows, that is typically `.credentials.json` written into `CLAUDE_CONFIG_DIR`.
 - On macOS, newer Claude installs may keep auth in Keychain instead. aisw detects that and captures the resulting auth into the profile store once Claude finishes sign-in.
@@ -121,6 +125,7 @@ Official references:
 aisw add gemini <name>
 ```
 
-Spawns `gemini` with its config directory set to the profile directory. OAuth token files are written there and copied to the active location on switch.
+Spawns `gemini` with a scratch `HOME` and captures the resulting `~/.gemini/` token cache into the profile.
+Once Gemini writes the OAuth cache, `aisw` captures it and ends the temporary Gemini session so you do not need to manually exit back out of the tool just to finish profile creation.
 
 If aisw can resolve the authenticated OAuth account identity from the stored credentials, it prevents creating a second profile alias for the same account. If identity cannot be resolved reliably, the add still succeeds with a warning.

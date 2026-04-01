@@ -172,8 +172,9 @@ fn add_claude_oauth_succeeds_with_mocked_binary() {
          fi\n\
          [ \"$1\" = \"auth\" ] || exit 9\n\
          [ \"$2\" = \"login\" ] || exit 8\n\
-         /bin/mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-         printf '%s' '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+         target_dir=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"\n\
+         /bin/mkdir -p \"$target_dir\"\n\
+         printf '%s' '{\"oauthToken\":\"tok\"}' > \"$target_dir/.credentials.json\"\n",
     );
 
     env.cmd()

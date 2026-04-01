@@ -55,6 +55,8 @@ The wizard will:
    override both during interactive onboarding. Imported live credentials become active by
    default unless aisw is already managing an active profile for that tool. When an import is
    marked active, `aisw` also applies it to the live tool config immediately.
+   `aisw init` is checking the current live upstream account for each tool, not listing every
+   stored profile in `~/.aisw`, so what it shows may have changed outside `aisw`.
 
 For Claude Code specifically, onboarding is platform-aware: file-backed auth is imported from
 the live Claude config directory, and on macOS `aisw` can also import Claude auth from Keychain

@@ -57,6 +57,8 @@ For OAuth capture, `aisw` uses the narrowest upstream login flow it can:
 - Codex: `codex login --device-auth`
 - Gemini: remains interactive for Google-account login because upstream headless mode requires preconfigured cached auth or env-based auth
 
+For Claude OAuth, browser session state matters: Claude may reopen the account already signed in on `claude.com`. If you need a different Claude account, sign out of `claude.com` first and then rerun `aisw add claude <name>`.
+
 On success, `aisw add` prints a short next-step hint for activating or verifying the new profile.
 
 For OAuth profiles, aisw prevents duplicate aliases for the same resolved account identity when the stored credentials expose a reliable identifier. If identity cannot be resolved, the add still succeeds with a warning.
@@ -215,7 +217,9 @@ First-run setup.
 aisw init
 ```
 
-Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import any existing credentials. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool, and `aisw init` applies that active profile to the live tool config immediately. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
+Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import the current live credentials each upstream tool is using. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool, and `aisw init` applies that active profile to the live tool config immediately. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
+
+`aisw init` reports current live upstream state, not a full inventory of every stored `~/.aisw` profile. If a tool's live account was changed outside `aisw`, `init` will report that current live account and note whether it matches the profile `aisw` records as active.
 
 For Claude Code, `aisw init` distinguishes local Claude state from importable auth:
 - file-backed Claude auth is imported from the live Claude config directory

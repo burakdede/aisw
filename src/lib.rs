@@ -7,6 +7,7 @@ pub mod live_apply;
 pub mod output;
 pub mod profile;
 pub mod runtime;
+pub mod terminal;
 pub mod tool_detection;
 pub mod types;
 
@@ -30,6 +31,7 @@ pub fn run() -> Result<()> {
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let clap_no_color = cli::preparse_no_color(&argv);
     let cli = cli::parse_from(argv, clap_no_color).unwrap_or_else(|err| err.exit());
+    let _terminal_guard = terminal::TerminalGuard::capture();
     runtime::configure(cli.non_interactive, cli.quiet);
     output::configure(cli.no_color, cli.quiet);
     commands::dispatch(cli)
