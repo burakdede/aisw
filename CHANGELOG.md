@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.2 - 2026-04-01
+
+### Fixed
+
+- Fixed repeated `init` imports and live-account matching for Claude OAuth profiles, including macOS Keychain-backed accounts.
+- Clarified `init` output and docs to distinguish live upstream credentials from `aisw`'s recorded active profile state.
+- Hardened Linux system-keyring behavior with clearer diagnostics and file-backed fallback when the runtime keyring is unavailable.
+- Improved Claude OAuth messaging around browser account selection and duplicate-session confusion.
+- Fixed Gemini OAuth capture so it waits for real auth completion, avoids trust-folder setup friction, and reduces terminal corruption after successful login.
+- Added terminal restoration so failed or interrupted interactive auth flows do not leave the shell in a broken state.
+
 ## 0.3.1 - 2026-03-31
 
 ### Fixed
