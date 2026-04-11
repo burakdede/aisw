@@ -476,6 +476,16 @@ fn desired_live_file_store_config(user_home: &Path) -> Result<String> {
     if config_dest.exists() {
         let current = std::fs::read_to_string(&config_dest)
             .with_context(|| format!("could not read {}", config_dest.display()))?;
+        // Validate before merging: a corrupt config.toml must not be silently
+        // overwritten with a line-merged result that may still be invalid TOML.
+        toml::from_str::<toml::Value>(&current).map_err(|e| {
+            anyhow::anyhow!(
+                "Codex config.toml is not valid TOML — cannot merge required settings.\n  \
+                 Fix or remove {} and retry.\n  ({})",
+                config_dest.display(),
+                e
+            )
+        })?;
         Ok(merge_file_store_config(&current))
     } else {
         Ok(CONFIG_TOML_CONTENTS.to_owned())
@@ -1077,5 +1087,106 @@ mod tests {
         .unwrap();
 
         assert!(!live_files_match(&ps, "main", &user_home).unwrap());
+    }
+
+    // ---- desired_live_file_store_config / TOML validation tests ----
+
+    #[test]
+    fn apply_live_files_rejects_malformed_config_toml() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        // Write a config.toml that is not valid TOML.
+        std::fs::write(
+            user_home.join(".codex").join(CONFIG_FILE),
+            b"this is not = valid [ toml !!!\n",
+        )
+        .unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+
+        let err = apply_live_files(&ps, "main", &user_home).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("not valid TOML"),
+            "expected TOML validation error, got: {msg}"
+        );
+        // The original file must be untouched — live_apply transaction never committed.
+        let on_disk = std::fs::read_to_string(user_home.join(".codex").join(CONFIG_FILE)).unwrap();
+        assert!(
+            on_disk.contains("this is not"),
+            "original config.toml was modified despite error"
+        );
+    }
+
+    #[test]
+    fn apply_live_files_merges_into_existing_valid_config() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        // Simulate a user's existing Codex config with custom settings.
+        std::fs::write(
+            user_home.join(".codex").join(CONFIG_FILE),
+            b"model = \"o3\"\n[features]\nunified_exec = true\n",
+        )
+        .unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+        apply_live_files(&ps, "main", &user_home).unwrap();
+
+        let contents = std::fs::read_to_string(user_home.join(".codex").join(CONFIG_FILE)).unwrap();
+        assert!(contents.contains("model = \"o3\""), "model key lost");
+        assert!(contents.contains("[features]"), "[features] section lost");
+        assert!(
+            contents.contains("unified_exec = true"),
+            "unified_exec key lost"
+        );
+        assert!(
+            contents.contains("cli_auth_credentials_store = \"file\""),
+            "required key not present"
+        );
+    }
+
+    #[test]
+    fn apply_live_files_replaces_keyring_store_with_file() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+        std::fs::write(
+            user_home.join(".codex").join(CONFIG_FILE),
+            b"cli_auth_credentials_store = \"keyring\"\n",
+        )
+        .unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+        apply_live_files(&ps, "main", &user_home).unwrap();
+
+        let contents = std::fs::read_to_string(user_home.join(".codex").join(CONFIG_FILE)).unwrap();
+        assert!(
+            contents.contains("cli_auth_credentials_store = \"file\""),
+            "keyring not replaced with file"
+        );
+        assert!(
+            !contents.contains("keyring"),
+            "keyring value still present after merge"
+        );
+    }
+
+    #[test]
+    fn apply_live_files_creates_config_when_absent() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        // No pre-existing config.toml.
+        std::fs::create_dir_all(user_home.join(".codex")).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
+        apply_live_files(&ps, "main", &user_home).unwrap();
+
+        let contents = std::fs::read_to_string(user_home.join(".codex").join(CONFIG_FILE)).unwrap();
+        assert_eq!(contents, CONFIG_TOML_CONTENTS);
     }
 }
