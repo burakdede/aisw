@@ -306,13 +306,10 @@ fn use_without_emit_env_prints_switched_message() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched profile"))
-        .stdout(contains("Tool"))
         .stdout(contains("Claude Code"))
-        .stdout(contains("Active profile"))
         .stdout(contains("work"))
         .stdout(contains("Auth"))
-        .stdout(contains("api_key"))
+        .stdout(contains("api-key"))
         .stdout(contains("Next"))
         .stdout(contains("aisw status"));
 
@@ -329,13 +326,10 @@ fn use_prints_switched_without_shell_env_matching() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched profile"))
-        .stdout(contains("Tool"))
         .stdout(contains("Claude Code"))
-        .stdout(contains("Active profile"))
         .stdout(contains("work"))
         .stdout(contains("Auth"))
-        .stdout(contains("api_key"))
+        .stdout(contains("api-key"))
         .stdout(contains("Next"))
         .stdout(contains("aisw status"));
 }

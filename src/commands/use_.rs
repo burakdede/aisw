@@ -160,11 +160,19 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     )?;
 
     if !args.emit_env {
-        output::print_title("Switched profile");
-        output::print_kv("Tool", args.tool.display_name());
-        output::print_kv("Active profile", &args.profile_name);
+        let title = format!(
+            "{} \u{2192} {}",
+            args.tool.display_name(),
+            args.profile_name
+        );
+        output::print_title(&title);
         output::print_kv("Auth", auth_label(profile_meta.auth_method));
         output::print_kv("Backend", profile_meta.credential_backend.display_name());
+        if let Some(identity) =
+            extract_switch_identity(&profile_store, args.tool, &args.profile_name)
+        {
+            output::print_kv("Account", &identity);
+        }
         if args.tool.supports_state_mode() {
             output::print_kv("State mode", state_mode.display_name());
         }
@@ -202,8 +210,119 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
 fn auth_label(method: AuthMethod) -> &'static str {
     match method {
         AuthMethod::OAuth => "oauth",
-        AuthMethod::ApiKey => "api_key",
+        AuthMethod::ApiKey => "api-key",
     }
+}
+
+/// Best-effort: extract a human-readable account identity from stored credentials.
+/// Returns `None` silently when no identity is parseable — never fails the switch.
+fn extract_switch_identity(profile_store: &ProfileStore, tool: Tool, name: &str) -> Option<String> {
+    let cred_file = match tool {
+        Tool::Claude => ".credentials.json",
+        Tool::Codex => "auth.json",
+        Tool::Gemini => "oauth_creds.json",
+    };
+
+    let bytes = profile_store.read_file(tool, name, cred_file).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+
+    // Try common email/identity fields in order of specificity.
+    // Claude OAuth: {"oauthAccount":{"emailAddress":"..."}}, {"account":{"email":"..."}}
+    // Codex OAuth:  {"account":{"email":"..."}}
+    // Codex JWT:    {"token":"<jwt>"} — decode middle segment
+    for path in &[
+        &["oauthAccount", "emailAddress"] as &[&str],
+        &["account", "email"],
+        &["emailAddress"],
+        &["email"],
+        &["account", "emailAddress"],
+    ] {
+        if let Some(s) = json_path(&v, path) {
+            return Some(s);
+        }
+    }
+
+    // For Codex API-key profiles the "token" field may be a JWT.
+    if tool == Tool::Codex {
+        if let Some(jwt) = v.get("token").and_then(|t| t.as_str()) {
+            if let Some(email) = decode_jwt_email(jwt) {
+                return Some(email);
+            }
+        }
+    }
+
+    None
+}
+
+fn json_path(value: &serde_json::Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path {
+        current = current.get(key)?;
+    }
+    current.as_str().map(|s| s.to_owned())
+}
+
+/// Decode the payload segment of a JWT and extract the `email` claim, if present.
+fn decode_jwt_email(jwt: &str) -> Option<String> {
+    let payload_b64 = jwt.split('.').nth(1)?;
+    // JWT uses base64url without padding.
+    let padded = base64_url_to_padded(payload_b64);
+    let bytes = base64_decode(&padded)?;
+    let payload: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    payload
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_owned())
+}
+
+fn base64_url_to_padded(s: &str) -> String {
+    let mut out = s.replace('-', "+").replace('_', "/");
+    match out.len() % 4 {
+        2 => out.push_str("=="),
+        3 => out.push('='),
+        _ => {}
+    }
+    out
+}
+
+fn base64_decode(s: &str) -> Option<Vec<u8>> {
+    // Minimal inline base64 decoder for JWT payloads.
+    // We only need this for JWT payloads so a simple table-based decode is fine.
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut table = [0u8; 256];
+    for (i, &c) in alphabet.iter().enumerate() {
+        table[c as usize] = i as u8;
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity((bytes.len() / 4) * 3);
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        if bytes[i] == b'=' {
+            break;
+        }
+        let a = table[bytes[i] as usize] as u32;
+        let b = table[bytes[i + 1] as usize] as u32;
+        let c = if bytes[i + 2] == b'=' {
+            0
+        } else {
+            table[bytes[i + 2] as usize] as u32
+        };
+        let d = if i + 3 >= bytes.len() || bytes[i + 3] == b'=' {
+            0
+        } else {
+            table[bytes[i + 3] as usize] as u32
+        };
+        let triple = (a << 18) | (b << 12) | (c << 6) | d;
+        out.push(((triple >> 16) & 0xFF) as u8);
+        if bytes[i + 2] != b'=' {
+            out.push(((triple >> 8) & 0xFF) as u8);
+        }
+        if i + 3 < bytes.len() && bytes[i + 3] != b'=' {
+            out.push((triple & 0xFF) as u8);
+        }
+        i += 4;
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -365,5 +484,121 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(config.active_for(Tool::Codex), Some("work"));
+    }
+
+    // ---- extract_switch_identity tests ----
+
+    #[test]
+    fn identity_extracted_from_claude_oauth_account_email() {
+        let dir = tempdir().unwrap();
+        let home = dir.path();
+        let ps = ProfileStore::new(home);
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            ".credentials.json",
+            br#"{"oauthToken":"tok","account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+
+        let identity = extract_switch_identity(&ps, Tool::Claude, "work");
+        assert_eq!(identity.as_deref(), Some("work@example.com"));
+    }
+
+    #[test]
+    fn identity_extracted_from_claude_oauth_account_metadata() {
+        let dir = tempdir().unwrap();
+        let home = dir.path();
+        let ps = ProfileStore::new(home);
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            ".credentials.json",
+            br#"{"claudeAiOauth":{"accessToken":"tok"},"oauthAccount":{"emailAddress":"team@example.com"}}"#,
+        )
+        .unwrap();
+
+        let identity = extract_switch_identity(&ps, Tool::Claude, "work");
+        assert_eq!(identity.as_deref(), Some("team@example.com"));
+    }
+
+    #[test]
+    fn identity_none_for_api_key_profile() {
+        let dir = tempdir().unwrap();
+        let home = dir.path();
+        let ps = ProfileStore::new(home);
+        let cs = ConfigStore::new(home);
+        auth::claude::add_api_key(&ps, &cs, "work", claude_key(), None).unwrap();
+
+        // API key JSON has no email field — should return None, not error.
+        let identity = extract_switch_identity(&ps, Tool::Claude, "work");
+        assert!(identity.is_none());
+    }
+
+    #[test]
+    fn identity_none_when_cred_file_missing() {
+        let dir = tempdir().unwrap();
+        let home = dir.path();
+        let ps = ProfileStore::new(home);
+        ps.create(Tool::Claude, "ghost").unwrap();
+        // No credential file written.
+        let identity = extract_switch_identity(&ps, Tool::Claude, "ghost");
+        assert!(identity.is_none());
+    }
+
+    #[test]
+    fn identity_extracted_from_codex_account_email() {
+        let dir = tempdir().unwrap();
+        let home = dir.path();
+        let ps = ProfileStore::new(home);
+        ps.create(Tool::Codex, "work").unwrap();
+        ps.write_file(
+            Tool::Codex,
+            "work",
+            "auth.json",
+            br#"{"account":{"email":"dev@example.com"}}"#,
+        )
+        .unwrap();
+
+        let identity = extract_switch_identity(&ps, Tool::Codex, "work");
+        assert_eq!(identity.as_deref(), Some("dev@example.com"));
+    }
+
+    #[test]
+    fn decode_jwt_email_extracts_email_claim() {
+        // Craft a minimal JWT with a known payload: {"email":"user@example.com"}
+        // Header: {"alg":"HS256"} → eyJhbGciOiJIUzI1NiJ9
+        // Payload: {"email":"user@example.com"} → encode manually
+        let payload = r#"{"email":"user@example.com"}"#;
+        let b64 = base64_encode(payload.as_bytes());
+        let fake_jwt = format!("eyJhbGciOiJIUzI1NiJ9.{b64}.signature");
+        let email = decode_jwt_email(&fake_jwt);
+        assert_eq!(email.as_deref(), Some("user@example.com"));
+    }
+
+    fn base64_encode(input: &[u8]) -> String {
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in input.chunks(3) {
+            let b0 = chunk[0] as u32;
+            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+            let triple = (b0 << 16) | (b1 << 8) | b2;
+            out.push(alphabet[((triple >> 18) & 0x3F) as usize] as char);
+            out.push(alphabet[((triple >> 12) & 0x3F) as usize] as char);
+            if chunk.len() > 1 {
+                out.push(alphabet[((triple >> 6) & 0x3F) as usize] as char);
+            } else {
+                out.push('=');
+            }
+            if chunk.len() > 2 {
+                out.push(alphabet[(triple & 0x3F) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+        out
     }
 }

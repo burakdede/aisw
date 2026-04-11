@@ -369,7 +369,6 @@ fn restore_after_remove_recreates_profile_in_config_and_can_be_used() {
         .args(["use", "claude", "work"])
         .assert()
         .success()
-        .stdout(contains("Switched profile"))
         .stdout(contains("Claude Code"))
         .stdout(contains("work"));
 }
