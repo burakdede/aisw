@@ -70,6 +70,11 @@ pub(crate) fn detect_in(tool: Tool, path: OsString) -> Option<DetectedTool> {
     detect_at(tool, path, VersionSource::None)
 }
 
+/// Detect a tool binary on the given PATH value, capturing its version string.
+pub fn detect_at_path(tool: Tool, path: &std::ffi::OsStr) -> Option<DetectedTool> {
+    detect_at(tool, path.to_os_string(), VersionSource::Capture)
+}
+
 fn detect_at(tool: Tool, path: OsString, version_source: VersionSource) -> Option<DetectedTool> {
     let binary_path = find_binary_path(tool, &path)?;
     let version = match version_source {

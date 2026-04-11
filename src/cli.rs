@@ -83,6 +83,16 @@ pub enum Command {
 
     /// Manage credential backups
     Backup(BackupArgs),
+
+    /// Run a health check on the aisw installation and tool environment
+    Doctor(DoctorArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct DoctorArgs {
+    /// Output results as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -473,5 +483,23 @@ mod tests {
             !help.contains("emit-env"),
             "emit-env should be hidden from help"
         );
+    }
+
+    #[test]
+    fn doctor_no_flags() {
+        let cli = parse(&["doctor"]).unwrap();
+        let Command::Doctor(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(!args.json);
+    }
+
+    #[test]
+    fn doctor_json_flag() {
+        let cli = parse(&["doctor", "--json"]).unwrap();
+        let Command::Doctor(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(args.json);
     }
 }

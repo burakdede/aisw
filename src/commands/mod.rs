@@ -5,6 +5,7 @@ use crate::config::ConfigStore;
 
 pub mod add;
 pub mod backup;
+pub mod doctor;
 pub mod init;
 pub mod list;
 pub mod remove;
@@ -40,6 +41,12 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         }
         Command::ShellHook(args) => shell_hook::run(args)?,
         Command::Backup(args) => backup::run(args.command, &home)?,
+        Command::Doctor(args) => {
+            let passed = doctor::run(args, &home)?;
+            if !passed {
+                std::process::exit(1);
+            }
+        }
     }
     Ok(())
 }
