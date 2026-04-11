@@ -3,6 +3,7 @@ pub mod backup;
 pub mod cli;
 pub mod commands;
 pub mod config;
+pub mod error;
 pub mod live_apply;
 pub mod output;
 pub mod profile;

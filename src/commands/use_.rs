@@ -6,6 +6,7 @@ use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
 use crate::config::{AuthMethod, ConfigStore};
+use crate::error::AiswError;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
@@ -39,15 +40,13 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
 
     let profiles = config.profiles_for(args.tool);
 
-    let profile_meta = profiles.get(&args.profile_name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "profile '{}' not found for {}.\n  \
-             Run 'aisw list {}' to see available profiles.",
-            args.profile_name,
-            args.tool,
-            args.tool
-        )
-    })?;
+    let profile_meta =
+        profiles
+            .get(&args.profile_name)
+            .ok_or_else(|| AiswError::ProfileNotFound {
+                tool: args.tool,
+                name: args.profile_name.clone(),
+            })?;
     profile_meta
         .credential_backend
         .validate_for_tool(args.tool)?;

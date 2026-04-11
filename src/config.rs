@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use fs2::FileExt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::error::AiswError;
 use crate::types::{StateMode, Tool};
 
 const CURRENT_VERSION: u32 = 1;
@@ -192,13 +193,11 @@ impl ConfigStore {
             let profiles = tool_profiles_mut(config, tool);
 
             if profiles.contains_key(name) {
-                bail!(
-                    "profile '{}' already exists for {}.\n  \
-                     Use 'aisw list {}' to see existing profiles.",
-                    name,
+                return Err(AiswError::ProfileAlreadyExists {
                     tool,
-                    tool
-                );
+                    name: name.to_owned(),
+                }
+                .into());
             }
 
             profiles.insert(name.to_owned(), meta);
@@ -218,13 +217,11 @@ impl ConfigStore {
             let profiles = tool_profiles_mut(config, tool);
 
             if profiles.remove(name).is_none() {
-                bail!(
-                    "profile '{}' not found for {}.\n  \
-                     Run 'aisw list {}' to see available profiles.",
-                    name,
+                return Err(AiswError::ProfileNotFound {
                     tool,
-                    tool
-                );
+                    name: name.to_owned(),
+                }
+                .into());
             }
 
             Ok(())
@@ -239,25 +236,20 @@ impl ConfigStore {
                 bail!("profile '{}' is already named '{}'.", old_name, new_name);
             }
 
-            let meta = profiles.remove(old_name).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "profile '{}' not found for {}.\n  \
-                     Run 'aisw list {}' to see available profiles.",
-                    old_name,
+            let meta = profiles
+                .remove(old_name)
+                .ok_or_else(|| AiswError::ProfileNotFound {
                     tool,
-                    tool
-                )
-            })?;
+                    name: old_name.to_owned(),
+                })?;
 
             if profiles.contains_key(new_name) {
                 profiles.insert(old_name.to_owned(), meta);
-                bail!(
-                    "profile '{}' already exists for {}.\n  \
-                     Use 'aisw list {}' to see existing profiles.",
-                    new_name,
+                return Err(AiswError::ProfileAlreadyExists {
                     tool,
-                    tool
-                );
+                    name: new_name.to_owned(),
+                }
+                .into());
             }
 
             profiles.insert(new_name.to_owned(), meta);
@@ -273,13 +265,11 @@ impl ConfigStore {
     pub fn set_active(&self, tool: Tool, name: &str) -> Result<Config> {
         self.with_mutating_config(|config| {
             if !tool_profiles(config, tool).contains_key(name) {
-                bail!(
-                    "profile '{}' not found for {}.\n  \
-                     Run 'aisw list {}' to see available profiles.",
-                    name,
+                return Err(AiswError::ProfileNotFound {
                     tool,
-                    tool
-                );
+                    name: name.to_owned(),
+                }
+                .into());
             }
 
             *tool_active_mut(config, tool) = Some(name.to_owned());
@@ -295,13 +285,11 @@ impl ConfigStore {
     ) -> Result<Config> {
         self.with_mutating_config(|config| {
             if !tool_profiles(config, tool).contains_key(name) {
-                bail!(
-                    "profile '{}' not found for {}.\n  \
-                     Run 'aisw list {}' to see available profiles.",
-                    name,
+                return Err(AiswError::ProfileNotFound {
                     tool,
-                    tool
-                );
+                    name: name.to_owned(),
+                }
+                .into());
             }
 
             *tool_active_mut(config, tool) = Some(name.to_owned());
