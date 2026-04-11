@@ -1,34 +1,43 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, Instant};
+//! Claude Code authentication — profile management, OAuth, and API key support.
+//!
+//! The implementation is split across focused sub-modules:
+//!
+//! * [`paths`]    — resolves live credential and metadata file paths
+//! * [`keychain`] — auth-storage detection and OS keychain read/write
+//! * [`api_key`]  — API key add, validate, and read
+//! * [`oauth`]    — OAuth capture flow and account-metadata persistence
 
-use anyhow::{bail, Context, Result};
-use chrono::Utc;
-use std::fs;
+mod api_key;
+mod keychain;
+mod oauth;
+mod paths;
+
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use std::path::PathBuf;
 
 use super::files;
-use super::identity;
-use super::secure_backend::{self, SecureBackend};
 use super::secure_store;
-use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
-use crate::output;
+use crate::config::CredentialBackend;
 use crate::profile::ProfileStore;
-use crate::tool_detection;
 use crate::types::{StateMode, Tool};
 
-const CREDENTIALS_FILE: &str = ".credentials.json";
-const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
-const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
-const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
-const POLL_INTERVAL: Duration = Duration::from_millis(500);
-const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
-const KEYCHAIN_BACKEND: SecureBackend = SecureBackend::SystemKeyring;
+use keychain::{auth_storage, ClaudeAuthStorage};
+use paths::live_credentials_path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClaudeAuthStorage {
-    File,
-    Keychain,
-}
+// ---- Constants ----
+
+pub(super) const CREDENTIALS_FILE: &str = ".credentials.json";
+pub(super) const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
+pub(super) const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
+pub(super) const OAUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+pub(super) const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+pub(super) const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+pub(super) const KEYCHAIN_BACKEND: super::secure_backend::SecureBackend =
+    super::secure_backend::SecureBackend::SystemKeyring;
+
+// ---- Public types ----
 
 pub enum LiveCredentialSource {
     File(PathBuf),
@@ -40,691 +49,20 @@ pub struct LiveCredentialSnapshot {
     pub source: LiveCredentialSource,
 }
 
-fn live_credentials_path(user_home: &Path) -> PathBuf {
-    let primary = user_home.join(".claude").join(CREDENTIALS_FILE);
-    let secondary = user_home
-        .join(".config")
-        .join("claude")
-        .join(CREDENTIALS_FILE);
-
-    if secondary.exists() && !primary.exists() {
-        secondary
-    } else {
-        primary
-    }
-}
-
-fn live_account_metadata_path(user_home: &Path) -> PathBuf {
-    user_home.join(".claude.json")
-}
-
-pub fn live_local_state_dir(user_home: &Path) -> Option<PathBuf> {
-    let primary = user_home.join(".claude");
-    if primary.exists() {
-        return Some(primary);
-    }
-
-    let secondary = user_home.join(".config").join("claude");
-    if secondary.exists() {
-        Some(secondary)
-    } else {
-        None
-    }
-}
-
-fn auth_storage(user_home: &Path) -> ClaudeAuthStorage {
-    if let Some(storage) = forced_auth_storage() {
-        return storage;
-    }
-
-    // On macOS, Claude Code reads credentials from the Keychain even when a
-    // credentials file is also present on disk. Prefer Keychain here so that
-    // apply_live_credentials updates what Claude actually reads, not just the
-    // file that Claude ignores.
-    #[cfg(target_os = "macos")]
-    if super::system_keyring::is_available() && read_keychain_credentials().ok().flatten().is_some()
-    {
-        return ClaudeAuthStorage::Keychain;
-    }
-
-    if live_credentials_path(user_home).exists() {
-        ClaudeAuthStorage::File
-    } else if super::system_keyring::is_available()
-        && read_keychain_credentials().ok().flatten().is_some()
-    {
-        ClaudeAuthStorage::Keychain
-    } else {
-        ClaudeAuthStorage::File
-    }
-}
-
-fn forced_auth_storage() -> Option<ClaudeAuthStorage> {
-    match super::test_overrides::string("AISW_CLAUDE_AUTH_STORAGE").as_deref() {
-        Some("file") => Some(ClaudeAuthStorage::File),
-        Some("keychain") => Some(ClaudeAuthStorage::Keychain),
-        _ => None,
-    }
-}
-
-pub fn keychain_import_supported() -> bool {
-    forced_auth_storage() == Some(ClaudeAuthStorage::Keychain)
-        || super::system_keyring::is_available()
-}
-
-fn watch_keychain_during_oauth() -> bool {
-    match forced_auth_storage() {
-        Some(ClaudeAuthStorage::File) => false,
-        Some(ClaudeAuthStorage::Keychain) => true,
-        None => super::system_keyring::is_available(),
-    }
-}
-
-fn keychain_account() -> String {
-    secure_backend::find_generic_password_account(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE)
-        .ok()
-        .flatten()
-        .or_else(|| std::env::var("USER").ok())
-        .unwrap_or_else(|| "aisw".to_owned())
-}
-
-fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
-    secure_backend::read_generic_password(KEYCHAIN_BACKEND, KEYCHAIN_SERVICE, None)
-        .context("could not query the system keyring for Claude Code credentials")
-}
-
-pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
-    if forced_auth_storage() == Some(ClaudeAuthStorage::File) {
-        return Ok(None);
-    }
-    if keychain_import_supported() {
-        read_keychain_credentials()
-    } else {
-        Ok(None)
-    }
-}
-
-pub fn live_credentials_snapshot_for_import(
-    user_home: &Path,
-) -> Result<Option<LiveCredentialSnapshot>> {
-    let live_path = live_credentials_path(user_home);
-    let local_state = live_local_state_dir(user_home);
-
-    if cfg!(target_os = "macos") {
-        if local_state.is_some() {
-            if let Some(bytes) = read_live_keychain_credentials_for_import()? {
-                return Ok(Some(LiveCredentialSnapshot {
-                    bytes,
-                    source: LiveCredentialSource::Keychain,
-                }));
-            }
-        }
-
-        if live_path.exists() {
-            let bytes = std::fs::read(&live_path)
-                .with_context(|| format!("could not read {}", live_path.display()))?;
-            return Ok(Some(LiveCredentialSnapshot {
-                bytes,
-                source: LiveCredentialSource::File(live_path),
-            }));
-        }
-
-        return Ok(None);
-    }
-
-    if live_path.exists() {
-        let bytes = std::fs::read(&live_path)
-            .with_context(|| format!("could not read {}", live_path.display()))?;
-        return Ok(Some(LiveCredentialSnapshot {
-            bytes,
-            source: LiveCredentialSource::File(live_path),
-        }));
-    }
-
-    if local_state.is_none() {
-        return Ok(None);
-    }
-
-    let Some(bytes) = read_live_keychain_credentials_for_import()? else {
-        return Ok(None);
-    };
-
-    Ok(Some(LiveCredentialSnapshot {
-        bytes,
-        source: LiveCredentialSource::Keychain,
-    }))
-}
-
-fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
-    if cfg!(target_os = "macos") && super::test_overrides::var("AISW_KEYRING_TEST_DIR").is_none() {
-        return super::macos_keychain::upsert_generic_password(
-            KEYCHAIN_SERVICE,
-            &keychain_account(),
-            bytes,
-            &trusted_claude_app_paths(),
-        )
-        .context("could not write Claude Code credentials into the system keyring");
-    }
-
-    secure_backend::upsert_generic_password(
-        KEYCHAIN_BACKEND,
-        KEYCHAIN_SERVICE,
-        &keychain_account(),
-        bytes,
-    )
-    .context("could not write Claude Code credentials into the system keyring")
-}
-
-fn trusted_claude_app_paths() -> Vec<PathBuf> {
-    tool_detection::detect(Tool::Claude)
-        .map(|detected| vec![detected.binary_path])
-        .unwrap_or_default()
-}
-
-fn oauth_stored_backend() -> CredentialBackend {
-    if cfg!(target_os = "macos") {
-        return CredentialBackend::File;
-    }
-
-    match forced_auth_storage() {
-        Some(ClaudeAuthStorage::File) => CredentialBackend::File,
-        Some(ClaudeAuthStorage::Keychain) => CredentialBackend::SystemKeyring,
-        None => {
-            if super::system_keyring::is_available() && super::system_keyring::is_usable() {
-                CredentialBackend::SystemKeyring
-            } else {
-                CredentialBackend::File
-            }
-        }
-    }
-}
-
-pub fn preferred_import_backend(source: &LiveCredentialSource) -> CredentialBackend {
-    if cfg!(target_os = "macos") && matches!(source, LiveCredentialSource::Keychain) {
-        return CredentialBackend::File;
-    }
-
-    match source {
-        LiveCredentialSource::File(_) => CredentialBackend::File,
-        LiveCredentialSource::Keychain => {
-            if super::system_keyring::is_usable() {
-                CredentialBackend::SystemKeyring
-            } else {
-                CredentialBackend::File
-            }
-        }
-    }
-}
-
-pub fn storage_fallback_note(requested_backend: CredentialBackend) -> Option<String> {
-    if requested_backend == CredentialBackend::SystemKeyring && !super::system_keyring::is_usable()
-    {
-        return super::system_keyring::usability_diagnostic().map(|message| {
-            format!(
-                "{}\n  aisw will store the managed Claude profile in encrypted local files instead of the system keyring on this machine.",
-                message
-            )
-        });
-    }
-
-    None
-}
-
-fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {
-    profile_dir.join(OAUTH_CAPTURE_DIR)
-}
-
-fn persist_oauth_storage(
-    profile_store: &ProfileStore,
-    name: &str,
-    stored_backend: CredentialBackend,
-    auth_bytes: &[u8],
-) -> Result<()> {
-    match stored_backend {
-        CredentialBackend::File => {
-            profile_store.write_file(Tool::Claude, name, CREDENTIALS_FILE, auth_bytes)
-        }
-        CredentialBackend::SystemKeyring => {
-            secure_store::write_profile_secret(Tool::Claude, name, auth_bytes)
-        }
-    }
-}
-
-fn live_keychain_payload(credentials: &[u8]) -> Vec<u8> {
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(credentials) else {
-        return credentials.to_vec();
-    };
-    let Some(claude_ai_oauth) = value.get("claudeAiOauth") else {
-        return credentials.to_vec();
-    };
-    serde_json::to_vec(&serde_json::json!({ "claudeAiOauth": claude_ai_oauth }))
-        .unwrap_or_else(|_| credentials.to_vec())
-}
-
-fn read_live_oauth_account_metadata(user_home: &Path) -> Result<Option<Vec<u8>>> {
-    let path = live_account_metadata_path(user_home);
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let contents = fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
-    let value: serde_json::Value = serde_json::from_slice(&contents)
-        .with_context(|| format!("could not parse {}", path.display()))?;
-    let Some(oauth_account) = value.get("oauthAccount") else {
-        return Ok(None);
-    };
-
-    serde_json::to_vec(oauth_account)
-        .map(Some)
-        .context("could not serialize Claude oauthAccount metadata")
-}
-
-pub fn read_live_oauth_account_metadata_for_import(user_home: &Path) -> Result<Option<Vec<u8>>> {
-    read_live_oauth_account_metadata(user_home)
-}
-
-fn persist_live_oauth_account_metadata(
-    profile_store: &ProfileStore,
-    name: &str,
-    user_home: &Path,
-) -> Result<()> {
-    let Some(metadata) = read_live_oauth_account_metadata(user_home)? else {
-        return Ok(());
-    };
-    profile_store.write_file(Tool::Claude, name, OAUTH_ACCOUNT_FILE, &metadata)
-}
-
-pub fn capture_live_oauth_account_metadata(
-    profile_store: &ProfileStore,
-    name: &str,
-    user_home: &Path,
-) -> Result<()> {
-    persist_live_oauth_account_metadata(profile_store, name, user_home)
-}
-
-fn apply_live_oauth_account_metadata(
-    profile_store: &ProfileStore,
-    name: &str,
-    user_home: &Path,
-) -> Result<()> {
-    let profile_path = profile_store
-        .profile_dir(Tool::Claude, name)
-        .join(OAUTH_ACCOUNT_FILE);
-    if !profile_path.exists() {
-        return Ok(());
-    }
-
-    let oauth_account = profile_store.read_file(Tool::Claude, name, OAUTH_ACCOUNT_FILE)?;
-    let oauth_account_value: serde_json::Value = serde_json::from_slice(&oauth_account)
-        .with_context(|| format!("could not parse {}", profile_path.display()))?;
-
-    let live_path = live_account_metadata_path(user_home);
-    let mut live_json = if live_path.exists() {
-        serde_json::from_slice::<serde_json::Value>(
-            &fs::read(&live_path)
-                .with_context(|| format!("could not read {}", live_path.display()))?,
-        )
-        .with_context(|| format!("could not parse {}", live_path.display()))?
-    } else {
-        serde_json::json!({})
-    };
-
-    if !live_json.is_object() {
-        live_json = serde_json::json!({});
-    }
-
-    if let Some(obj) = live_json.as_object_mut() {
-        obj.insert("oauthAccount".to_owned(), oauth_account_value);
-    }
-
-    let bytes = serde_json::to_vec_pretty(&live_json)
-        .context("could not serialize Claude metadata for live state")?;
-    fs::write(&live_path, bytes)
-        .with_context(|| format!("could not write {}", live_path.display()))?;
-    files::set_permissions_600(&live_path)
-}
-
-pub fn add_api_key(
-    profile_store: &ProfileStore,
-    config_store: &ConfigStore,
-    name: &str,
-    key: &str,
-    label: Option<String>,
-) -> Result<()> {
-    validate_api_key(key)?;
-
-    if let Some(existing_name) = identity::existing_api_key_profile_for_secret(
-        profile_store,
-        config_store,
-        Tool::Claude,
-        key,
-    )? {
-        bail!(
-            "Claude Code API key already exists as profile '{}'.\n  \
-             Use that profile or provide a different API key.",
-            existing_name
-        );
-    }
-
-    profile_store.create(Tool::Claude, name)?;
-
-    let credentials = serde_json::to_string(&serde_json::json!({ "apiKey": key }))
-        .context("could not serialize API key credentials")?;
-    files::cleanup_profile_on_error(
-        profile_store.write_file(Tool::Claude, name, CREDENTIALS_FILE, credentials.as_bytes()),
-        profile_store,
-        Tool::Claude,
-        name,
-    )?;
-
-    config_store.add_profile(
-        Tool::Claude,
-        name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::ApiKey,
-            credential_backend: CredentialBackend::File,
-            label,
-        },
-    )?;
-
-    Ok(())
-}
-
-pub fn validate_api_key(key: &str) -> Result<()> {
-    if key.trim().is_empty() {
-        bail!(
-            "Claude API key must not be empty.\n  \
-             Get your API key at console.anthropic.com → API Keys.",
-        );
-    }
-    Ok(())
-}
-
-/// Start the Claude OAuth flow using the installed `claude` binary.
-///
-/// Spawns `claude` with `CLAUDE_CONFIG_DIR` set to the profile directory so
-/// Claude writes its credentials there rather than the default location.
-/// Polls for `.credentials.json` until it appears or the timeout expires.
-pub fn add_oauth(
-    profile_store: &ProfileStore,
-    config_store: &ConfigStore,
-    name: &str,
-    label: Option<String>,
-    claude_bin: &Path,
-) -> Result<()> {
-    add_oauth_with(
-        profile_store,
-        config_store,
-        name,
-        label,
-        claude_bin,
-        OAUTH_TIMEOUT,
-        POLL_INTERVAL,
-    )
-}
-
-fn add_oauth_with(
-    profile_store: &ProfileStore,
-    config_store: &ConfigStore,
-    name: &str,
-    label: Option<String>,
-    claude_bin: &Path,
-    timeout: Duration,
-    poll_interval: Duration,
-) -> Result<()> {
-    let profile_dir = profile_store.create(Tool::Claude, name)?;
-    let stored_backend = oauth_stored_backend();
-    let capture_dir = oauth_capture_dir(&profile_dir);
-    fs::create_dir_all(&capture_dir)
-        .with_context(|| format!("could not create {}", capture_dir.display()))?;
-
-    if let Some(note) = storage_fallback_note(CredentialBackend::SystemKeyring) {
-        output::print_warning(note);
-    }
-
-    let auth_bytes = files::cleanup_profile_on_error(
-        run_oauth_flow(claude_bin, &capture_dir, timeout, poll_interval),
-        profile_store,
-        Tool::Claude,
-        name,
-    )?;
-
-    files::cleanup_profile_on_error(
-        persist_oauth_storage(profile_store, name, stored_backend, &auth_bytes),
-        profile_store,
-        Tool::Claude,
-        name,
-    )
-    .inspect_err(|_| {
-        let _ = fs::remove_dir_all(&capture_dir);
-    })?;
-
-    if let Some(user_home) = dirs::home_dir() {
-        files::cleanup_profile_on_error(
-            persist_live_oauth_account_metadata(profile_store, name, &user_home),
-            profile_store,
-            Tool::Claude,
-            name,
-        )
-        .inspect_err(|_| {
-            let _ = fs::remove_dir_all(&capture_dir);
-        })?;
-    }
-
-    files::cleanup_profile_on_error(
-        identity::ensure_unique_oauth_identity(
-            profile_store,
-            config_store,
-            Tool::Claude,
-            name,
-            stored_backend,
-        ),
-        profile_store,
-        Tool::Claude,
-        name,
-    )
-    .inspect_err(|_| {
-        if stored_backend == CredentialBackend::SystemKeyring {
-            let _ = secure_store::delete_profile_secret(Tool::Claude, name);
-        }
-    })?;
-
-    config_store
-        .add_profile(
-            Tool::Claude,
-            name,
-            ProfileMeta {
-                added_at: Utc::now(),
-                auth_method: AuthMethod::OAuth,
-                credential_backend: stored_backend,
-                label,
-            },
-        )
-        .inspect_err(|_| {
-            if stored_backend == CredentialBackend::SystemKeyring {
-                let _ = secure_store::delete_profile_secret(Tool::Claude, name);
-            }
-            let _ = profile_store.delete(Tool::Claude, name);
-        })?;
-
-    let _ = fs::remove_dir_all(&capture_dir);
-
-    Ok(())
-}
-
-fn run_oauth_flow(
-    claude_bin: &Path,
-    capture_dir: &Path,
-    timeout: Duration,
-    poll_interval: Duration,
-) -> Result<Vec<u8>> {
-    let forced_storage = forced_auth_storage();
-    let mut watch_keychain = watch_keychain_during_oauth();
-    let keychain_before = if watch_keychain {
-        match read_keychain_credentials() {
-            Ok(credentials) => credentials,
-            Err(_err) if forced_storage != Some(ClaudeAuthStorage::Keychain) => {
-                watch_keychain = false;
-                None
-            }
-            Err(err) => return Err(err),
-        }
-    } else {
-        None
-    };
-
-    output::print_info("Claude sign-in will continue in your browser.");
-    output::print_warning(
-        "Claude may reuse the account already signed in in your browser. \
-If you need a different Claude account, fully sign out of claude.com first, then rerun 'aisw add claude <name>'.",
-    );
-
-    // On macOS, avoid `CLAUDE_CONFIG_DIR` entirely for OAuth login. Claude's
-    // browser flow falls back to the auth-code URL shape (`code=true`) when the
-    // config dir is overridden, while the normal callback-based flow uses the
-    // default live locations. We therefore observe the real live locations on
-    // macOS and only use the capture-dir approach on other platforms.
-    //
-    // On non-macOS, keep the capture-dir approach so the file poller can pick
-    // up credentials written to `CLAUDE_CONFIG_DIR`.
-    let use_capture_dir = !cfg!(target_os = "macos");
-    let live_credentials_path_before = if cfg!(target_os = "macos") {
-        dirs::home_dir().map(|home| live_credentials_path(&home))
-    } else {
-        None
-    };
-    let file_before = live_credentials_path_before
-        .as_ref()
-        .filter(|path| path.exists())
-        .map(fs::read)
-        .transpose()
-        .with_context(|| {
-            live_credentials_path_before
-                .as_ref()
-                .map(|path| format!("could not read {}", path.display()))
-                .unwrap_or_else(|| "could not read Claude live credentials".to_owned())
-        })?;
-
-    let mut cmd = Command::new(claude_bin);
-    cmd.arg("auth").arg("login");
-    if use_capture_dir {
-        cmd.env("CLAUDE_CONFIG_DIR", capture_dir);
-    }
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
-
-    let credentials_path = capture_dir.join(CREDENTIALS_FILE);
-    let deadline = Instant::now() + timeout;
-
-    loop {
-        if use_capture_dir && credentials_path.exists() {
-            // Give the binary a moment to finish writing, then kill it if still running.
-            let _ = child.kill();
-            let _ = child.wait();
-            let bytes = fs::read(&credentials_path)
-                .with_context(|| format!("could not read {}", credentials_path.display()))?;
-            files::set_permissions_600(&credentials_path)?;
-            return Ok(bytes);
-        }
-
-        if watch_keychain {
-            if let Some(current) = read_keychain_credentials()? {
-                let changed = keychain_before.as_deref() != Some(current.as_slice());
-                if changed {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Ok(current);
-                }
-            }
-        }
-
-        if let Some(live_path) = &live_credentials_path_before {
-            if live_path.exists() {
-                let current = fs::read(live_path)
-                    .with_context(|| format!("could not read {}", live_path.display()))?;
-                let changed = file_before.as_deref() != Some(current.as_slice());
-                if changed {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Ok(current);
-                }
-            }
-        }
-
-        if let Some(status) = child
-            .try_wait()
-            .with_context(|| format!("could not poll {}", claude_bin.display()))?
-        {
-            if watch_keychain {
-                if let Some(current) = read_keychain_credentials()? {
-                    if status.success() || keychain_before.is_none() {
-                        return Ok(current);
-                    }
-                }
-            }
-
-            if let Some(live_path) = &live_credentials_path_before {
-                if live_path.exists() && status.success() {
-                    return fs::read(live_path)
-                        .with_context(|| format!("could not read {}", live_path.display()));
-                }
-            }
-
-            let exit_note = if status.success() {
-                "Claude exited"
-            } else {
-                "Claude exited with an error"
-            };
-            bail!(
-                "{} before aisw could capture credentials.\n  \
-                 On this platform Claude may be storing auth outside CLAUDE_CONFIG_DIR.",
-                exit_note
-            );
-        }
-
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!(
-                "Claude login timed out after {}s. \
-                 The browser window may still be open.",
-                timeout.as_secs()
-            );
-        }
-
-        std::thread::sleep(poll_interval);
-    }
-}
-
-/// Read the stored API key from a profile's credentials file.
-pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> {
-    let bytes = profile_store.read_file(Tool::Claude, name, CREDENTIALS_FILE)?;
-    let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
-        anyhow::anyhow!(
-            "could not parse credentials file for profile '{}'.\n  \
-             The profile may be corrupted. Run 'aisw remove claude {}' \
-             then 'aisw add claude {}' to reconfigure.\n  \
-             ({})",
-            name,
-            name,
-            name,
-            e
-        )
-    })?;
-    json["apiKey"]
-        .as_str()
-        .map(|s| s.to_owned())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "credentials file for profile '{}' is missing the 'apiKey' field.\n  \
-                 Run 'aisw remove claude {}' then 'aisw add claude {}' to reconfigure.",
-                name,
-                name,
-                name
-            )
-        })
-}
+// ---- Public re-exports from sub-modules ----
+
+pub use api_key::{add_api_key, read_api_key, validate_api_key};
+pub use keychain::{
+    imported_profile_backend, keychain_import_supported, preferred_import_backend,
+    read_live_keychain_credentials_for_import, storage_fallback_note, uses_live_keychain,
+};
+pub use oauth::{
+    add_oauth, capture_live_oauth_account_metadata, live_credentials_snapshot_for_import,
+    read_live_oauth_account_metadata_for_import,
+};
+pub use paths::live_local_state_dir;
+
+// ---- Core public functions ----
 
 pub fn apply_live_credentials(
     profile_store: &ProfileStore,
@@ -742,19 +80,11 @@ pub fn apply_live_credentials(
         ),
         ClaudeAuthStorage::Keychain => {
             let stored = read_stored_credentials(profile_store, name, backend)?;
-            write_keychain_credentials(&live_keychain_payload(&stored))
+            keychain::write_keychain_credentials(&keychain::live_keychain_payload(&stored))
         }
     }?;
 
-    apply_live_oauth_account_metadata(profile_store, name, user_home)
-}
-
-pub fn imported_profile_backend(source: &LiveCredentialSource) -> CredentialBackend {
-    preferred_import_backend(source)
-}
-
-pub fn uses_live_keychain(user_home: &Path) -> bool {
-    cfg!(target_os = "macos") && matches!(auth_storage(user_home), ClaudeAuthStorage::Keychain)
+    oauth::apply_live_oauth_account_metadata(profile_store, name, user_home)
 }
 
 pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode) {
@@ -787,7 +117,7 @@ pub fn live_credentials_match(
             Ok(live == stored)
         }
         ClaudeAuthStorage::Keychain => {
-            let Some(live) = read_keychain_credentials()? else {
+            let Some(live) = keychain::read_keychain_credentials()? else {
                 return Ok(false);
             };
             // The Keychain only stores the claudeAiOauth subset (written by
@@ -795,7 +125,7 @@ pub fn live_credentials_match(
             // the trailing newline added by the security CLI and key ordering.
             let live_value = serde_json::from_slice::<serde_json::Value>(&live)
                 .context("could not parse live Keychain credentials")?;
-            let stored_payload = live_keychain_payload(&stored);
+            let stored_payload = keychain::live_keychain_payload(&stored);
             let stored_value = serde_json::from_slice::<serde_json::Value>(&stored_payload)
                 .context("could not parse stored credential payload")?;
             Ok(live_value == stored_value)
@@ -803,7 +133,7 @@ pub fn live_credentials_match(
     }
 }
 
-fn read_stored_credentials(
+pub(super) fn read_stored_credentials(
     profile_store: &ProfileStore,
     name: &str,
     backend: CredentialBackend,
@@ -827,9 +157,12 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::auth::secure_backend;
     use crate::auth::secure_store;
-    use crate::config::ConfigStore;
+    use crate::auth::test_overrides::EnvVarGuard;
+    use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
     use crate::profile::ProfileStore;
+    use chrono::Utc;
 
     fn valid_key() -> &'static str {
         "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -915,8 +248,6 @@ mod tests {
         .unwrap();
         fs::set_permissions(bin, fs::Permissions::from_mode(0o755)).unwrap();
     }
-
-    use crate::auth::test_overrides::EnvVarGuard;
 
     #[test]
     fn validate_accepts_valid_key() {
@@ -1047,7 +378,7 @@ mod tests {
 
     // Poll interval used in all OAuth tests: fast enough to complete quickly without
     // being sensitive to OS scheduling jitter.
-    const TEST_POLL: Duration = Duration::from_millis(10);
+    const TEST_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 
     /// Creates a mock binary that either writes credentials immediately or exits
     /// without writing anything (for timeout tests).
@@ -1087,13 +418,13 @@ mod tests {
         let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1147,13 +478,13 @@ mod tests {
         )
         .unwrap();
 
-        let err = add_oauth_with(
+        let err = oauth::add_oauth_with(
             &ps,
             &cs,
             "alias",
             None,
             &bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap_err();
@@ -1175,13 +506,13 @@ mod tests {
         let bin = make_oauth_mock(&bin_dir, false);
 
         let (ps, cs) = stores(dir.path());
-        let err = add_oauth_with(
+        let err = oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &bin,
-            Duration::from_millis(200),
+            std::time::Duration::from_millis(200),
             TEST_POLL,
         )
         .unwrap_err();
@@ -1209,13 +540,13 @@ mod tests {
         let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1258,13 +589,13 @@ mod tests {
         let _user = EnvVarGuard::set("USER", "tester");
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &claude_bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1312,16 +643,16 @@ mod tests {
         let _user = EnvVarGuard::set("USER", "tester");
 
         let existing = br#"{"account":{"email":"work@example.com"}}"#;
-        write_keychain_credentials(existing).unwrap();
+        keychain::write_keychain_credentials(existing).unwrap();
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &claude_bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1361,13 +692,13 @@ mod tests {
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1408,13 +739,13 @@ mod tests {
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1456,13 +787,13 @@ mod tests {
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1498,13 +829,13 @@ mod tests {
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let (ps, cs) = stores(dir.path());
-        add_oauth_with(
+        oauth::add_oauth_with(
             &ps,
             &cs,
             "work",
             None,
             &bin,
-            Duration::from_secs(2),
+            std::time::Duration::from_secs(2),
             TEST_POLL,
         )
         .unwrap();
@@ -1584,7 +915,7 @@ mod tests {
 
         apply_live_credentials(&ps, "work", CredentialBackend::File, &user_home).unwrap();
 
-        let live_keychain = read_keychain_credentials().unwrap().unwrap();
+        let live_keychain = keychain::read_keychain_credentials().unwrap().unwrap();
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&live_keychain).unwrap(),
             serde_json::json!({
