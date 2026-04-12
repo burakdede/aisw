@@ -453,12 +453,25 @@ fn spawn_oauth_child(
 ) -> Result<std::process::Child> {
     #[cfg(target_os = "macos")]
     {
-        let child = Command::new("/usr/bin/script")
-            .arg("-q")
+        use std::os::unix::process::CommandExt;
+
+        let mut cmd = Command::new("/usr/bin/script");
+        cmd.arg("-q")
             .arg("/dev/null")
             .arg(gemini_bin)
             .env("HOME", scratch)
-            .current_dir(scratch_workdir)
+            .current_dir(scratch_workdir);
+        // SAFETY: pre_exec is only used to set the child process group before
+        // exec, without touching shared Rust state.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setpgid(0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = cmd
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
         Ok(child)
@@ -466,9 +479,21 @@ fn spawn_oauth_child(
 
     #[cfg(not(target_os = "macos"))]
     {
-        let child = Command::new(gemini_bin)
-            .env("HOME", scratch)
-            .current_dir(scratch_workdir)
+        use std::os::unix::process::CommandExt;
+
+        let mut cmd = Command::new(gemini_bin);
+        cmd.env("HOME", scratch).current_dir(scratch_workdir);
+        // SAFETY: pre_exec is only used to set the child process group before
+        // exec, without touching shared Rust state.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setpgid(0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = cmd
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
         Ok(child)
@@ -479,7 +504,12 @@ fn stop_interactive_child(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let pid = child.id() as i32;
-        let _ = unsafe { libc::kill(pid, libc::SIGINT) };
+        let pgid = unsafe { libc::getpgid(pid) };
+        if pgid > 0 {
+            let _ = unsafe { libc::kill(-pgid, libc::SIGINT) };
+        } else {
+            let _ = unsafe { libc::kill(pid, libc::SIGINT) };
+        }
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
@@ -487,12 +517,20 @@ fn stop_interactive_child(child: &mut std::process::Child) {
             std::thread::sleep(Duration::from_millis(50));
         }
 
-        let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+        if pgid > 0 {
+            let _ = unsafe { libc::kill(-pgid, libc::SIGTERM) };
+        } else {
+            let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+        }
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
             }
             std::thread::sleep(Duration::from_millis(50));
+        }
+
+        if pgid > 0 {
+            let _ = unsafe { libc::kill(-pgid, libc::SIGKILL) };
         }
     }
 
