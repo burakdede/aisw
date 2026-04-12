@@ -651,6 +651,45 @@ fn init_interactive_import_retries_duplicate_profile_name() {
 }
 
 #[test]
+fn init_interactive_import_allows_skipping_after_duplicate_profile_name() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"account":{"email":"new@example.com"}}"#,
+    )
+    .unwrap();
+
+    env.cmd()
+        .arg("init")
+        .write_stdin("y\ny\nwork\nskip\n")
+        .assert()
+        .success()
+        .stderr(contains("already exists"))
+        .stderr(contains("type 'skip' to cancel import"))
+        .stdout(contains("Import"))
+        .stdout(contains("skipped"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert!(config["profiles"]["claude"]["work"].is_object());
+    assert!(config["profiles"]["claude"]["default"].is_null());
+}
+
+#[test]
 fn init_does_not_replace_existing_active_profile_when_importing() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");

@@ -235,13 +235,26 @@ fn import_name_and_label(
             profile_name
         };
 
+        if profile_name.eq_ignore_ascii_case("skip") {
+            output::print_info("Skipping import and keeping existing aisw profiles unchanged.");
+            return Ok(None);
+        }
+
         if let Err(err) = validate_profile_name(&profile_name) {
             output::print_warning_stderr(format!("Invalid profile name: {}", err));
             continue;
         }
         if profile_store.exists(tool, &profile_name) {
+            let existing = profile_store.list_profiles(tool)?;
+            if !existing.is_empty() {
+                output::print_info_stderr(format!(
+                    "Existing {} profiles: {}",
+                    tool,
+                    existing.join(", ")
+                ));
+            }
             output::print_warning_stderr(format!(
-                "Profile '{}' already exists for {}. Choose a different name.",
+                "Profile '{}' already exists for {}. Choose a different name or type 'skip' to cancel import.",
                 profile_name, tool
             ));
             continue;
