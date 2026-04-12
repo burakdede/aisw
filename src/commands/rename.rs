@@ -27,15 +27,25 @@ pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
         );
     }
 
-    let profile_meta = config
-        .profiles_for(args.tool)
-        .get(&args.old_name)
-        .with_context(|| {
-            format!(
-                "profile '{}' exists on disk for {} but is missing from config",
-                args.old_name, args.tool
-            )
-        })?;
+    let profiles = config.profiles_for(args.tool);
+    let profile_meta = match profiles.get(&args.old_name) {
+        Some(m) => m,
+        None => {
+            let profile_names: Vec<&str> = profiles.keys().map(String::as_str).collect();
+            let suggestion =
+                crate::util::edit_distance::closest_match(&args.old_name, &profile_names, 2);
+            if let Some(hint) = suggestion {
+                anyhow::bail!(
+                    "profile '{}' not found for {}.\n  Did you mean '{}'?",
+                    args.old_name,
+                    args.tool,
+                    hint
+                );
+            } else {
+                anyhow::bail!("profile '{}' not found for {}.", args.old_name, args.tool);
+            }
+        }
+    };
     profile_meta
         .credential_backend
         .validate_for_tool(args.tool)?;

@@ -43,13 +43,31 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     let config = config_store.load()?;
 
     if !profile_store.exists(args.tool, &args.profile_name) {
-        bail!(
-            "profile '{}' not found for {}.\n  \
-             Run 'aisw list {}' to see available profiles.",
-            args.profile_name,
-            args.tool,
-            args.tool
-        );
+        let profile_names: Vec<&str> = config
+            .profiles_for(args.tool)
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let suggestion =
+            crate::util::edit_distance::closest_match(&args.profile_name, &profile_names, 2);
+        if let Some(hint) = suggestion {
+            bail!(
+                "profile '{}' not found for {}.\n  Did you mean '{}'?\n  \
+                 Run 'aisw list {}' to see available profiles.",
+                args.profile_name,
+                args.tool,
+                hint,
+                args.tool
+            );
+        } else {
+            bail!(
+                "profile '{}' not found for {}.\n  \
+                 Run 'aisw list {}' to see available profiles.",
+                args.profile_name,
+                args.tool,
+                args.tool
+            );
+        }
     }
 
     let is_active = active_for(&config, args.tool) == Some(args.profile_name.as_str());
