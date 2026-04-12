@@ -217,6 +217,27 @@ pub fn add_oauth(
     )
 }
 
+#[cfg(any(test, debug_assertions))]
+pub fn add_oauth_with_for_test(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    gemini_bin: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<()> {
+    add_oauth_with(
+        profile_store,
+        config_store,
+        name,
+        label,
+        gemini_bin,
+        timeout,
+        poll_interval,
+    )
+}
+
 fn add_oauth_with(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
@@ -270,7 +291,80 @@ fn add_oauth_with(
         },
     )?;
 
+    // Best-effort identity display after capture
+    match extract_captured_identity(profile_store, name) {
+        Some(email) => crate::output::print_kv("Captured account", &email),
+        None => crate::output::print_info("(could not verify captured identity)"),
+    }
+
     Ok(())
+}
+
+/// Decode `oauth_creds.json` from the profile dir and extract the `email` from the `id_token` JWT.
+/// Returns None if file missing, malformed, or JWT has no email claim.
+pub fn extract_captured_identity(profile_store: &ProfileStore, name: &str) -> Option<String> {
+    let bytes = profile_store
+        .read_file(Tool::Gemini, name, "oauth_creds.json")
+        .ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let id_token = v.get("id_token").and_then(|t| t.as_str())?;
+    decode_jwt_email_from_token(id_token)
+}
+
+fn decode_jwt_email_from_token(jwt: &str) -> Option<String> {
+    let payload = jwt.split('.').nth(1)?;
+    let padded = base64_url_to_padded(payload);
+    let bytes = base64_decode_simple(&padded)?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.get("email").and_then(|e| e.as_str()).map(String::from)
+}
+
+fn base64_url_to_padded(s: &str) -> String {
+    let mut out = s.replace('-', "+").replace('_', "/");
+    match out.len() % 4 {
+        2 => out.push_str("=="),
+        3 => out.push('='),
+        _ => {}
+    }
+    out
+}
+
+fn base64_decode_simple(s: &str) -> Option<Vec<u8>> {
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut table = [0u8; 256];
+    for (i, &c) in alphabet.iter().enumerate() {
+        table[c as usize] = i as u8;
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity((bytes.len() / 4) * 3);
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        if bytes[i] == b'=' {
+            break;
+        }
+        let a = table[bytes[i] as usize] as u32;
+        let b_val = table[bytes[i + 1] as usize] as u32;
+        let c_val = if bytes[i + 2] == b'=' {
+            0
+        } else {
+            table[bytes[i + 2] as usize] as u32
+        };
+        let d = if i + 3 >= bytes.len() || bytes[i + 3] == b'=' {
+            0
+        } else {
+            table[bytes[i + 3] as usize] as u32
+        };
+        let triple = (a << 18) | (b_val << 12) | (c_val << 6) | d;
+        out.push(((triple >> 16) & 0xFF) as u8);
+        if bytes[i + 2] != b'=' {
+            out.push(((triple >> 8) & 0xFF) as u8);
+        }
+        if i + 3 < bytes.len() && bytes[i + 3] != b'=' {
+            out.push((triple & 0xFF) as u8);
+        }
+        i += 4;
+    }
+    Some(out)
 }
 
 /// Spawn `gemini` with an overridden HOME, wait for it to exit, then copy
@@ -1062,5 +1156,80 @@ mod tests {
         std::fs::write(dest_dir.join(ENV_FILE), b"GEMINI_API_KEY=stale\n").unwrap();
 
         assert!(!live_token_cache_matches(&ps, "default", &dest_dir).unwrap());
+    }
+
+    // ---- extract_captured_identity tests ----
+
+    fn make_fixture_jwt(email: &str) -> String {
+        let payload_json = format!(r#"{{"email":"{}","exp":9999999999}}"#, email);
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut b64 = String::new();
+        for chunk in payload_json.as_bytes().chunks(3) {
+            let b0 = chunk[0] as u32;
+            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+            let triple = (b0 << 16) | (b1 << 8) | b2;
+            b64.push(alphabet[((triple >> 18) & 0x3F) as usize] as char);
+            b64.push(alphabet[((triple >> 12) & 0x3F) as usize] as char);
+            if chunk.len() > 1 {
+                b64.push(alphabet[((triple >> 6) & 0x3F) as usize] as char);
+            } else {
+                b64.push('=');
+            }
+            if chunk.len() > 2 {
+                b64.push(alphabet[(triple & 0x3F) as usize] as char);
+            } else {
+                b64.push('=');
+            }
+        }
+        format!("eyJhbGciOiJIUzI1NiJ9.{}.sig", b64)
+    }
+
+    #[test]
+    fn extract_identity_with_valid_jwt() {
+        let dir = tempdir().unwrap();
+        let ps = ProfileStore::new(dir.path());
+        ps.create(Tool::Gemini, "work").unwrap();
+        let jwt = make_fixture_jwt("test@example.com");
+        let creds = format!(r#"{{"id_token":"{}"}}"#, jwt);
+        ps.write_file(Tool::Gemini, "work", "oauth_creds.json", creds.as_bytes())
+            .unwrap();
+
+        let identity = extract_captured_identity(&ps, "work");
+        assert_eq!(identity.as_deref(), Some("test@example.com"));
+    }
+
+    #[test]
+    fn extract_identity_with_malformed_id_token_returns_none() {
+        let dir = tempdir().unwrap();
+        let ps = ProfileStore::new(dir.path());
+        ps.create(Tool::Gemini, "work").unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "work",
+            "oauth_creds.json",
+            br#"{"id_token":"not.a.valid.jwt.at.all"}"#,
+        )
+        .unwrap();
+
+        let identity = extract_captured_identity(&ps, "work");
+        assert!(identity.is_none());
+    }
+
+    #[test]
+    fn extract_identity_with_missing_id_token_returns_none() {
+        let dir = tempdir().unwrap();
+        let ps = ProfileStore::new(dir.path());
+        ps.create(Tool::Gemini, "work").unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "work",
+            "oauth_creds.json",
+            br#"{"token":"something"}"#,
+        )
+        .unwrap();
+
+        let identity = extract_captured_identity(&ps, "work");
+        assert!(identity.is_none());
     }
 }
