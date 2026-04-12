@@ -346,6 +346,8 @@ fn run_oauth_flow(
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<PathBuf> {
+    let _spinner = crate::output::start_spinner("Waiting for Codex login to complete...");
+
     let mut child = Command::new(codex_bin)
         .arg("login")
         .env("CODEX_HOME", capture_dir)

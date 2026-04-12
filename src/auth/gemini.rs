@@ -386,6 +386,15 @@ fn run_oauth_flow(
     })?;
     prepare_scratch_home(&scratch, &scratch_workdir)?;
 
+    crate::output::print_info("Steps:");
+    crate::output::print_info("  1. Open a new terminal");
+    crate::output::print_info(
+        "  2. Run: gemini  (the tool will open in a pre-configured home dir)",
+    );
+    crate::output::print_info("  3. Complete the login in your browser");
+    crate::output::print_info("  4. Return here — aisw will detect when login completes");
+    let spinner = crate::output::start_spinner("Waiting for Gemini OAuth...");
+
     let result = (|| {
         let terminal = TerminalGuard::capture();
         let (mut child, wrapped_in_pty) =
@@ -422,6 +431,19 @@ fn run_oauth_flow(
             std::thread::sleep(poll_interval);
         }
     })();
+
+    match &result {
+        Ok(_) => {
+            if let Some(ref sp) = spinner {
+                sp.finish_with_message("\u{2713} Credentials captured");
+            }
+        }
+        Err(_) => {
+            if let Some(ref sp) = spinner {
+                sp.finish_and_clear();
+            }
+        }
+    }
 
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&scratch);

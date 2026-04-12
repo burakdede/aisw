@@ -3,11 +3,33 @@ use std::ffi::OsString;
 
 use anyhow::Error;
 use console::style;
+use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::runtime;
 use crate::types::Tool;
 
 const KV_LABEL_WIDTH: usize = 14;
+
+/// Creates a spinner if stdout is a TTY and not quiet/non-interactive.
+/// Returns `None` when suppressed (tests, quiet mode, non-TTY).
+pub fn start_spinner(msg: &str) -> Option<ProgressBar> {
+    if runtime::is_quiet() || !console::Term::stdout().is_term() {
+        return None;
+    }
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_strings(&[
+                "\u{280b}", "\u{2819}", "\u{2839}", "\u{2838}", "\u{283c}", "\u{2834}", "\u{2826}",
+                "\u{2827}", "\u{2807}", "\u{280f}",
+            ])
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    pb.set_message(msg.to_owned());
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    Some(pb)
+}
 
 pub fn configure(no_color_flag: bool, quiet: bool) {
     let _ = quiet;

@@ -331,6 +331,7 @@ fn run_oauth_flow(
     };
 
     output::print_info("Claude sign-in will continue in your browser.");
+    let _spinner = crate::output::start_spinner("Waiting for Claude login...");
     output::print_warning(
         "Claude may reuse the account already signed in in your browser. \
 If you need a different Claude account, fully sign out of claude.com first, then rerun \
