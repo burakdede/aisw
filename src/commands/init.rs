@@ -455,6 +455,17 @@ fn import_claude(
     } else {
         AuthMethod::OAuth
     };
+    if imported_method == AuthMethod::OAuth {
+        if let Some(existing_name) = existing_claude_profile_for_exact_credentials(
+            &profile_store,
+            &config_store,
+            &source_bytes,
+        )? {
+            output::print_kv("Credentials", &source_desc);
+            print_already_managed_live_match(Tool::Claude, &config_store, "oauth", &existing_name)?;
+            return Ok(());
+        }
+    }
     if let Some(api_key) = extract_json_string_field(&source_bytes, "apiKey") {
         if let Some(existing_name) = auth::identity::existing_api_key_profile_for_secret(
             &profile_store,
@@ -584,6 +595,34 @@ fn import_claude(
     }
     output::print_blank_line();
     Ok(())
+}
+
+fn existing_claude_profile_for_exact_credentials(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    live_bytes: &[u8],
+) -> Result<Option<String>> {
+    let config = config_store.load()?;
+    for (name, meta) in config.profiles_for(Tool::Claude) {
+        if meta.auth_method != AuthMethod::OAuth {
+            continue;
+        }
+
+        let stored = match meta.credential_backend {
+            CredentialBackend::File => profile_store
+                .read_file(Tool::Claude, name, ".credentials.json")
+                .ok(),
+            CredentialBackend::SystemKeyring => {
+                auth::secure_store::read_profile_secret(Tool::Claude, name)?
+            }
+        };
+
+        if stored.as_deref() == Some(live_bytes) {
+            return Ok(Some(name.clone()));
+        }
+    }
+
+    Ok(None)
 }
 
 fn import_codex(
