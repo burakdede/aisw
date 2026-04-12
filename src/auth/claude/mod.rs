@@ -70,16 +70,16 @@ pub fn apply_live_credentials(
     backend: CredentialBackend,
     user_home: &Path,
 ) -> Result<()> {
+    let stored = read_stored_credentials(profile_store, name, backend)?;
+
     match auth_storage(user_home) {
-        ClaudeAuthStorage::File => files::apply_profile_file(
-            profile_store,
-            Tool::Claude,
-            name,
-            CREDENTIALS_FILE,
-            live_credentials_path(user_home),
-        ),
+        ClaudeAuthStorage::File => {
+            crate::live_apply::apply_transaction(vec![crate::live_apply::LiveFileChange::write(
+                live_credentials_path(user_home),
+                stored,
+            )])
+        }
         ClaudeAuthStorage::Keychain => {
-            let stored = read_stored_credentials(profile_store, name, backend)?;
             keychain::write_keychain_credentials(&keychain::live_keychain_payload(&stored))
         }
     }?;
@@ -1036,5 +1036,32 @@ mod tests {
             live_credentials_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home)
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn keychain_backed_profile_can_apply_when_live_storage_is_file() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keyring"));
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        secure_store::write_profile_secret(
+            Tool::Claude,
+            "work",
+            br#"{"oauthToken":"tok","account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+
+        apply_live_credentials(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
+
+        let live = fs::read_to_string(user_home.join(".claude").join(CREDENTIALS_FILE)).unwrap();
+        let live_json: serde_json::Value = serde_json::from_str(&live).unwrap();
+        assert_eq!(live_json["oauthToken"], "tok");
+        assert_eq!(live_json["account"]["email"], "work@example.com");
     }
 }
