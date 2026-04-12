@@ -58,7 +58,7 @@ pub use keychain::{
 };
 pub use oauth::{
     add_oauth, capture_live_oauth_account_metadata, live_credentials_snapshot_for_import,
-    read_live_oauth_account_metadata_for_import,
+    read_live_oauth_account_metadata_for_import, restore_live_state_after_oauth_add,
 };
 pub use paths::live_local_state_dir;
 

@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::auth;
 use crate::cli::AddArgs;
@@ -125,13 +125,39 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
             );
         }
         match args.tool {
-            Tool::Claude => auth::claude::add_oauth(
-                &profile_store,
-                &config_store,
-                &args.profile_name,
-                args.label.clone(),
-                &detected.binary_path,
-            )?,
+            Tool::Claude => {
+                let (live_snapshot, oauth_account_snapshot, user_home): (
+                    Option<auth::claude::LiveCredentialSnapshot>,
+                    Option<Vec<u8>>,
+                    Option<std::path::PathBuf>,
+                ) = if args.set_active {
+                    (None, None, None)
+                } else {
+                    let user_home =
+                        dirs::home_dir().context("could not determine home directory")?;
+                    (
+                        auth::claude::live_credentials_snapshot_for_import(&user_home)?,
+                        auth::claude::read_live_oauth_account_metadata_for_import(&user_home)?,
+                        Some(user_home),
+                    )
+                };
+                auth::claude::add_oauth(
+                    &profile_store,
+                    &config_store,
+                    &args.profile_name,
+                    args.label.clone(),
+                    &detected.binary_path,
+                )?;
+                if let Some(user_home) = user_home.as_deref() {
+                    // `add` should only store a profile; it must not switch the
+                    // current live Claude account unless --set-active is requested.
+                    auth::claude::restore_live_state_after_oauth_add(
+                        live_snapshot,
+                        oauth_account_snapshot,
+                        user_home,
+                    )?;
+                }
+            }
             Tool::Codex => auth::codex::add_oauth(
                 &profile_store,
                 &config_store,
@@ -187,6 +213,7 @@ mod tests {
 
     use super::*;
     use crate::config::ConfigStore;
+    use crate::profile::ProfileStore;
     use crate::types::Tool;
 
     struct EnvVarGuard {
@@ -220,6 +247,26 @@ mod tests {
     fn make_fake_binary(dir: &Path, name: &str) {
         let path = dir.join(name);
         fs::write(&path, "#!/bin/sh\necho 'fake 1.0'\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn make_claude_oauth_binary(dir: &Path) {
+        let path = dir.join("claude");
+        fs::write(
+            &path,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then\n\
+               echo 'claude 2.3.0'\n\
+               exit 0\n\
+             fi\n\
+             [ \"$1\" = \"auth\" ] || exit 9\n\
+             [ \"$2\" = \"login\" ] || exit 8\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             printf '%s' '{\"oauthToken\":\"new-token\",\"account\":{\"email\":\"new@example.com\"}}' > \"$HOME/.claude/.credentials.json\"\n\
+             printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"new@example.com\"}}' > \"$HOME/.claude.json\"\n\
+             exit 0\n",
+        )
+        .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
@@ -452,6 +499,64 @@ mod tests {
             err.to_string().contains("ANTHROPIC_API_KEY"),
             "unexpected: {}",
             err
+        );
+    }
+
+    #[test]
+    fn claude_oauth_add_without_set_active_restores_live_state() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw-home");
+        let user_home = tmp.path().join("user-home");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_claude_oauth_binary(&bin_dir);
+
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(".credentials.json"),
+            r#"{"oauthToken":"old-token","account":{"email":"old@example.com"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"old@example.com"}}"#,
+        )
+        .unwrap();
+
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        let args = AddArgs {
+            tool: Tool::Claude,
+            profile_name: "work".to_owned(),
+            api_key: None,
+            label: None,
+            set_active: false,
+            from_env: false,
+        };
+        run_in(args, &aisw_home, path_of(&bin_dir)).unwrap();
+
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert_eq!(config.active_for(Tool::Claude), None);
+
+        let stored = ProfileStore::new(&aisw_home)
+            .read_file(Tool::Claude, "work", ".credentials.json")
+            .unwrap();
+        let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(stored_json["oauthToken"], "new-token");
+
+        let live_credentials =
+            fs::read_to_string(user_home.join(".claude").join(".credentials.json")).unwrap();
+        let live_json: serde_json::Value = serde_json::from_str(&live_credentials).unwrap();
+        assert_eq!(live_json["oauthToken"], "old-token");
+
+        let live_metadata = fs::read_to_string(user_home.join(".claude.json")).unwrap();
+        let metadata_json: serde_json::Value = serde_json::from_str(&live_metadata).unwrap();
+        assert_eq!(
+            metadata_json["oauthAccount"]["emailAddress"],
+            "old@example.com"
         );
     }
 }

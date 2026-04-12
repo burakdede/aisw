@@ -22,6 +22,17 @@ pub(super) fn live_credentials_path(user_home: &Path) -> PathBuf {
     }
 }
 
+/// Returns both possible live credentials paths in priority order.
+pub(super) fn live_credentials_paths(user_home: &Path) -> [PathBuf; 2] {
+    [
+        user_home.join(".claude").join(super::CREDENTIALS_FILE),
+        user_home
+            .join(".config")
+            .join("claude")
+            .join(super::CREDENTIALS_FILE),
+    ]
+}
+
 /// Returns the path to `~/.claude.json`, where Claude stores OAuth account
 /// metadata (`oauthAccount` field).
 pub(super) fn live_account_metadata_path(user_home: &Path) -> PathBuf {

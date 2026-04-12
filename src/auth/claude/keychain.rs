@@ -137,6 +137,15 @@ pub(super) fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
     .context("could not write Claude Code credentials into the system keyring")
 }
 
+pub(super) fn delete_keychain_credentials() -> Result<()> {
+    super::super::secure_backend::delete_generic_password(
+        super::KEYCHAIN_BACKEND,
+        super::KEYCHAIN_SERVICE,
+        &keychain_account(),
+    )
+    .context("could not delete Claude Code credentials from the system keyring")
+}
+
 pub(super) fn trusted_claude_app_paths() -> Vec<PathBuf> {
     tool_detection::detect(Tool::Claude)
         .map(|detected| vec![detected.binary_path])

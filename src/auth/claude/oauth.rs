@@ -26,7 +26,9 @@ use super::keychain::{
     forced_auth_storage, oauth_stored_backend, read_keychain_credentials, storage_fallback_note,
     watch_keychain_during_oauth, ClaudeAuthStorage,
 };
-use super::paths::{live_account_metadata_path, live_credentials_path, live_local_state_dir};
+use super::paths::{
+    live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
+};
 use super::{LiveCredentialSnapshot, LiveCredentialSource};
 
 fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {
@@ -132,6 +134,89 @@ pub fn read_live_oauth_account_metadata_for_import(user_home: &Path) -> Result<O
     read_live_oauth_account_metadata(user_home)
 }
 
+fn restore_live_credentials_snapshot(
+    snapshot: Option<LiveCredentialSnapshot>,
+    user_home: &Path,
+) -> Result<()> {
+    match snapshot {
+        Some(snapshot) => match snapshot.source {
+            LiveCredentialSource::File(path) => {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("could not create {}", parent.display()))?;
+                }
+                fs::write(&path, snapshot.bytes)
+                    .with_context(|| format!("could not write {}", path.display()))?;
+                files::set_permissions_600(&path)?;
+            }
+            LiveCredentialSource::Keychain => {
+                super::keychain::write_keychain_credentials(&snapshot.bytes)?;
+            }
+        },
+        None => {
+            for path in live_credentials_paths(user_home) {
+                if path.exists() {
+                    fs::remove_file(&path)
+                        .with_context(|| format!("could not remove {}", path.display()))?;
+                }
+            }
+            // Best effort cleanup for environments where Claude stores auth in keychain.
+            let _ = super::keychain::delete_keychain_credentials();
+        }
+    }
+    Ok(())
+}
+
+fn restore_live_oauth_account_metadata_snapshot(
+    metadata: Option<Vec<u8>>,
+    user_home: &Path,
+) -> Result<()> {
+    let live_path = live_account_metadata_path(user_home);
+    if metadata.is_none() && !live_path.exists() {
+        return Ok(());
+    }
+    let mut live_json = if live_path.exists() {
+        serde_json::from_slice::<serde_json::Value>(
+            &fs::read(&live_path)
+                .with_context(|| format!("could not read {}", live_path.display()))?,
+        )
+        .with_context(|| format!("could not parse {}", live_path.display()))?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !live_json.is_object() {
+        live_json = serde_json::json!({});
+    }
+
+    if let Some(obj) = live_json.as_object_mut() {
+        if let Some(metadata) = metadata {
+            let oauth_account_value: serde_json::Value = serde_json::from_slice(&metadata)
+                .context("could not parse Claude oauthAccount metadata snapshot")?;
+            obj.insert("oauthAccount".to_owned(), oauth_account_value);
+        } else {
+            obj.remove("oauthAccount");
+        }
+    }
+
+    let bytes = serde_json::to_vec_pretty(&live_json)
+        .context("could not serialize Claude metadata for live-state restore")?;
+    fs::write(&live_path, bytes)
+        .with_context(|| format!("could not write {}", live_path.display()))?;
+    files::set_permissions_600(&live_path)
+}
+
+/// Restores Claude live credentials/metadata after an OAuth add that should not
+/// switch the currently active live account.
+pub fn restore_live_state_after_oauth_add(
+    snapshot: Option<LiveCredentialSnapshot>,
+    oauth_account_metadata: Option<Vec<u8>>,
+    user_home: &Path,
+) -> Result<()> {
+    restore_live_credentials_snapshot(snapshot, user_home)?;
+    restore_live_oauth_account_metadata_snapshot(oauth_account_metadata, user_home)
+}
+
 fn persist_live_oauth_account_metadata(
     profile_store: &ProfileStore,
     name: &str,
@@ -198,9 +283,8 @@ pub(super) fn apply_live_oauth_account_metadata(
 
 /// Start the Claude OAuth flow using the installed `claude` binary.
 ///
-/// Spawns `claude auth login` and polls for new credentials. On non-macOS the
-/// capture-dir approach is used; on macOS the live locations are polled instead
-/// because the override triggers a fallback auth-code flow.
+/// Spawns `claude auth login` and polls for new credentials in live locations,
+/// keychain, and capture-dir fallback paths.
 pub fn add_oauth(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
