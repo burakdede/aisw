@@ -12,6 +12,10 @@ use crate::runtime;
 use crate::tool_detection;
 use crate::types::Tool;
 
+pub const CLAUDE_ENV_VAR: &str = "ANTHROPIC_API_KEY";
+pub const CODEX_ENV_VAR: &str = "OPENAI_API_KEY";
+pub const GEMINI_ENV_VAR: &str = "GEMINI_API_KEY";
+
 pub fn run(args: AddArgs, home: &Path) -> Result<()> {
     run_in(args, home, std::env::var_os("PATH").unwrap_or_default())
 }
@@ -31,6 +35,62 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
 
     // Guard: tool binary must be on PATH before we create any profile state.
     let detected = tool_detection::require_in(args.tool, tool_path)?;
+
+    if args.from_env {
+        let env_var = match args.tool {
+            Tool::Claude => CLAUDE_ENV_VAR,
+            Tool::Codex => CODEX_ENV_VAR,
+            Tool::Gemini => GEMINI_ENV_VAR,
+        };
+        let key = std::env::var(env_var).unwrap_or_default();
+        if key.is_empty() {
+            anyhow::bail!("{} is not set — cannot use --from-env", env_var);
+        }
+        match args.tool {
+            Tool::Claude => auth::claude::add_api_key(
+                &profile_store,
+                &config_store,
+                &args.profile_name,
+                &key,
+                args.label.clone(),
+            )?,
+            Tool::Codex => auth::codex::add_api_key(
+                &profile_store,
+                &config_store,
+                &args.profile_name,
+                &key,
+                args.label.clone(),
+            )?,
+            Tool::Gemini => auth::gemini::add_api_key(
+                &profile_store,
+                &config_store,
+                &args.profile_name,
+                &key,
+                args.label.clone(),
+            )?,
+        }
+        if args.set_active {
+            config_store.set_active(args.tool, &args.profile_name)?;
+        }
+        output::print_title("Added profile");
+        output::print_kv("Tool", args.tool.display_name());
+        output::print_kv("Profile", &args.profile_name);
+        output::print_kv("Source", env_var);
+        output::print_kv(
+            "Activation",
+            if args.set_active { "active" } else { "stored" },
+        );
+        output::print_blank_line();
+        output::print_effects_header();
+        output::print_effect("Profile credentials stored in aisw.");
+        output::print_blank_line();
+        output::print_next_step(output::next_step_after_add(
+            args.tool,
+            &args.profile_name,
+            args.set_active,
+        ));
+        return Ok(());
+    }
 
     if let Some(ref api_key) = args.api_key {
         match args.tool {
@@ -129,6 +189,34 @@ mod tests {
     use crate::config::ConfigStore;
     use crate::types::Tool;
 
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, previous }
+        }
+
+        fn unset(key: &'static str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe { std::env::remove_var(key) };
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(v) => unsafe { std::env::set_var(self.key, v) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
+    }
+
     fn make_fake_binary(dir: &Path, name: &str) {
         let path = dir.join(name);
         fs::write(&path, "#!/bin/sh\necho 'fake 1.0'\n").unwrap();
@@ -150,6 +238,7 @@ mod tests {
             api_key: Some(api_key.to_owned()),
             label: None,
             set_active: false,
+            from_env: false,
         }
     }
 
@@ -266,5 +355,103 @@ mod tests {
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert!(config.profiles_for(Tool::Gemini).contains_key("work"));
+    }
+
+    fn from_env_args(tool: Tool, name: &str) -> AddArgs {
+        AddArgs {
+            tool,
+            profile_name: name.to_owned(),
+            api_key: None,
+            label: None,
+            set_active: false,
+            from_env: true,
+        }
+    }
+
+    #[test]
+    fn from_env_claude_creates_profile() {
+        let _key = EnvVarGuard::set(
+            "ANTHROPIC_API_KEY",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        );
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_fake_binary(&bin_dir, "claude");
+
+        run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap();
+
+        let config = ConfigStore::new(&home).load().unwrap();
+        assert!(config.profiles_for(Tool::Claude).contains_key("ci"));
+    }
+
+    #[test]
+    fn from_env_codex_creates_profile() {
+        let _key = EnvVarGuard::set("OPENAI_API_KEY", "sk-codex-test-key-12345");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_fake_binary(&bin_dir, "codex");
+
+        run_in(from_env_args(Tool::Codex, "ci"), &home, path_of(&bin_dir)).unwrap();
+
+        let config = ConfigStore::new(&home).load().unwrap();
+        assert!(config.profiles_for(Tool::Codex).contains_key("ci"));
+    }
+
+    #[test]
+    fn from_env_gemini_creates_profile() {
+        let _key = EnvVarGuard::set("GEMINI_API_KEY", "AIzatest1234567890ABCDEF");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_fake_binary(&bin_dir, "gemini");
+
+        run_in(from_env_args(Tool::Gemini, "ci"), &home, path_of(&bin_dir)).unwrap();
+
+        let config = ConfigStore::new(&home).load().unwrap();
+        assert!(config.profiles_for(Tool::Gemini).contains_key("ci"));
+    }
+
+    #[test]
+    fn from_env_unset_errors() {
+        let _key = EnvVarGuard::unset("ANTHROPIC_API_KEY");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_fake_binary(&bin_dir, "claude");
+
+        let err = run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap_err();
+        assert!(
+            err.to_string().contains("ANTHROPIC_API_KEY"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn from_env_empty_errors() {
+        let _key = EnvVarGuard::set("ANTHROPIC_API_KEY", "");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_fake_binary(&bin_dir, "claude");
+
+        let err = run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap_err();
+        assert!(
+            err.to_string().contains("ANTHROPIC_API_KEY"),
+            "unexpected: {}",
+            err
+        );
     }
 }
