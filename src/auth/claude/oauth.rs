@@ -1,11 +1,10 @@
 //! OAuth capture flow and account-metadata persistence for Claude Code.
 //!
-//! Claude's OAuth flow varies by platform:
-//!  - **Non-macOS**: Spawns `claude auth login` with `CLAUDE_CONFIG_DIR` set to
-//!    a temporary capture directory and polls for `.credentials.json`.
-//!  - **macOS**: Spawns `claude auth login` without the capture dir override
-//!    (the override triggers a fallback auth-code flow). Instead, polls the
-//!    live keychain and credential file for a change.
+//! Claude's OAuth flow varies by installation and platform:
+//!  - We still set `CLAUDE_CONFIG_DIR` on non-macOS to keep capture-dir support.
+//!  - We always also watch Claude's live credential locations (and keychain when
+//!    available), because modern Claude builds can write outside capture-dir.
+//!  - On macOS we avoid the capture-dir override and rely on live locations.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -338,17 +337,11 @@ If you need a different Claude account, fully sign out of claude.com first, then
 'aisw add claude <name>'.",
     );
 
-    // On macOS, avoid `CLAUDE_CONFIG_DIR` entirely for OAuth login. Claude's
-    // browser flow falls back to the auth-code URL shape (`code=true`) when the
-    // config dir is overridden, while the normal callback-based flow uses the
-    // default live locations. We therefore observe the real live locations on
-    // macOS and only use the capture-dir approach on other platforms.
+    // On macOS, avoid `CLAUDE_CONFIG_DIR` entirely for OAuth login. On other
+    // platforms we still set it for compatibility, but we also monitor the live
+    // credential locations because Claude may ignore the override.
     let use_capture_dir = !cfg!(target_os = "macos");
-    let live_credentials_path_before = if cfg!(target_os = "macos") {
-        dirs::home_dir().map(|home| live_credentials_path(&home))
-    } else {
-        None
-    };
+    let live_credentials_path_before = dirs::home_dir().map(|home| live_credentials_path(&home));
     let file_before = live_credentials_path_before
         .as_ref()
         .filter(|path| path.exists())
@@ -411,6 +404,13 @@ If you need a different Claude account, fully sign out of claude.com first, then
             .try_wait()
             .with_context(|| format!("could not poll {}", claude_bin.display()))?
         {
+            if use_capture_dir && credentials_path.exists() {
+                let bytes = fs::read(&credentials_path)
+                    .with_context(|| format!("could not read {}", credentials_path.display()))?;
+                files::set_permissions_600(&credentials_path)?;
+                return Ok(bytes);
+            }
+
             if watch_keychain {
                 if let Some(current) = read_keychain_credentials()? {
                     if status.success() || keychain_before.is_none() {
@@ -433,7 +433,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
             };
             bail!(
                 "{} before aisw could capture credentials.\n  \
-                 On this platform Claude may be storing auth outside CLAUDE_CONFIG_DIR.",
+                 Claude may be storing auth outside CLAUDE_CONFIG_DIR or in the system keyring.",
                 exit_note
             );
         }

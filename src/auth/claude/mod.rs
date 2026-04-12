@@ -499,8 +499,11 @@ mod tests {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
         let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
         // Mock exits immediately without writing credentials so the OAuth flow
         // reports an actionable capture failure instead of hanging.
         let bin = make_oauth_mock(&bin_dir, false);
@@ -800,6 +803,57 @@ mod tests {
 
         let sentinel = ps.profile_dir(Tool::Claude, "work").join("login_args");
         assert_eq!(fs::read_to_string(&sentinel).unwrap(), "auth login");
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn oauth_on_non_macos_accepts_live_credentials_when_capture_dir_is_ignored() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+
+        // Simulate Claude writing only to the live location, even when
+        // CLAUDE_CONFIG_DIR is provided.
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             [ \"$1\" = \"auth\" ] || exit 9\n\
+             [ \"$2\" = \"login\" ] || exit 8\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$HOME/.claude/.credentials.json\"\n\
+             exit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let stored = ps
+            .read_file(Tool::Claude, "work", CREDENTIALS_FILE)
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(stored).unwrap().trim(),
+            r#"{"oauthToken":"tok"}"#
+        );
     }
 
     #[test]
