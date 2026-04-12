@@ -1,10 +1,10 @@
 //! OAuth capture flow and account-metadata persistence for Claude Code.
 //!
 //! Claude's OAuth flow varies by installation and platform:
-//!  - We still set `CLAUDE_CONFIG_DIR` on non-macOS to keep capture-dir support.
-//!  - We always also watch Claude's live credential locations (and keychain when
-//!    available), because modern Claude builds can write outside capture-dir.
-//!  - On macOS we avoid the capture-dir override and rely on live locations.
+//!  - We always monitor Claude's live credential locations (and keychain when
+//!    available), because modern Claude builds may write outside capture-dir.
+//!  - We avoid setting `CLAUDE_CONFIG_DIR` during login so Claude can run its
+//!    native auth flow without override-induced fallbacks.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -337,10 +337,10 @@ If you need a different Claude account, fully sign out of claude.com first, then
 'aisw add claude <name>'.",
     );
 
-    // On macOS, avoid `CLAUDE_CONFIG_DIR` entirely for OAuth login. On other
-    // platforms we still set it for compatibility, but we also monitor the live
-    // credential locations because Claude may ignore the override.
-    let use_capture_dir = !cfg!(target_os = "macos");
+    // Avoid `CLAUDE_CONFIG_DIR` during OAuth login so Claude can choose its
+    // native auth flow. We still check capture-dir as a fallback in case some
+    // installations write there.
+    let use_capture_dir = false;
     let live_credentials_path_before = dirs::home_dir().map(|home| live_credentials_path(&home));
     let file_before = live_credentials_path_before
         .as_ref()
@@ -356,9 +356,6 @@ If you need a different Claude account, fully sign out of claude.com first, then
 
     let mut cmd = Command::new(claude_bin);
     cmd.arg("auth").arg("login");
-    if use_capture_dir {
-        cmd.env("CLAUDE_CONFIG_DIR", capture_dir);
-    }
     let mut child = cmd
         .spawn()
         .with_context(|| format!("could not spawn {}", claude_bin.display()))?;

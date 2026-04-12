@@ -394,8 +394,8 @@ mod tests {
         let body = if write_creds {
             "[ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$HOME/.claude/.credentials.json\"\n\
              exit 0\n"
         } else {
             "[ \"$1\" = \"auth\" ] || exit 9\n\
@@ -413,8 +413,11 @@ mod tests {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
         let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
         let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
@@ -446,13 +449,17 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
         let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
         let bin = bin_dir.join("claude");
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             echo '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+             mkdir -p \"$HOME/.claude\"\n\
+             echo '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$HOME/.claude/.credentials.json\"\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -538,8 +545,11 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
         let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
         let bin = make_oauth_mock(&bin_dir, true);
 
         let (ps, cs) = stores(dir.path());
@@ -669,26 +679,27 @@ mod tests {
 
     #[test]
     #[cfg(all(unix, not(target_os = "macos")))]
-    fn oauth_sets_claude_config_dir_env() {
+    fn oauth_on_non_macos_avoids_claude_config_dir_during_login() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
-        // Mock binary that writes its CLAUDE_CONFIG_DIR value to a sentinel file,
-        // then writes credentials so the flow completes.
         let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
         let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
         let bin = bin_dir.join("claude");
         fs::write(
             &bin,
             "#!/bin/sh\n\
              [ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo \"$CLAUDE_CONFIG_DIR\" > \"$(dirname \"$CLAUDE_CONFIG_DIR\")/env_was_set\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             [ -z \"$CLAUDE_CONFIG_DIR\" ] || { echo \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"; exit 7; }\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             echo '{}' > \"$HOME/.claude/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -706,10 +717,9 @@ mod tests {
         )
         .unwrap();
 
-        let sentinel = ps.profile_dir(Tool::Claude, "work").join("env_was_set");
         assert!(
-            sentinel.exists(),
-            "CLAUDE_CONFIG_DIR was not set in spawned process"
+            !home.join("env_was_set").exists(),
+            "CLAUDE_CONFIG_DIR should not be set during non-macOS OAuth login"
         );
     }
 
@@ -775,15 +785,19 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
         let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
         fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
         let bin = bin_dir.join("claude");
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             printf '%s %s' \"$1\" \"$2\" > \"$(dirname \"$CLAUDE_CONFIG_DIR\")/login_args\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             [ -z \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
+             printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             echo '{}' > \"$HOME/.claude/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -801,8 +815,10 @@ mod tests {
         )
         .unwrap();
 
-        let sentinel = ps.profile_dir(Tool::Claude, "work").join("login_args");
-        assert_eq!(fs::read_to_string(&sentinel).unwrap(), "auth login");
+        assert_eq!(
+            fs::read_to_string(home.join("login_args")).unwrap(),
+            "auth login"
+        );
     }
 
     #[test]
