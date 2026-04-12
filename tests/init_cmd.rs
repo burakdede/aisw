@@ -147,6 +147,49 @@ fn init_imports_claude_credentials() {
 }
 
 #[test]
+fn init_is_idempotent_for_claude_oauth_import() {
+    let env = TestEnv::new();
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"account":{"email":"burak@example.com"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        env.fake_home.join(".claude.json"),
+        br#"{"oauthAccount":{"emailAddress":"burak@example.com"}}"#,
+    )
+    .unwrap();
+
+    run_init(&env).success().stdout(contains(
+        "Imported Claude Code credentials as profile 'default' and marked it active.",
+    ));
+
+    run_init(&env)
+        .success()
+        .stdout(contains("already managed"))
+        .stdout(contains(
+            "Current live credentials match stored profile 'default'.",
+        ))
+        .stdout(contains(
+            "aisw also records 'default' as the active profile for claude.",
+        ));
+
+    let claude_profiles_dir = env.aisw_home.join("profiles").join("claude");
+    let profile_dir_count = fs::read_dir(&claude_profiles_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .count();
+    assert_eq!(
+        profile_dir_count, 1,
+        "init rerun should not create additional Claude profiles"
+    );
+    assert!(claude_profiles_dir.join("default").exists());
+}
+
+#[test]
 #[cfg(target_os = "macos")]
 fn init_imports_claude_credentials_from_keychain() {
     let env = TestEnv::new();
