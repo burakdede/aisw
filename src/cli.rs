@@ -114,15 +114,21 @@ pub struct AddArgs {
     /// Switch to this profile immediately after adding
     #[arg(long)]
     pub set_active: bool,
+
+    /// Use the tool's standard environment variable instead of interactive prompts
+    #[arg(long, conflicts_with = "api_key")]
+    pub from_env: bool,
 }
 
 #[derive(Args, Debug)]
 pub struct UseArgs {
-    /// Tool to switch
-    pub tool: Tool,
+    /// Tool to switch (omit to use --all)
+    #[arg(conflicts_with = "all")]
+    pub tool: Option<Tool>,
 
-    /// Profile to activate
-    pub profile_name: String,
+    /// Profile to activate (required when tool is specified; for --all use --all-profile)
+    #[arg(conflicts_with = "all")]
+    pub profile_name: Option<String>,
 
     /// Claude/Codex only: choose whether switching keeps shared local state or isolates it per profile
     #[arg(long, value_enum)]
@@ -132,6 +138,14 @@ pub struct UseArgs {
     /// Used internally by the shell hook — not intended for direct use.
     #[arg(long, hide = true)]
     pub emit_env: bool,
+
+    /// Switch all tools to same-named profile in one command
+    #[arg(long)]
+    pub all: bool,
+
+    /// Profile name when using --all
+    #[arg(long = "profile", value_name = "PROFILE")]
+    pub all_profile: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -292,10 +306,11 @@ mod tests {
         let Command::Use(args) = cli.command else {
             panic!("wrong command")
         };
-        assert_eq!(args.tool, Tool::Gemini);
-        assert_eq!(args.profile_name, "work");
+        assert_eq!(args.tool, Some(Tool::Gemini));
+        assert_eq!(args.profile_name.as_deref(), Some("work"));
         assert_eq!(args.state_mode, None);
         assert!(!args.emit_env);
+        assert!(!args.all);
     }
 
     #[test]
@@ -304,7 +319,7 @@ mod tests {
         let Command::Use(args) = cli.command else {
             panic!("wrong command")
         };
-        assert_eq!(args.tool, Tool::Codex);
+        assert_eq!(args.tool, Some(Tool::Codex));
         assert_eq!(args.state_mode, Some(StateMode::Shared));
     }
 
@@ -315,6 +330,22 @@ mod tests {
             panic!("wrong command")
         };
         assert!(args.emit_env);
+    }
+
+    #[test]
+    fn use_all_flag_parses() {
+        let cli = parse(&["use", "--all", "--profile", "work"]).unwrap();
+        let Command::Use(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(args.all);
+        assert!(args.tool.is_none());
+        assert_eq!(args.all_profile.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn use_all_with_tool_is_rejected() {
+        assert!(parse(&["use", "claude", "work", "--all"]).is_err());
     }
 
     #[test]
