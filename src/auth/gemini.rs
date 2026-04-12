@@ -453,25 +453,12 @@ fn spawn_oauth_child(
 ) -> Result<std::process::Child> {
     #[cfg(target_os = "macos")]
     {
-        use std::os::unix::process::CommandExt;
-
-        let mut cmd = Command::new("/usr/bin/script");
-        cmd.arg("-q")
+        let child = Command::new("/usr/bin/script")
+            .arg("-q")
             .arg("/dev/null")
             .arg(gemini_bin)
             .env("HOME", scratch)
-            .current_dir(scratch_workdir);
-        // SAFETY: pre_exec is only used to set the child process group before
-        // exec, without touching shared Rust state.
-        unsafe {
-            cmd.pre_exec(|| {
-                if libc::setpgid(0, 0) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-        let child = cmd
+            .current_dir(scratch_workdir)
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
         Ok(child)
@@ -479,21 +466,9 @@ fn spawn_oauth_child(
 
     #[cfg(not(target_os = "macos"))]
     {
-        use std::os::unix::process::CommandExt;
-
-        let mut cmd = Command::new(gemini_bin);
-        cmd.env("HOME", scratch).current_dir(scratch_workdir);
-        // SAFETY: pre_exec is only used to set the child process group before
-        // exec, without touching shared Rust state.
-        unsafe {
-            cmd.pre_exec(|| {
-                if libc::setpgid(0, 0) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-        let child = cmd
+        let child = Command::new(gemini_bin)
+            .env("HOME", scratch)
+            .current_dir(scratch_workdir)
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
         Ok(child)
@@ -504,12 +479,7 @@ fn stop_interactive_child(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let pid = child.id() as i32;
-        let pgid = unsafe { libc::getpgid(pid) };
-        if pgid > 0 {
-            let _ = unsafe { libc::kill(-pgid, libc::SIGINT) };
-        } else {
-            let _ = unsafe { libc::kill(pid, libc::SIGINT) };
-        }
+        let _ = unsafe { libc::kill(pid, libc::SIGINT) };
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
@@ -517,11 +487,11 @@ fn stop_interactive_child(child: &mut std::process::Child) {
             std::thread::sleep(Duration::from_millis(50));
         }
 
-        if pgid > 0 {
-            let _ = unsafe { libc::kill(-pgid, libc::SIGTERM) };
-        } else {
-            let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
-        }
+        // Best effort: terminate direct descendants before escalating parent.
+        #[cfg(target_os = "linux")]
+        kill_child_descendants(pid, libc::SIGTERM);
+
+        let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
@@ -529,13 +499,39 @@ fn stop_interactive_child(child: &mut std::process::Child) {
             std::thread::sleep(Duration::from_millis(50));
         }
 
-        if pgid > 0 {
-            let _ = unsafe { libc::kill(-pgid, libc::SIGKILL) };
-        }
+        #[cfg(target_os = "linux")]
+        kill_child_descendants(pid, libc::SIGKILL);
     }
 
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(target_os = "linux")]
+fn kill_child_descendants(root_pid: i32, signal: i32) {
+    fn read_children(pid: i32) -> Vec<i32> {
+        let path = format!("/proc/{}/task/{}/children", pid, pid);
+        let Ok(contents) = std::fs::read_to_string(path) else {
+            return Vec::new();
+        };
+        contents
+            .split_whitespace()
+            .filter_map(|s| s.parse::<i32>().ok())
+            .collect()
+    }
+
+    fn walk(pid: i32, out: &mut Vec<i32>) {
+        for child in read_children(pid) {
+            out.push(child);
+            walk(child, out);
+        }
+    }
+
+    let mut descendants = Vec::new();
+    walk(root_pid, &mut descendants);
+    for pid in descendants.into_iter().rev() {
+        let _ = unsafe { libc::kill(pid, signal) };
+    }
 }
 
 fn finalize_child_after_success(child: &mut std::process::Child, grace: Duration) {
