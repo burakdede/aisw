@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use console::style;
 
 use crate::cli::ListArgs;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend};
@@ -8,12 +9,13 @@ use crate::output;
 use crate::types::Tool;
 
 pub(crate) struct Row {
-    tool: &'static str,
-    profile: String,
-    active: bool,
-    auth_method: &'static str,
-    credential_backend: &'static str,
-    label: Option<String>,
+    pub(crate) tool: &'static str,
+    pub(crate) profile: String,
+    pub(crate) active: bool,
+    pub(crate) auth_method: &'static str,
+    #[allow(dead_code)]
+    pub(crate) credential_backend: &'static str,
+    pub(crate) label: Option<String>,
 }
 
 fn auth_display(method: AuthMethod) -> &'static str {
@@ -82,7 +84,7 @@ fn print_table(rows: &[Row]) {
 
     output::print_title("Profiles");
 
-    let mut current_tool = None;
+    let mut current_tool: Option<&str> = None;
     for row in rows {
         if current_tool != Some(row.tool) {
             if current_tool.is_some() {
@@ -99,32 +101,78 @@ fn print_table(rows: &[Row]) {
             current_tool = Some(row.tool);
         }
 
-        output::print_profile_section(&row.profile, row.active);
-        output::print_kv("Active", if row.active { "yes" } else { "no" });
-        output::print_kv("Auth", row.auth_method);
-        output::print_kv("Backend", row.credential_backend);
-        if let Some(label) = row.label.as_deref() {
-            output::print_kv("Label", label);
-        }
-        output::print_blank_line();
+        // Build the line: bullet + profile name + auth badge + label
+        let bullet = if row.active {
+            format!("{}", style("\u{25cf}").green())
+        } else {
+            format!("{}", style("\u{25cb}").dim())
+        };
+
+        let name_part = if row.active {
+            format!("{}", style(&row.profile).bold())
+        } else {
+            format!("{}", style(&row.profile).dim())
+        };
+
+        let auth_badge = match row.auth_method {
+            "oauth" => format!(" {}", style("[oauth]").cyan()),
+            "api_key" => format!(" {}", style("[api-key]").yellow()),
+            other => format!(" [{}]", other),
+        };
+
+        let label_part = match row.label.as_deref() {
+            Some(l) => format!("  {}", style(format!("({})", l)).dim()),
+            None => String::new(),
+        };
+
+        let active_tag = if row.active {
+            format!("  {}", style("[active]").green().bold())
+        } else {
+            String::new()
+        };
+
+        println!(
+            "  {} {}{}{}{}",
+            bullet, name_part, auth_badge, label_part, active_tag
+        );
     }
 }
 
 fn print_json(rows: &[Row]) -> Result<()> {
-    let json_rows: Vec<serde_json::Value> = rows
-        .iter()
-        .map(|r| {
-            serde_json::json!({
-                "tool":        r.tool,
-                "profile":     r.profile,
-                "active":      r.active,
-                "auth_method": r.auth_method,
-                "credential_backend": r.credential_backend,
-                "label":       r.label,
+    // Build grouped structure: { "claude": { "active": ..., "profiles": [...] }, ... }
+    let mut map = serde_json::Map::new();
+
+    for tool in Tool::ALL {
+        let tool_name = tool.binary_name();
+        let tool_rows: Vec<&Row> = rows.iter().filter(|r| r.tool == tool_name).collect();
+        let active = tool_rows
+            .iter()
+            .find(|r| r.active)
+            .map(|r| serde_json::Value::String(r.profile.clone()))
+            .unwrap_or(serde_json::Value::Null);
+        let profiles: Vec<serde_json::Value> = tool_rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "name": r.profile,
+                    "auth": r.auth_method,
+                    "label": r.label,
+                })
             })
-        })
-        .collect();
-    println!("{}", serde_json::to_string_pretty(&json_rows)?);
+            .collect();
+        map.insert(
+            tool_name.to_owned(),
+            serde_json::json!({
+                "active": active,
+                "profiles": profiles,
+            }),
+        );
+    }
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::Value::Object(map))?
+    );
     Ok(())
 }
 

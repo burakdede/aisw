@@ -86,6 +86,27 @@ fn status_json(env: &TestEnv) -> serde_json::Value {
     serde_json::from_slice(&out).expect("status --json output is not valid JSON")
 }
 
+/// Return the active profile name for a tool from the new grouped list --json format.
+fn active_profile<'a>(j: &'a serde_json::Value, tool: &str) -> Option<&'a str> {
+    j[tool]["active"].as_str()
+}
+
+/// Return all profile names for a tool from the new grouped list --json format.
+fn profiles_for<'a>(j: &'a serde_json::Value, tool: &str) -> Vec<&'a str> {
+    j[tool]["profiles"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|p| p["name"].as_str()).collect())
+        .unwrap_or_default()
+}
+
+/// Count total profiles across all tools.
+fn total_profiles(j: &serde_json::Value) -> usize {
+    ["claude", "codex", "gemini"]
+        .iter()
+        .map(|t| profiles_for(j, t).len())
+        .sum()
+}
+
 fn strip_ansi(input: &str) -> String {
     let mut stripped = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -137,15 +158,13 @@ fn claude_full_lifecycle_add_use_list_remove() {
     // 1. add
     add_claude(&env, "work");
     let j = list_json(&env);
-    assert_eq!(j.as_array().unwrap().len(), 1);
-    assert_eq!(j[0]["tool"], "claude");
-    assert_eq!(j[0]["profile"], "work");
-    assert_eq!(j[0]["active"], false);
+    assert_eq!(profiles_for(&j, "claude"), vec!["work"]);
+    assert_eq!(active_profile(&j, "claude"), None);
 
     // 2. use — activates and creates backup
     env.cmd().args(["use", "claude", "work"]).assert().success();
     let j = list_json(&env);
-    assert_eq!(j[0]["active"], true);
+    assert_eq!(active_profile(&j, "claude"), Some("work"));
     assert!(env.home_file("backups").exists());
 
     // 3. list shows active marker
@@ -155,8 +174,7 @@ fn claude_full_lifecycle_add_use_list_remove() {
         .success()
         .stdout(contains("Claude Code"))
         .stdout(contains("work"))
-        .stdout(contains("active"))
-        .stdout(contains("yes"));
+        .stdout(contains("active"));
 
     // 4. remove
     env.cmd()
@@ -166,7 +184,7 @@ fn claude_full_lifecycle_add_use_list_remove() {
 
     // profile gone, list empty
     let j = list_json(&env);
-    assert!(j.as_array().unwrap().is_empty());
+    assert_eq!(total_profiles(&j), 0);
     env.cmd()
         .args(["list"])
         .assert()
@@ -183,9 +201,8 @@ fn codex_full_lifecycle_add_use_list_remove() {
     env.cmd().args(["use", "codex", "main"]).assert().success();
 
     let j = list_json(&env);
-    assert_eq!(j.as_array().unwrap().len(), 1);
-    assert_eq!(j[0]["tool"], "codex");
-    assert_eq!(j[0]["active"], true);
+    assert_eq!(profiles_for(&j, "codex"), vec!["main"]);
+    assert_eq!(active_profile(&j, "codex"), Some("main"));
 
     env.cmd()
         .args(["remove", "codex", "main", "--yes", "--force"])
@@ -193,7 +210,7 @@ fn codex_full_lifecycle_add_use_list_remove() {
         .success();
 
     let j = list_json(&env);
-    assert!(j.as_array().unwrap().is_empty());
+    assert_eq!(total_profiles(&j), 0);
 }
 
 #[test]
@@ -218,15 +235,14 @@ fn gemini_full_lifecycle_add_use_list_remove() {
     assert!(contents.contains("GEMINI_API_KEY="));
 
     let j = list_json(&env);
-    assert_eq!(j[0]["tool"], "gemini");
-    assert_eq!(j[0]["active"], true);
+    assert_eq!(active_profile(&j, "gemini"), Some("default"));
 
     env.cmd()
         .args(["remove", "gemini", "default", "--yes", "--force"])
         .assert()
         .success();
     let j = list_json(&env);
-    assert!(j.as_array().unwrap().is_empty());
+    assert_eq!(total_profiles(&j), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,20 +273,8 @@ fn switching_between_two_claude_profiles_changes_config_dir() {
     );
 
     let j = list_json(&env);
-    let work = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["profile"] == "work")
-        .unwrap();
-    let personal = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["profile"] == "personal")
-        .unwrap();
-    assert_eq!(work["active"], true);
-    assert_eq!(personal["active"], false);
+    assert_eq!(active_profile(&j, "claude"), Some("work"));
+    assert!(profiles_for(&j, "claude").contains(&"personal"));
 
     // Switch to personal.
     env.cmd()
@@ -279,20 +283,11 @@ fn switching_between_two_claude_profiles_changes_config_dir() {
         .success();
 
     let j = list_json(&env);
-    let work = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["profile"] == "work")
-        .unwrap();
-    let personal = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["profile"] == "personal")
-        .unwrap();
-    assert_eq!(work["active"], false, "work should no longer be active");
-    assert_eq!(personal["active"], true, "personal should now be active");
+    assert_eq!(
+        active_profile(&j, "claude"),
+        Some("personal"),
+        "personal should now be active"
+    );
 }
 
 #[test]
@@ -316,20 +311,10 @@ fn switching_between_two_codex_profiles_updates_active() {
         .stdout(contains("CODEX_HOME="));
 
     let j = list_json(&env);
-    let oss = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["profile"] == "oss")
-        .unwrap();
-    let work = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["profile"] == "work")
-        .unwrap();
-    assert_eq!(oss["active"], true);
-    assert_eq!(work["active"], false);
+    assert_eq!(active_profile(&j, "codex"), Some("oss"));
+    let profiles = profiles_for(&j, "codex");
+    assert!(profiles.contains(&"work"));
+    assert!(profiles.contains(&"oss"));
 }
 
 #[test]
@@ -396,7 +381,8 @@ fn set_active_on_add_reflected_in_list_json() {
 
     let j = list_json(&env);
     assert_eq!(
-        j[0]["active"], true,
+        active_profile(&j, "claude"),
+        Some("work"),
         "--set-active should mark profile active"
     );
 }
@@ -519,34 +505,23 @@ fn list_json_valid_and_accurate_throughout_cycle() {
 
     // Empty.
     let j = list_json(&env);
-    assert!(j.is_array());
-    assert!(j.as_array().unwrap().is_empty());
+    assert!(j.is_object());
+    assert_eq!(total_profiles(&j), 0);
 
     // After adding two tools.
     add_claude(&env, "work");
     add_codex(&env, "main");
 
     let j = list_json(&env);
-    assert_eq!(j.as_array().unwrap().len(), 2);
-    assert!(j.as_array().unwrap().iter().all(|e| e["active"] == false));
+    assert_eq!(total_profiles(&j), 2);
+    assert_eq!(active_profile(&j, "claude"), None);
+    assert_eq!(active_profile(&j, "codex"), None);
 
     // After activating claude.
     env.cmd().args(["use", "claude", "work"]).assert().success();
     let j = list_json(&env);
-    let claude = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["tool"] == "claude")
-        .unwrap();
-    let codex = j
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|e| e["tool"] == "codex")
-        .unwrap();
-    assert_eq!(claude["active"], true);
-    assert_eq!(codex["active"], false);
+    assert_eq!(active_profile(&j, "claude"), Some("work"));
+    assert_eq!(active_profile(&j, "codex"), None);
 
     // After removing claude.
     env.cmd()
@@ -554,8 +529,8 @@ fn list_json_valid_and_accurate_throughout_cycle() {
         .assert()
         .success();
     let j = list_json(&env);
-    assert_eq!(j.as_array().unwrap().len(), 1);
-    assert_eq!(j[0]["tool"], "codex");
+    assert_eq!(profiles_for(&j, "claude").len(), 0);
+    assert_eq!(profiles_for(&j, "codex"), vec!["main"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -665,11 +640,10 @@ fn multi_tool_state_each_tool_independent() {
         .success();
 
     let j = list_json(&env);
-    let arr = j.as_array().unwrap();
-    assert_eq!(arr.len(), 3);
-    for entry in arr {
-        assert_eq!(entry["active"], true, "all three profiles should be active");
-    }
+    assert_eq!(total_profiles(&j), 3);
+    assert_eq!(active_profile(&j, "claude"), Some("work"));
+    assert_eq!(active_profile(&j, "codex"), Some("main"));
+    assert_eq!(active_profile(&j, "gemini"), Some("default"));
 
     // Remove codex — claude and gemini unaffected.
     env.cmd()
@@ -678,16 +652,10 @@ fn multi_tool_state_each_tool_independent() {
         .success();
 
     let j = list_json(&env);
-    let arr = j.as_array().unwrap();
-    assert_eq!(arr.len(), 2);
-    assert!(
-        arr.iter().all(|e| e["tool"] != "codex"),
-        "codex should be gone"
-    );
-    assert!(
-        arr.iter().all(|e| e["active"] == true),
-        "claude and gemini should still be active"
-    );
+    assert_eq!(total_profiles(&j), 2);
+    assert_eq!(profiles_for(&j, "codex").len(), 0, "codex should be gone");
+    assert_eq!(active_profile(&j, "claude"), Some("work"));
+    assert_eq!(active_profile(&j, "gemini"), Some("default"));
 }
 
 #[test]
@@ -705,10 +673,8 @@ fn remove_one_tool_profile_does_not_affect_other_tools_in_list_json() {
         .success();
 
     let j = list_json(&env);
-    let arr = j.as_array().unwrap();
-    assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["tool"], "codex");
-    assert_eq!(arr[0]["profile"], "main");
+    assert_eq!(profiles_for(&j, "claude").len(), 0);
+    assert_eq!(profiles_for(&j, "codex"), vec!["main"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +715,7 @@ fn add_after_remove_creates_fresh_profile() {
     env.cmd().args(["use", "claude", "work"]).assert().success();
 
     let j = list_json(&env);
-    assert_eq!(j[0]["active"], true);
+    assert_eq!(active_profile(&j, "claude"), Some("work"));
 }
 
 #[test]
@@ -766,11 +732,11 @@ fn list_json_never_includes_removed_tool_profiles() {
         .success();
 
     let j = list_json(&env);
-    let arr = j.as_array().unwrap();
-    assert_eq!(arr.len(), 1);
+    let remaining = profiles_for(&j, "claude");
+    assert_eq!(remaining.len(), 1);
     assert!(
-        arr.iter().all(|e| e["profile"] != "work"),
+        !remaining.contains(&"work"),
         "removed profile must not appear in list --json"
     );
-    assert!(arr.iter().any(|e| e["profile"] == "personal"));
+    assert!(remaining.contains(&"personal"));
 }

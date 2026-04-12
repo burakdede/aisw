@@ -48,7 +48,7 @@ fn list_shows_added_profiles() {
         .stdout(contains("work"))
         .stdout(contains("Codex CLI"))
         .stdout(contains("main"))
-        .stdout(contains("api_key"));
+        .stdout(contains("api-key"));
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn list_filters_by_tool() {
 }
 
 #[test]
-fn list_json_output_is_valid_json_array() {
+fn list_json_output_is_valid_json_object() {
     let env = TestEnv::new();
     add_claude(&env, "work");
 
@@ -88,17 +88,16 @@ fn list_json_output_is_valid_json_array() {
 
     let json: serde_json::Value =
         serde_json::from_slice(&output).expect("stdout is not valid JSON");
-    assert!(json.is_array());
-    let arr = json.as_array().unwrap();
-    assert_eq!(arr.len(), 1);
-    assert_eq!(arr[0]["tool"], "claude");
-    assert_eq!(arr[0]["profile"], "work");
-    assert_eq!(arr[0]["auth_method"], "api_key");
-    assert_eq!(arr[0]["active"], false);
+    assert!(json.is_object());
+    let profiles = json["claude"]["profiles"].as_array().unwrap();
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0]["name"], "work");
+    assert_eq!(profiles[0]["auth"], "api_key");
+    assert!(json["claude"]["active"].is_null());
 }
 
 #[test]
-fn list_active_profile_marked_with_star() {
+fn list_active_profile_marked_in_output() {
     let env = TestEnv::new();
     add_claude(&env, "work");
     env.cmd().args(["use", "claude", "work"]).assert().success();
@@ -108,12 +107,11 @@ fn list_active_profile_marked_with_star() {
         .assert()
         .success()
         .stdout(contains("work"))
-        .stdout(contains("active"))
-        .stdout(contains("yes"));
+        .stdout(contains("active"));
 }
 
 #[test]
-fn list_json_active_field_true_after_use() {
+fn list_json_active_field_set_after_use() {
     let env = TestEnv::new();
     add_claude(&env, "work");
     env.cmd().args(["use", "claude", "work"]).assert().success();
@@ -128,7 +126,7 @@ fn list_json_active_field_true_after_use() {
         .clone();
 
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(json[0]["active"], true);
+    assert_eq!(json["claude"]["active"], "work");
 }
 
 #[test]
