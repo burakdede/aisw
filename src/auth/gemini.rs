@@ -387,18 +387,13 @@ fn run_oauth_flow(
     prepare_scratch_home(&scratch, &scratch_workdir)?;
 
     crate::output::print_info("Steps:");
-    crate::output::print_info("  1. Open a new terminal");
-    crate::output::print_info(
-        "  2. Run: gemini  (the tool will open in a pre-configured home dir)",
-    );
-    crate::output::print_info("  3. Complete the login in your browser");
-    crate::output::print_info("  4. Return here — aisw will detect when login completes");
+    crate::output::print_info("  1. Complete Gemini sign-in in your browser");
+    crate::output::print_info("  2. Stay in this terminal; aisw will detect completion");
     let spinner = crate::output::start_spinner("Waiting for Gemini OAuth...");
 
     let result = (|| {
         let terminal = TerminalGuard::capture();
-        let (mut child, wrapped_in_pty) =
-            spawn_oauth_child(gemini_bin, &scratch, &scratch_workdir)?;
+        let mut child = spawn_oauth_child(gemini_bin, &scratch, &scratch_workdir)?;
 
         let cache_dir = scratch.join(GEMINI_CACHE_DIR);
         let deadline = std::time::Instant::now() + timeout;
@@ -407,7 +402,7 @@ fn run_oauth_flow(
             let captured = capture_oauth_cache_into_profile(&cache_dir, profile_dir)?;
             if captured > 0 {
                 terminal.restore();
-                finalize_child_after_success(&mut child, POST_AUTH_EXIT_GRACE, wrapped_in_pty);
+                finalize_child_after_success(&mut child, POST_AUTH_EXIT_GRACE);
                 return Ok(captured);
             }
 
@@ -455,7 +450,7 @@ fn spawn_oauth_child(
     gemini_bin: &Path,
     scratch: &Path,
     scratch_workdir: &Path,
-) -> Result<(std::process::Child, bool)> {
+) -> Result<std::process::Child> {
     #[cfg(target_os = "macos")]
     {
         let child = Command::new("/usr/bin/script")
@@ -466,7 +461,7 @@ fn spawn_oauth_child(
             .current_dir(scratch_workdir)
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
-        Ok((child, true))
+        Ok(child)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -476,7 +471,7 @@ fn spawn_oauth_child(
             .current_dir(scratch_workdir)
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
-        Ok((child, false))
+        Ok(child)
     }
 }
 
@@ -505,11 +500,7 @@ fn stop_interactive_child(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
-fn finalize_child_after_success(
-    child: &mut std::process::Child,
-    grace: Duration,
-    wrapped_in_pty: bool,
-) {
+fn finalize_child_after_success(child: &mut std::process::Child, grace: Duration) {
     let deadline = std::time::Instant::now() + grace;
     while std::time::Instant::now() < deadline {
         if child.try_wait().ok().flatten().is_some() {
@@ -518,9 +509,7 @@ fn finalize_child_after_success(
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    if wrapped_in_pty {
-        stop_interactive_child(child);
-    }
+    stop_interactive_child(child);
 }
 
 fn prepare_scratch_home(scratch: &Path, scratch_workdir: &Path) -> Result<()> {
@@ -883,6 +872,56 @@ mod tests {
             .profile_dir(Tool::Gemini, "default")
             .join("oauth_creds.json")
             .exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_flow_stops_interactive_child_after_success() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let signal_file = dir.path().join("received-signal");
+        let signal_file_escaped = signal_file.display().to_string().replace('\'', "'\"'\"'");
+
+        let bin = bin_dir.join("gemini");
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\n\
+                 trap 'echo stopped > '{}' ; exit 0' INT TERM\n\
+                 mkdir -p \"$HOME/.gemini\"\n\
+                 echo '{{\"token\":\"tok\"}}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                 while :; do sleep 1; done\n",
+                signal_file_escaped
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert!(ps
+            .profile_dir(Tool::Gemini, "default")
+            .join("oauth_creds.json")
+            .exists());
+        assert!(
+            signal_file.exists(),
+            "expected OAuth child to receive shutdown signal after capture"
+        );
     }
 
     #[test]
