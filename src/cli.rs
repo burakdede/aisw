@@ -87,13 +87,13 @@ pub enum Command {
     /// Run a health check on the aisw installation and tool environment
     Doctor(DoctorArgs),
 
-    /// Capture live credentials from ~/.claude into a new stored profile
+    /// Capture current live credentials into a new stored profile
     Save(SaveArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct SaveArgs {
-    /// Tool to capture live credentials for (currently only claude is supported)
+    /// Tool to capture live credentials for
     pub tool: Tool,
 
     /// Name for the new profile (alphanumeric, hyphens, underscores, max 32 chars)
