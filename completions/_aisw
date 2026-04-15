@@ -15,6 +15,9 @@ _aisw() {
 
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" : \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -33,6 +36,10 @@ _arguments "${_arguments_options[@]}" : \
 '--api-key=[API key — skips the interactive auth method prompt]:KEY:_default' \
 '--label=[Human-readable label for this profile]:TEXT:_default' \
 '--set-active[Switch to this profile immediately after adding]' \
+'(--api-key)--from-env[Use the tool'\''s standard environment variable instead of interactive prompts]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -43,18 +50,27 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (use)
 _arguments "${_arguments_options[@]}" : \
+'--state-mode=[Claude/Codex only\: choose whether switching keeps shared local state or isolates it per profile]:STATE_MODE:(isolated shared)' \
+'--profile=[Profile name when using --all]:PROFILE:_default' \
 '--emit-env[Print shell export statements to stdout instead of applying them directly. Used internally by the shell hook — not intended for direct use]' \
+'--all[Switch all tools to same-named profile in one command]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
 '--version[Print version]' \
-':tool -- Tool to switch:(claude codex gemini)' \
-':profile_name -- Profile to activate:_default' \
+'::tool -- Tool to switch (omit to use --all):(claude codex gemini)' \
+'::profile_name -- Profile to activate (required when tool is specified; for --all use --all-profile):_default' \
 && ret=0
 ;;
 (list)
 _arguments "${_arguments_options[@]}" : \
 '--json[Output as JSON]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -66,6 +82,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--yes[Skip the confirmation prompt]' \
 '--force[Allow removing the currently active profile]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -76,6 +95,9 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (rename)
 _arguments "${_arguments_options[@]}" : \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -88,6 +110,9 @@ _arguments "${_arguments_options[@]}" : \
 (status)
 _arguments "${_arguments_options[@]}" : \
 '--json[Output as JSON]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -97,6 +122,23 @@ _arguments "${_arguments_options[@]}" : \
 (init)
 _arguments "${_arguments_options[@]}" : \
 '--yes[Answer yes to all confirmation prompts]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+;;
+(uninstall)
+_arguments "${_arguments_options[@]}" : \
+'--remove-data[Delete AISW_HOME (profiles, config, backups) after removing shell integration]' \
+'--dry-run[Show what would be removed without changing any files. Recommended before uninstalling]' \
+'--yes[Skip the confirmation prompt]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -105,6 +147,9 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (shell-hook)
 _arguments "${_arguments_options[@]}" : \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -114,6 +159,9 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (backup)
 _arguments "${_arguments_options[@]}" : \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -130,6 +178,10 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (list)
 _arguments "${_arguments_options[@]}" : \
+'--json[Output as JSON]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -139,6 +191,9 @@ _arguments "${_arguments_options[@]}" : \
 (restore)
 _arguments "${_arguments_options[@]}" : \
 '--yes[Skip the confirmation prompt]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -177,6 +232,33 @@ esac
         esac
     ;;
 esac
+;;
+(doctor)
+_arguments "${_arguments_options[@]}" : \
+'--json[Output results as JSON]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+&& ret=0
+;;
+(save)
+_arguments "${_arguments_options[@]}" : \
+'--label=[Human-readable label for this profile]:TEXT:_default' \
+'--set-active[Switch to this profile immediately after saving]' \
+'--no-color[Disable colored output]' \
+'--non-interactive[Disable all interactive prompting; commands must be fully specified]' \
+'--quiet[Suppress human-oriented presentation output]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+':tool -- Tool to capture live credentials for (currently only claude is supported):(claude codex gemini)' \
+':profile_name -- Name for the new profile (alphanumeric, hyphens, underscores, max 32 chars):_default' \
+&& ret=0
 ;;
 (help)
 _arguments "${_arguments_options[@]}" : \
@@ -218,6 +300,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(uninstall)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (shell-hook)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -246,6 +332,14 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(doctor)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(save)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -268,9 +362,12 @@ _aisw_commands() {
 'remove:Remove a stored profile' \
 'rename:Rename a stored profile' \
 'status:Show current active profiles and credential status' \
-'init:First-run setup\: shell integration and credential import' \
+'init:First-run setup\: shell integration and import of current live upstream credentials' \
+'uninstall:Remove aisw shell integration and optionally delete aisw-managed data' \
 'shell-hook:Print the shell integration hook for the given shell' \
 'backup:Manage credential backups' \
+'doctor:Run a health check on the aisw installation and tool environment' \
+'save:Capture live credentials from ~/.claude into a new stored profile' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'aisw commands' commands "$@"
@@ -323,6 +420,11 @@ _aisw__backup__restore_commands() {
     local commands; commands=()
     _describe -t commands 'aisw backup restore commands' commands "$@"
 }
+(( $+functions[_aisw__doctor_commands] )) ||
+_aisw__doctor_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw doctor commands' commands "$@"
+}
 (( $+functions[_aisw__help_commands] )) ||
 _aisw__help_commands() {
     local commands; commands=(
@@ -332,9 +434,12 @@ _aisw__help_commands() {
 'remove:Remove a stored profile' \
 'rename:Rename a stored profile' \
 'status:Show current active profiles and credential status' \
-'init:First-run setup\: shell integration and credential import' \
+'init:First-run setup\: shell integration and import of current live upstream credentials' \
+'uninstall:Remove aisw shell integration and optionally delete aisw-managed data' \
 'shell-hook:Print the shell integration hook for the given shell' \
 'backup:Manage credential backups' \
+'doctor:Run a health check on the aisw installation and tool environment' \
+'save:Capture live credentials from ~/.claude into a new stored profile' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'aisw help commands' commands "$@"
@@ -362,6 +467,11 @@ _aisw__help__backup__restore_commands() {
     local commands; commands=()
     _describe -t commands 'aisw help backup restore commands' commands "$@"
 }
+(( $+functions[_aisw__help__doctor_commands] )) ||
+_aisw__help__doctor_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help doctor commands' commands "$@"
+}
 (( $+functions[_aisw__help__help_commands] )) ||
 _aisw__help__help_commands() {
     local commands; commands=()
@@ -387,6 +497,11 @@ _aisw__help__rename_commands() {
     local commands; commands=()
     _describe -t commands 'aisw help rename commands' commands "$@"
 }
+(( $+functions[_aisw__help__save_commands] )) ||
+_aisw__help__save_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help save commands' commands "$@"
+}
 (( $+functions[_aisw__help__shell-hook_commands] )) ||
 _aisw__help__shell-hook_commands() {
     local commands; commands=()
@@ -396,6 +511,11 @@ _aisw__help__shell-hook_commands() {
 _aisw__help__status_commands() {
     local commands; commands=()
     _describe -t commands 'aisw help status commands' commands "$@"
+}
+(( $+functions[_aisw__help__uninstall_commands] )) ||
+_aisw__help__uninstall_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw help uninstall commands' commands "$@"
 }
 (( $+functions[_aisw__help__use_commands] )) ||
 _aisw__help__use_commands() {
@@ -422,6 +542,11 @@ _aisw__rename_commands() {
     local commands; commands=()
     _describe -t commands 'aisw rename commands' commands "$@"
 }
+(( $+functions[_aisw__save_commands] )) ||
+_aisw__save_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw save commands' commands "$@"
+}
 (( $+functions[_aisw__shell-hook_commands] )) ||
 _aisw__shell-hook_commands() {
     local commands; commands=()
@@ -431,6 +556,11 @@ _aisw__shell-hook_commands() {
 _aisw__status_commands() {
     local commands; commands=()
     _describe -t commands 'aisw status commands' commands "$@"
+}
+(( $+functions[_aisw__uninstall_commands] )) ||
+_aisw__uninstall_commands() {
+    local commands; commands=()
+    _describe -t commands 'aisw uninstall commands' commands "$@"
 }
 (( $+functions[_aisw__use_commands] )) ||
 _aisw__use_commands() {

@@ -22,6 +22,9 @@ _aisw() {
             aisw,backup)
                 cmd="aisw__backup"
                 ;;
+            aisw,doctor)
+                cmd="aisw__doctor"
+                ;;
             aisw,help)
                 cmd="aisw__help"
                 ;;
@@ -37,11 +40,17 @@ _aisw() {
             aisw,rename)
                 cmd="aisw__rename"
                 ;;
+            aisw,save)
+                cmd="aisw__save"
+                ;;
             aisw,shell-hook)
                 cmd="aisw__shell__hook"
                 ;;
             aisw,status)
                 cmd="aisw__status"
+                ;;
+            aisw,uninstall)
+                cmd="aisw__uninstall"
                 ;;
             aisw,use)
                 cmd="aisw__use"
@@ -70,6 +79,9 @@ _aisw() {
             aisw__help,backup)
                 cmd="aisw__help__backup"
                 ;;
+            aisw__help,doctor)
+                cmd="aisw__help__doctor"
+                ;;
             aisw__help,help)
                 cmd="aisw__help__help"
                 ;;
@@ -85,11 +97,17 @@ _aisw() {
             aisw__help,rename)
                 cmd="aisw__help__rename"
                 ;;
+            aisw__help,save)
+                cmd="aisw__help__save"
+                ;;
             aisw__help,shell-hook)
                 cmd="aisw__help__shell__hook"
                 ;;
             aisw__help,status)
                 cmd="aisw__help__status"
+                ;;
+            aisw__help,uninstall)
+                cmd="aisw__help__uninstall"
                 ;;
             aisw__help,use)
                 cmd="aisw__help__use"
@@ -107,7 +125,7 @@ _aisw() {
 
     case "${cmd}" in
         aisw)
-            opts="-h -V --help --version add use list remove rename status init shell-hook backup help"
+            opts="-h -V --no-color --non-interactive --quiet --help --version add use list remove rename status init uninstall shell-hook backup doctor save help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -121,7 +139,7 @@ _aisw() {
             return 0
             ;;
         aisw__add)
-            opts="-h -V --api-key --label --set-active --help --version claude codex gemini <PROFILE_NAME>"
+            opts="-h -V --api-key --label --set-active --from-env --no-color --non-interactive --quiet --help --version claude codex gemini <PROFILE_NAME>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -143,7 +161,7 @@ _aisw() {
             return 0
             ;;
         aisw__backup)
-            opts="-h -V --help --version list restore help"
+            opts="-h -V --no-color --non-interactive --quiet --help --version list restore help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -213,7 +231,7 @@ _aisw() {
             return 0
             ;;
         aisw__backup__list)
-            opts="-h -V --help --version"
+            opts="-h -V --json --no-color --non-interactive --quiet --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -227,7 +245,7 @@ _aisw() {
             return 0
             ;;
         aisw__backup__restore)
-            opts="-h -V --yes --help --version <BACKUP_ID>"
+            opts="-h -V --yes --no-color --non-interactive --quiet --help --version <BACKUP_ID>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -240,8 +258,22 @@ _aisw() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        aisw__doctor)
+            opts="-h -V --json --no-color --non-interactive --quiet --help --version"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         aisw__help)
-            opts="add use list remove rename status init shell-hook backup help"
+            opts="add use list remove rename status init uninstall shell-hook backup doctor save help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -299,6 +331,20 @@ _aisw() {
         aisw__help__backup__restore)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        aisw__help__doctor)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -380,6 +426,20 @@ _aisw() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        aisw__help__save)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         aisw__help__shell__hook)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -408,6 +468,20 @@ _aisw() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        aisw__help__uninstall)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         aisw__help__use)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -423,7 +497,7 @@ _aisw() {
             return 0
             ;;
         aisw__init)
-            opts="-h -V --yes --help --version"
+            opts="-h -V --yes --no-color --non-interactive --quiet --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -437,7 +511,7 @@ _aisw() {
             return 0
             ;;
         aisw__list)
-            opts="-h -V --json --help --version claude codex gemini"
+            opts="-h -V --json --no-color --non-interactive --quiet --help --version claude codex gemini"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -451,7 +525,7 @@ _aisw() {
             return 0
             ;;
         aisw__remove)
-            opts="-h -V --yes --force --help --version claude codex gemini <PROFILE_NAME>"
+            opts="-h -V --yes --force --no-color --non-interactive --quiet --help --version claude codex gemini <PROFILE_NAME>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -465,7 +539,7 @@ _aisw() {
             return 0
             ;;
         aisw__rename)
-            opts="-h -V --help --version claude codex gemini <OLD_NAME> <NEW_NAME>"
+            opts="-h -V --no-color --non-interactive --quiet --help --version claude codex gemini <OLD_NAME> <NEW_NAME>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -478,8 +552,26 @@ _aisw() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        aisw__save)
+            opts="-h -V --label --set-active --no-color --non-interactive --quiet --help --version claude codex gemini <PROFILE_NAME>"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --label)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         aisw__shell__hook)
-            opts="-h -V --help --version bash zsh fish"
+            opts="-h -V --no-color --non-interactive --quiet --help --version bash zsh fish"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -493,7 +585,21 @@ _aisw() {
             return 0
             ;;
         aisw__status)
-            opts="-h -V --json --help --version"
+            opts="-h -V --json --no-color --non-interactive --quiet --help --version"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        aisw__uninstall)
+            opts="-h -V --remove-data --dry-run --yes --no-color --non-interactive --quiet --help --version"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -507,12 +613,20 @@ _aisw() {
             return 0
             ;;
         aisw__use)
-            opts="-h -V --emit-env --help --version claude codex gemini <PROFILE_NAME>"
+            opts="-h -V --state-mode --emit-env --all --profile --no-color --non-interactive --quiet --help --version claude codex gemini [PROFILE_NAME]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --state-mode)
+                    COMPREPLY=($(compgen -W "isolated shared" -- "${cur}"))
+                    return 0
+                    ;;
+                --profile)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 *)
                     COMPREPLY=()
                     ;;
