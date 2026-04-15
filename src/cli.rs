@@ -103,9 +103,9 @@ pub struct SaveArgs {
     #[arg(long, value_name = "TEXT")]
     pub label: Option<String>,
 
-    /// Switch to this profile immediately after saving
+    /// Overwrite the profile if it already exists without prompting
     #[arg(long)]
-    pub set_active: bool,
+    pub yes: bool,
 }
 
 #[derive(Args, Debug)]

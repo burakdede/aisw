@@ -9,6 +9,7 @@ use crate::cli::SaveArgs;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::output;
 use crate::profile::ProfileStore;
+use crate::runtime;
 use crate::types::Tool;
 
 pub fn run(args: SaveArgs, home: &Path) -> Result<()> {
@@ -22,6 +23,37 @@ pub(crate) fn run_in(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()
         Tool::Codex => save_codex(args, home, user_home),
         Tool::Gemini => save_gemini(args, home, user_home),
     }
+}
+
+// ---- Overwrite confirmation -------------------------------------------------
+
+fn confirm_overwrite(tool: Tool, name: &str, yes: bool) -> Result<()> {
+    let profile_store_check = false; // checked by caller
+    let _ = profile_store_check;
+
+    if yes {
+        return Ok(());
+    }
+    if runtime::is_non_interactive() {
+        bail!(
+            "profile '{}' already exists for {}.\n  \
+             Re-run with --yes to overwrite, or choose a different name.",
+            name,
+            tool,
+        );
+    }
+    eprint!(
+        "Profile '{}' already exists for {}. Overwrite? [y/N] ",
+        name, tool
+    );
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .context("could not read confirmation from stdin")?;
+    if !matches!(line.trim(), "y" | "Y") {
+        bail!("operation cancelled by user.");
+    }
+    Ok(())
 }
 
 // ---- Claude ----------------------------------------------------------------
@@ -40,6 +72,12 @@ fn save_claude(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         })?;
 
     let stored_backend = auth::claude::preferred_import_backend(&snapshot.source);
+
+    if profile_store.exists(Tool::Claude, &args.profile_name) {
+        confirm_overwrite(Tool::Claude, &args.profile_name, args.yes)?;
+        config_store.remove_profile(Tool::Claude, &args.profile_name)?;
+        let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+    }
 
     profile_store.create(Tool::Claude, &args.profile_name)?;
 
@@ -104,7 +142,16 @@ fn save_claude(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    finalize(args, home, Tool::Claude, stored_backend, AuthMethod::OAuth)
+    // Apply to live and mark as active so status is immediately consistent.
+    auth::claude::apply_live_credentials(
+        &profile_store,
+        &args.profile_name,
+        stored_backend,
+        user_home,
+    )?;
+    config_store.activate_profile(Tool::Claude, &args.profile_name, None)?;
+
+    finalize(&args, Tool::Claude, stored_backend, AuthMethod::OAuth)
 }
 
 // ---- Codex -----------------------------------------------------------------
@@ -130,7 +177,8 @@ fn save_codex(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         AuthMethod::OAuth
     };
 
-    // Deduplication: block saving an account that is already managed.
+    // Deduplication: block saving an account that is already managed under a
+    // different name. (Overwriting the same profile is handled separately.)
     if is_api_key {
         if let Some(secret) = json_string_field(&snapshot.bytes, "token") {
             if let Some(existing) = identity::existing_api_key_profile_for_secret(
@@ -139,11 +187,13 @@ fn save_codex(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
                 Tool::Codex,
                 &secret,
             )? {
-                bail!(
-                    "A Codex API key profile for this account already exists as '{}'.\n  \
-                     Use that profile or remove it before saving another alias.",
-                    existing
-                );
+                if existing != args.profile_name {
+                    bail!(
+                        "A Codex API key profile for this account already exists as '{}'.\n  \
+                         Use that profile or remove it before saving another alias.",
+                        existing
+                    );
+                }
             }
         }
     } else if let Some(existing) = identity::existing_oauth_profile_for_json_bytes(
@@ -152,11 +202,19 @@ fn save_codex(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         Tool::Codex,
         &snapshot.bytes,
     )? {
-        bail!(
-            "A Codex OAuth profile for this account already exists as '{}'.\n  \
-             Use that profile or remove it before saving another alias.",
-            existing
-        );
+        if existing != args.profile_name {
+            bail!(
+                "A Codex OAuth profile for this account already exists as '{}'.\n  \
+                 Use that profile or remove it before saving another alias.",
+                existing
+            );
+        }
+    }
+
+    if profile_store.exists(Tool::Codex, &args.profile_name) {
+        confirm_overwrite(Tool::Codex, &args.profile_name, args.yes)?;
+        config_store.remove_profile(Tool::Codex, &args.profile_name)?;
+        let _ = profile_store.delete(Tool::Codex, &args.profile_name);
     }
 
     profile_store.create(Tool::Codex, &args.profile_name)?;
@@ -203,13 +261,11 @@ fn save_codex(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    finalize(
-        args,
-        home,
-        Tool::Codex,
-        CredentialBackend::File,
-        auth_method,
-    )
+    // Apply to live and mark as active so status is immediately consistent.
+    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+    config_store.activate_profile(Tool::Codex, &args.profile_name, None)?;
+
+    finalize(&args, Tool::Codex, CredentialBackend::File, auth_method)
 }
 
 // ---- Gemini ----------------------------------------------------------------
@@ -236,7 +292,7 @@ fn save_gemini(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         )
     };
 
-    // Deduplication.
+    // Deduplication: block saving an account already managed under a different name.
     if auth_method == AuthMethod::ApiKey {
         let source_bytes = std::fs::read(&env_file)
             .with_context(|| format!("could not read {}", env_file.display()))?;
@@ -247,11 +303,13 @@ fn save_gemini(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
                 Tool::Gemini,
                 &api_key,
             )? {
-                bail!(
-                    "A Gemini API key profile for this account already exists as '{}'.\n  \
-                     Use that profile or remove it before saving another alias.",
-                    existing
-                );
+                if existing != args.profile_name {
+                    bail!(
+                        "A Gemini API key profile for this account already exists as '{}'.\n  \
+                         Use that profile or remove it before saving another alias.",
+                        existing
+                    );
+                }
             }
         }
     } else if let Some(existing) = auth::gemini::existing_oauth_profile_for_live_files(
@@ -259,11 +317,19 @@ fn save_gemini(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         &config_store,
         &oauth_files,
     )? {
-        bail!(
-            "A Gemini OAuth profile for this account already exists as '{}'.\n  \
-             Use that profile or remove it before saving another alias.",
-            existing
-        );
+        if existing != args.profile_name {
+            bail!(
+                "A Gemini OAuth profile for this account already exists as '{}'.\n  \
+                 Use that profile or remove it before saving another alias.",
+                existing
+            );
+        }
+    }
+
+    if profile_store.exists(Tool::Gemini, &args.profile_name) {
+        confirm_overwrite(Tool::Gemini, &args.profile_name, args.yes)?;
+        config_store.remove_profile(Tool::Gemini, &args.profile_name)?;
+        let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
     }
 
     profile_store.create(Tool::Gemini, &args.profile_name)?;
@@ -310,28 +376,28 @@ fn save_gemini(args: SaveArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    finalize(
-        args,
-        home,
-        Tool::Gemini,
-        CredentialBackend::File,
-        auth_method,
-    )
+    // Apply to live and mark as active so status is immediately consistent.
+    match auth_method {
+        AuthMethod::OAuth => {
+            auth::gemini::apply_token_cache(&profile_store, &args.profile_name, &gemini_dir)?
+        }
+        AuthMethod::ApiKey => {
+            auth::gemini::apply_env_file(&profile_store, &args.profile_name, &env_file)?
+        }
+    }
+    config_store.activate_profile(Tool::Gemini, &args.profile_name, None)?;
+
+    finalize(&args, Tool::Gemini, CredentialBackend::File, auth_method)
 }
 
 // ---- Shared output ---------------------------------------------------------
 
 fn finalize(
-    args: SaveArgs,
-    home: &Path,
+    args: &SaveArgs,
     tool: Tool,
     backend: CredentialBackend,
     auth_method: AuthMethod,
 ) -> Result<()> {
-    if args.set_active {
-        ConfigStore::new(home).set_active(tool, &args.profile_name)?;
-    }
-
     output::print_title("Saved profile");
     output::print_kv("Tool", tool.display_name());
     output::print_kv("Profile", &args.profile_name);
@@ -343,22 +409,13 @@ fn finalize(
         },
     );
     output::print_kv("Backend", backend.display_name());
-    output::print_kv(
-        "Activation",
-        if args.set_active { "active" } else { "stored" },
-    );
     output::print_blank_line();
     output::print_effects_header();
     output::print_effect("Profile credentials stored in aisw.");
-    if args.set_active {
-        output::print_effect("Active profile updated.");
-    }
+    output::print_effect("Live tool configuration updated.");
+    output::print_effect("Active profile updated.");
     output::print_blank_line();
-    output::print_next_step(output::next_step_after_add(
-        tool,
-        &args.profile_name,
-        args.set_active,
-    ));
+    output::print_next_step(output::next_step_after_add(tool, &args.profile_name, true));
 
     Ok(())
 }
@@ -414,12 +471,12 @@ mod tests {
         }
     }
 
-    fn save_args(tool: Tool, name: &str, set_active: bool) -> SaveArgs {
+    fn save_args(tool: Tool, name: &str) -> SaveArgs {
         SaveArgs {
             tool,
             profile_name: name.to_owned(),
             label: None,
-            set_active,
+            yes: true, // skip interactive confirmation in tests
         }
     }
 
@@ -445,12 +502,7 @@ mod tests {
         fs::create_dir_all(&user_home).unwrap();
         write_claude_credentials(&user_home, "tok-abc");
 
-        run_in(
-            save_args(Tool::Claude, "work", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap();
+        run_in(save_args(Tool::Claude, "work"), &aisw_home, &user_home).unwrap();
 
         let ps = ProfileStore::new(&aisw_home);
         assert!(ps.exists(Tool::Claude, "work"));
@@ -462,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn claude_save_registers_in_config() {
+    fn claude_save_marks_profile_active() {
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
@@ -471,37 +523,34 @@ mod tests {
         fs::create_dir_all(&user_home).unwrap();
         write_claude_credentials(&user_home, "tok-xyz");
 
-        run_in(
-            save_args(Tool::Claude, "personal", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap();
+        run_in(save_args(Tool::Claude, "personal"), &aisw_home, &user_home).unwrap();
 
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert!(config.profiles_for(Tool::Claude).contains_key("personal"));
-        assert_eq!(config.active_for(Tool::Claude), None);
+        assert_eq!(config.active_for(Tool::Claude), Some("personal"));
     }
 
     #[test]
-    fn claude_save_set_active_marks_profile_active() {
+    fn claude_save_overwrites_existing_profile_with_yes() {
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
         fs::create_dir_all(&aisw_home).unwrap();
         fs::create_dir_all(&user_home).unwrap();
-        write_claude_credentials(&user_home, "tok-active");
+        write_claude_credentials(&user_home, "tok-v1");
+        run_in(save_args(Tool::Claude, "work"), &aisw_home, &user_home).unwrap();
 
-        run_in(
-            save_args(Tool::Claude, "work", true),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap();
+        // Update live credentials and save again with --yes.
+        write_claude_credentials(&user_home, "tok-v2");
+        run_in(save_args(Tool::Claude, "work"), &aisw_home, &user_home).unwrap();
 
-        let config = ConfigStore::new(&aisw_home).load().unwrap();
-        assert_eq!(config.active_for(Tool::Claude), Some("work"));
+        let ps = ProfileStore::new(&aisw_home);
+        let stored = ps
+            .read_file(Tool::Claude, "work", ".credentials.json")
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(json["oauthToken"], "tok-v2");
     }
 
     #[test]
@@ -513,12 +562,7 @@ mod tests {
         fs::create_dir_all(&aisw_home).unwrap();
         fs::create_dir_all(&user_home).unwrap();
 
-        let err = run_in(
-            save_args(Tool::Claude, "work", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap_err();
+        let err = run_in(save_args(Tool::Claude, "work"), &aisw_home, &user_home).unwrap_err();
         assert!(
             err.to_string().contains("no live credentials"),
             "unexpected: {err}"
@@ -547,22 +591,15 @@ mod tests {
         fs::create_dir_all(&user_home).unwrap();
         write_codex_credentials(&user_home, "codex-tok");
 
-        run_in(
-            save_args(Tool::Codex, "work", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap();
+        run_in(save_args(Tool::Codex, "work"), &aisw_home, &user_home).unwrap();
 
         let ps = ProfileStore::new(&aisw_home);
         assert!(ps.exists(Tool::Codex, "work"));
 
-        // auth.json stored
         let stored = ps.read_file(Tool::Codex, "work", "auth.json").unwrap();
         let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
         assert_eq!(json["oauthToken"], "codex-tok");
 
-        // config.toml written (forces file-backed auth)
         assert!(ps
             .profile_dir(Tool::Codex, "work")
             .join("config.toml")
@@ -570,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_save_registers_in_config() {
+    fn codex_save_marks_profile_active() {
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -578,15 +615,11 @@ mod tests {
         fs::create_dir_all(&user_home).unwrap();
         write_codex_credentials(&user_home, "codex-reg");
 
-        run_in(
-            save_args(Tool::Codex, "personal", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap();
+        run_in(save_args(Tool::Codex, "personal"), &aisw_home, &user_home).unwrap();
 
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert!(config.profiles_for(Tool::Codex).contains_key("personal"));
+        assert_eq!(config.active_for(Tool::Codex), Some("personal"));
     }
 
     #[test]
@@ -597,12 +630,7 @@ mod tests {
         fs::create_dir_all(&aisw_home).unwrap();
         fs::create_dir_all(&user_home).unwrap();
 
-        let err = run_in(
-            save_args(Tool::Codex, "work", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap_err();
+        let err = run_in(save_args(Tool::Codex, "work"), &aisw_home, &user_home).unwrap_err();
         assert!(
             err.to_string().contains("no live credentials"),
             "unexpected: {err}"
@@ -628,12 +656,7 @@ mod tests {
         fs::create_dir_all(&user_home).unwrap();
         write_gemini_oauth(&user_home);
 
-        run_in(
-            save_args(Tool::Gemini, "work", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap();
+        run_in(save_args(Tool::Gemini, "work"), &aisw_home, &user_home).unwrap();
 
         let ps = ProfileStore::new(&aisw_home);
         assert!(ps.exists(Tool::Gemini, "work"));
@@ -644,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn gemini_save_registers_oauth_method_in_config() {
+    fn gemini_save_marks_profile_active() {
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -652,16 +675,12 @@ mod tests {
         fs::create_dir_all(&user_home).unwrap();
         write_gemini_oauth(&user_home);
 
-        run_in(
-            save_args(Tool::Gemini, "personal", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap();
+        run_in(save_args(Tool::Gemini, "personal"), &aisw_home, &user_home).unwrap();
 
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         let meta = &config.profiles_for(Tool::Gemini)["personal"];
         assert_eq!(meta.auth_method, crate::config::AuthMethod::OAuth);
+        assert_eq!(config.active_for(Tool::Gemini), Some("personal"));
     }
 
     #[test]
@@ -672,12 +691,7 @@ mod tests {
         fs::create_dir_all(&aisw_home).unwrap();
         fs::create_dir_all(&user_home).unwrap();
 
-        let err = run_in(
-            save_args(Tool::Gemini, "work", false),
-            &aisw_home,
-            &user_home,
-        )
-        .unwrap_err();
+        let err = run_in(save_args(Tool::Gemini, "work"), &aisw_home, &user_home).unwrap_err();
         assert!(
             err.to_string().contains("no live credentials"),
             "unexpected: {err}"
