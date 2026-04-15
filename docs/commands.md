@@ -36,15 +36,16 @@ For prompt behavior, JSON interfaces, stdout/stderr expectations, and automation
 Capture the current live Claude credentials into a new stored profile.
 
 ```
-aisw save claude <profile_name> [--label <text>] [--set-active]
+aisw save <tool> <profile_name> [--label <text>] [--set-active]
 ```
 
-Use this when you have already run `claude login` outside of aisw — for example after `aisw add` was interrupted — and want aisw to manage those credentials going forward.
+Use this when you have already logged in outside of aisw — for example after `aisw add` was interrupted — and want aisw to manage those credentials going forward.
 
-`aisw save` reads whatever credentials Claude currently has in its live config location (`~/.claude/.credentials.json`, or the system keyring on macOS) and stores them as a new aisw profile. It does not launch `claude login` itself.
+`aisw save` reads whatever credentials the tool currently has in its live config location and stores them as a new aisw profile. It does not launch any login flow itself.
 
 | Argument | Description |
 |---|---|
+| `tool` | `claude`, `codex`, or `gemini` |
 | `profile_name` | Alphanumeric, hyphens, underscores. Max 32 characters. |
 
 | Flag | Description |
@@ -52,7 +53,13 @@ Use this when you have already run `claude login` outside of aisw — for exampl
 | `--label <text>` | Human-readable description stored with the profile |
 | `--set-active` | Switch to this profile immediately after saving |
 
-`aisw save` is currently supported for `claude` only. For Codex and Gemini, use `aisw add` with `--api-key`.
+Live credential sources by tool:
+
+| Tool | Source |
+|---|---|
+| `claude` | `~/.claude/.credentials.json`, or the system keyring on macOS |
+| `codex` | `~/.codex/auth.json` |
+| `gemini` | `~/.gemini/.env` (API key) or OAuth files in `~/.gemini/` |
 
 Examples:
 
@@ -60,6 +67,9 @@ Examples:
 aisw save claude work
 aisw save claude personal --label "Personal account"
 aisw save claude work --set-active
+aisw save codex work
+aisw save codex personal --label "Personal OpenAI account"
+aisw save gemini work --set-active
 ```
 
 ---
