@@ -31,6 +31,39 @@ aisw use claude work
 
 For prompt behavior, JSON interfaces, stdout/stderr expectations, and automation-safe usage patterns, see [Automation and Scripting](automation.md).
 
+## aisw save
+
+Capture the current live Claude credentials into a new stored profile.
+
+```
+aisw save claude <profile_name> [--label <text>] [--set-active]
+```
+
+Use this when you have already run `claude login` outside of aisw — for example after `aisw add` was interrupted — and want aisw to manage those credentials going forward.
+
+`aisw save` reads whatever credentials Claude currently has in its live config location (`~/.claude/.credentials.json`, or the system keyring on macOS) and stores them as a new aisw profile. It does not launch `claude login` itself.
+
+| Argument | Description |
+|---|---|
+| `profile_name` | Alphanumeric, hyphens, underscores. Max 32 characters. |
+
+| Flag | Description |
+|---|---|
+| `--label <text>` | Human-readable description stored with the profile |
+| `--set-active` | Switch to this profile immediately after saving |
+
+`aisw save` is currently supported for `claude` only. For Codex and Gemini, use `aisw add` with `--api-key`.
+
+Examples:
+
+```
+aisw save claude work
+aisw save claude personal --label "Personal account"
+aisw save claude work --set-active
+```
+
+---
+
 ## aisw add
 
 Add a new account profile for a tool.
