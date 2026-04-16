@@ -453,12 +453,17 @@ fn spawn_oauth_child(
 ) -> Result<std::process::Child> {
     #[cfg(target_os = "macos")]
     {
+        use std::os::unix::process::CommandExt;
+
         let child = Command::new("/usr/bin/script")
             .arg("-q")
             .arg("/dev/null")
             .arg(gemini_bin)
             .env("HOME", scratch)
             .current_dir(scratch_workdir)
+            // Create a dedicated process group so we can terminate the entire
+            // OAuth process tree (script + gemini child) reliably.
+            .process_group(0)
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
         Ok(child)
@@ -466,9 +471,14 @@ fn spawn_oauth_child(
 
     #[cfg(not(target_os = "macos"))]
     {
-        let child = Command::new(gemini_bin)
-            .env("HOME", scratch)
-            .current_dir(scratch_workdir)
+        #[cfg(unix)]
+        use std::os::unix::process::CommandExt;
+
+        let mut cmd = Command::new(gemini_bin);
+        cmd.env("HOME", scratch).current_dir(scratch_workdir);
+        #[cfg(unix)]
+        cmd.process_group(0);
+        let child = cmd
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
         Ok(child)
@@ -479,7 +489,7 @@ fn stop_interactive_child(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let pid = child.id() as i32;
-        let _ = unsafe { libc::kill(pid, libc::SIGINT) };
+        send_signal_to_oauth_tree(pid, libc::SIGINT);
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
@@ -491,7 +501,7 @@ fn stop_interactive_child(child: &mut std::process::Child) {
         #[cfg(target_os = "linux")]
         kill_child_descendants(pid, libc::SIGTERM);
 
-        let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+        send_signal_to_oauth_tree(pid, libc::SIGTERM);
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
@@ -505,6 +515,13 @@ fn stop_interactive_child(child: &mut std::process::Child) {
 
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(unix)]
+fn send_signal_to_oauth_tree(pid: i32, signal: i32) {
+    // Try process-group signaling first (negative PID), then direct PID.
+    let _ = unsafe { libc::kill(-pid, signal) };
+    let _ = unsafe { libc::kill(pid, signal) };
 }
 
 #[cfg(target_os = "linux")]
@@ -909,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, target_os = "linux"))]
     fn oauth_flow_stops_interactive_child_after_success() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         use std::fs;
@@ -952,6 +969,10 @@ mod tests {
             .profile_dir(Tool::Gemini, "default")
             .join("oauth_creds.json")
             .exists());
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while std::time::Instant::now() < deadline && !signal_file.exists() {
+            std::thread::sleep(Duration::from_millis(25));
+        }
         assert!(
             signal_file.exists(),
             "expected OAuth child to receive shutdown signal after capture"
