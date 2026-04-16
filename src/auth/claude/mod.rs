@@ -160,8 +160,12 @@ mod tests {
     use crate::auth::secure_backend;
     use crate::auth::secure_store;
     use crate::auth::test_overrides::EnvVarGuard;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    use crate::config::ProfileMeta;
     use crate::config::{AuthMethod, ConfigStore, CredentialBackend};
     use crate::profile::ProfileStore;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    use chrono::Utc;
 
     fn valid_key() -> &'static str {
         "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
