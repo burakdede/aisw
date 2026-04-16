@@ -43,7 +43,7 @@ cargo build --release
 Run all tests:
 
 ```
-cargo test
+cargo test --locked
 ```
 
 Run a specific module's tests:
@@ -53,18 +53,20 @@ cargo test config::
 cargo test profile::
 ```
 
-Run integration tests only:
+Run a specific integration test file:
 
 ```
-cargo test --test integration
+cargo test --test init_cmd --locked
 ```
+
+For test architecture, platform expectations, and reliability rules, see [TESTING.md](./TESTING.md).
 
 ## Coverage
 
 Check coverage locally:
 
 ```
-cargo llvm-cov
+cargo llvm-cov --summary-only --fail-under-lines 85
 ```
 
 Generate an HTML report you can open in a browser:
