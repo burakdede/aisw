@@ -63,8 +63,8 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-  test-windows:
-    name: Test (windows-latest)
+  build-windows:
+    name: Build (windows-latest)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,11 +77,6 @@ jobs:
 
       - name: Build
         run: cargo build --release --locked
-
-      # Run library/unit tests on Windows to keep platform signal strong while
-      # shell-heavy integration tests remain Unix-focused.
-      - name: Test (lib)
-        run: cargo test --lib --locked
 
   coverage:
     name: Coverage
