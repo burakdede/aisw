@@ -5,6 +5,7 @@
 //! the logic unit-testable without spawning sub-processes or mutating the
 //! environment.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -211,11 +212,11 @@ pub fn check_profile_permissions(
                 &check_name,
                 format!("could not stat {}: {e}", cred_file.display()),
             )),
-            Ok(m) => {
-                let mode = m.permissions().mode() & 0o777;
-                if mode == 0o600 {
+            Ok(m) => match file_mode_0600_check(&m) {
+                Some(0o600) => {
                     results.push(CheckResult::pass(&check_name, "0600 ok".to_owned()));
-                } else {
+                }
+                Some(mode) => {
                     results.push(CheckResult::fail(
                         &check_name,
                         format!(
@@ -225,13 +226,29 @@ pub fn check_profile_permissions(
                         ),
                     ));
                 }
-            }
+                None => {
+                    results.push(CheckResult::warn(
+                        &check_name,
+                        "permission mode check not supported on this platform".to_owned(),
+                    ));
+                }
+            },
         }
 
         let _ = home;
     }
 
     results
+}
+
+#[cfg(unix)]
+fn file_mode_0600_check(metadata: &std::fs::Metadata) -> Option<u32> {
+    Some(metadata.permissions().mode() & 0o777)
+}
+
+#[cfg(not(unix))]
+fn file_mode_0600_check(_metadata: &std::fs::Metadata) -> Option<u32> {
+    None
 }
 
 fn credentials_filename(tool: Tool) -> &'static str {
@@ -376,6 +393,7 @@ pub fn run_in(
 #[cfg(test)]
 mod tests {
     use std::fs;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
@@ -387,6 +405,7 @@ mod tests {
     // ---- check_tool_binary ----
 
     #[test]
+    #[cfg(unix)]
     fn tool_binary_pass_when_found() {
         // Put a dummy executable named "claude" on a temp PATH.
         let dir = tempdir().unwrap();
@@ -538,6 +557,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn permissions_pass_for_600_file() {
         let dir = tempdir().unwrap();
         let (ps, cs) = make_stores(dir.path());
@@ -565,6 +585,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn permissions_fail_for_644_file() {
         let dir = tempdir().unwrap();
         let (ps, cs) = make_stores(dir.path());
