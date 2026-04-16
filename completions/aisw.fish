@@ -39,6 +39,9 @@ complete -c aisw -n "__fish_aisw_needs_command" -f -a "help" -d 'Print this mess
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l api-key -d 'API key — skips the interactive auth method prompt' -r
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l label -d 'Human-readable label for this profile' -r
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l set-active -d 'Switch to this profile immediately after adding'
+complete -c aisw -n "__fish_aisw_using_subcommand add" -l from-env -d 'Use the tool\'s standard environment variable instead of interactive prompts'
+complete -c aisw -n "__fish_aisw_using_subcommand add" -l from-live -d 'Capture live credentials from the tool\'s current config without launching a login flow'
+complete -c aisw -n "__fish_aisw_using_subcommand add" -l yes -d 'Overwrite an existing profile without prompting (only used with --from-live)'
 complete -c aisw -n "__fish_aisw_using_subcommand add" -s h -l help -d 'Print help'
 complete -c aisw -n "__fish_aisw_using_subcommand add" -s V -l version -d 'Print version'
 complete -c aisw -n "__fish_aisw_using_subcommand use" -l emit-env -d 'Print shell export statements to stdout instead of applying them directly. Used internally by the shell hook — not intended for direct use'
