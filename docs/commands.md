@@ -70,7 +70,6 @@ aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TE
 | `--label TEXT` | Add human-readable label |
 | `--set-active` | Activate immediately after add |
 | `--yes` | Overwrite existing profile name when used with `--from-live` |
-
 Notes:
 - Without `--api-key`, `--from-env`, or `--from-live`, add uses interactive auth flow.
 - In `--non-interactive` mode, interactive add fails by design.

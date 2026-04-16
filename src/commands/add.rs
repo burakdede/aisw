@@ -332,15 +332,13 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         return Err(e);
     }
 
-    if args.set_active {
-        auth::claude::apply_live_credentials(
-            &profile_store,
-            &args.profile_name,
-            stored_backend,
-            user_home,
-        )?;
-        config_store.activate_profile(Tool::Claude, &args.profile_name, None)?;
-    }
+    auth::claude::apply_live_credentials(
+        &profile_store,
+        &args.profile_name,
+        stored_backend,
+        user_home,
+    )?;
+    config_store.activate_profile(Tool::Claude, &args.profile_name, None)?;
 
     finalize_from_live(&args, Tool::Claude, stored_backend, AuthMethod::OAuth)
 }
@@ -447,10 +445,8 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    if args.set_active {
-        auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
-        config_store.activate_profile(Tool::Codex, &args.profile_name, None)?;
-    }
+    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+    config_store.activate_profile(Tool::Codex, &args.profile_name, None)?;
 
     finalize_from_live(&args, Tool::Codex, CredentialBackend::File, auth_method)
 }
@@ -559,17 +555,15 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         return Err(e);
     }
 
-    if args.set_active {
-        match auth_method {
-            AuthMethod::OAuth => {
-                auth::gemini::apply_token_cache(&profile_store, &args.profile_name, &gemini_dir)?
-            }
-            AuthMethod::ApiKey => {
-                auth::gemini::apply_env_file(&profile_store, &args.profile_name, &gemini_dir)?
-            }
+    match auth_method {
+        AuthMethod::OAuth => {
+            auth::gemini::apply_token_cache(&profile_store, &args.profile_name, &gemini_dir)?
         }
-        config_store.activate_profile(Tool::Gemini, &args.profile_name, None)?;
+        AuthMethod::ApiKey => {
+            auth::gemini::apply_env_file(&profile_store, &args.profile_name, &gemini_dir)?
+        }
     }
+    config_store.activate_profile(Tool::Gemini, &args.profile_name, None)?;
 
     finalize_from_live(&args, Tool::Gemini, CredentialBackend::File, auth_method)
 }
@@ -591,23 +585,14 @@ fn finalize_from_live(
         },
     );
     output::print_kv("Backend", backend.display_name());
-    output::print_kv(
-        "Activation",
-        if args.set_active { "active" } else { "stored" },
-    );
+    output::print_kv("Activation", "active");
     output::print_blank_line();
     output::print_effects_header();
     output::print_effect("Profile credentials stored in aisw.");
-    if args.set_active {
-        output::print_effect("Live tool configuration updated.");
-        output::print_effect("Active profile updated.");
-    }
+    output::print_effect("Live tool configuration updated.");
+    output::print_effect("Active profile updated.");
     output::print_blank_line();
-    output::print_next_step(output::next_step_after_add(
-        tool,
-        &args.profile_name,
-        args.set_active,
-    ));
+    output::print_next_step(output::next_step_after_add(tool, &args.profile_name, true));
     Ok(())
 }
 
@@ -1084,7 +1069,7 @@ mod tests {
     }
 
     #[test]
-    fn from_live_claude_stored_not_active_by_default() {
+    fn from_live_claude_always_activates() {
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1103,7 +1088,7 @@ mod tests {
 
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert!(config.profiles_for(Tool::Claude).contains_key("personal"));
-        assert_eq!(config.active_for(Tool::Claude), None);
+        assert_eq!(config.active_for(Tool::Claude), Some("personal"));
     }
 
     #[test]
@@ -1187,7 +1172,7 @@ mod tests {
     }
 
     #[test]
-    fn from_live_codex_stored_not_active_by_default() {
+    fn from_live_codex_always_activates() {
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1205,7 +1190,7 @@ mod tests {
 
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert!(config.profiles_for(Tool::Codex).contains_key("personal"));
-        assert_eq!(config.active_for(Tool::Codex), None);
+        assert_eq!(config.active_for(Tool::Codex), Some("personal"));
     }
 
     #[test]
@@ -1255,7 +1240,7 @@ mod tests {
     }
 
     #[test]
-    fn from_live_gemini_stored_not_active_by_default() {
+    fn from_live_gemini_always_activates() {
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1274,7 +1259,7 @@ mod tests {
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         let meta = &config.profiles_for(Tool::Gemini)["personal"];
         assert_eq!(meta.auth_method, crate::config::AuthMethod::OAuth);
-        assert_eq!(config.active_for(Tool::Gemini), None);
+        assert_eq!(config.active_for(Tool::Gemini), Some("personal"));
     }
 
     #[test]
