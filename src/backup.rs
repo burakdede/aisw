@@ -729,10 +729,18 @@ mod tests {
         for _ in 0..3 {
             m.snapshot(Tool::Claude, "work", &profile_dir, &profile_meta())
                 .unwrap();
-            std::thread::sleep(std::time::Duration::from_secs(1));
         }
 
-        assert_eq!(m.list().unwrap().len(), 3);
+        let entries = m.list().unwrap();
+        let unique_ids: std::collections::HashSet<_> =
+            entries.iter().map(|e| e.backup_id.clone()).collect();
+        assert_eq!(
+            unique_ids.len(),
+            3,
+            "backup ids must be unique per snapshot"
+        );
+
+        assert_eq!(entries.len(), 3);
         m.prune(2).unwrap();
         assert_eq!(m.list().unwrap().len(), 2);
     }
