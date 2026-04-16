@@ -1,0 +1,93 @@
+name: Feature Request
+description: Propose a new capability or UX/DX improvement for aisw.
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion.
+        Strong requests describe the user problem first, then the proposed behavior.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preconditions
+      options:
+        - label: I searched existing issues and this request is not a duplicate.
+          required: true
+        - label: This request focuses on user value, not just implementation details.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What user pain or workflow gap does this solve?
+      placeholder: "When X happens, users cannot do Y, which causes Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe the desired CLI behavior and command surface.
+      placeholder: |
+        Add `aisw add <tool> <profile> --from-live` to import currently active live credentials
+        into a named managed profile without re-running full login.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches were considered and why are they weaker?
+      placeholder: "Top-level `import` command, extending `init`, manual file copy, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: ux
+    attributes:
+      label: UX/DX Details
+      description: Expected help text, prompts, errors, and non-interactive behavior.
+      placeholder: |
+        - Command examples:
+        - Interactive prompts:
+        - Behavior with `--yes` or CI:
+        - Failure messages:
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Define objective criteria to call this done.
+      placeholder: |
+        - [ ] Scenario A works
+        - [ ] Scenario B fails with clear error
+        - [ ] Docs updated
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: impact_area
+    attributes:
+      label: Impact Area
+      options:
+        - label: CLI command surface
+        - label: Auth/profile management
+        - label: Shell integration
+        - label: Output format/JSON contract
+        - label: Documentation
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Optional mockups, prior art, links, or code pointers.
+
