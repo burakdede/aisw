@@ -33,6 +33,9 @@ _arguments "${_arguments_options[@]}" : \
 '--api-key=[API key — skips the interactive auth method prompt]:KEY:_default' \
 '--label=[Human-readable label for this profile]:TEXT:_default' \
 '--set-active[Switch to this profile immediately after adding]' \
+'(--api-key --from-live)--from-env[Use the tool'\''s standard environment variable instead of interactive prompts]' \
+'(--api-key --from-env)--from-live[Capture live credentials from the tool'\''s current config without launching a login flow]' \
+'--yes[Overwrite an existing profile without prompting (only used with --from-live)]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \

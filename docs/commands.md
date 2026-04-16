@@ -36,7 +36,7 @@ For prompt behavior, JSON interfaces, stdout/stderr expectations, and automation
 Add a new account profile for a tool.
 
 ```
-aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active]
+aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active] [--from-live]
 ```
 
 | Argument | Description |
@@ -49,8 +49,19 @@ aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active]
 | `--api-key <key>` | Provide the API key directly and skip the interactive prompt |
 | `--label <text>` | Human-readable description stored with the profile |
 | `--set-active` | Switch to this profile immediately after adding |
+| `--from-env` | Read the API key from the tool's standard environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) |
+| `--from-live` | Capture whatever credentials the tool currently has in its live config and store them as a new aisw profile — no login flow is launched. Use this after a native `claude login` / `codex login` / `gemini login` when you want aisw to manage those credentials going forward. |
+| `--yes` | Overwrite an existing same-name profile without prompting (only used with `--from-live`) |
 
-Without `--api-key`, aisw presents an interactive menu to choose between browser OAuth login and API key entry.
+`--from-live` reads from each tool's live credential location:
+
+| Tool | Source |
+|---|---|
+| `claude` | `~/.claude/.credentials.json`, or the system keyring on macOS |
+| `codex` | `~/.codex/auth.json` |
+| `gemini` | `~/.gemini/.env` (API key) or OAuth files in `~/.gemini/` |
+
+Without `--api-key`, `--from-env`, or `--from-live`, aisw presents an interactive menu to choose between browser OAuth login and API key entry.
 
 For OAuth capture, `aisw` uses the narrowest upstream login flow it can:
 - Claude: `claude auth login` with `CLAUDE_CONFIG_DIR` set to the capture directory
@@ -72,6 +83,10 @@ aisw add gemini team --label "Shared team key" --set-active
 aisw add claude client-a --label "Client A OAuth account"
 aisw add codex work --api-key sk-abc123 --label "OpenAI work key" --set-active
 aisw add gemini backup --api-key AIza... --label "Backup quota account"
+aisw add claude work --from-live
+aisw add claude personal --from-live --label "Personal account" --set-active
+aisw add codex work --from-live
+aisw add gemini work --from-live --set-active
 ```
 
 ---

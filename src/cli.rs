@@ -118,6 +118,16 @@ pub struct AddArgs {
     /// Use the tool's standard environment variable instead of interactive prompts
     #[arg(long, conflicts_with = "api_key")]
     pub from_env: bool,
+
+    /// Capture whatever live credentials the tool currently has and store them as a new profile
+    /// without launching any login flow. Useful after a native `claude login` / `codex login` /
+    /// `gemini login` when you want aisw to manage those credentials going forward.
+    #[arg(long, conflicts_with_all = ["api_key", "from_env"])]
+    pub from_live: bool,
+
+    /// Overwrite an existing profile without prompting (only meaningful with --from-live)
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Args, Debug)]
