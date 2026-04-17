@@ -240,6 +240,21 @@ fn confirm_overwrite(tool: Tool, name: &str, yes: bool) -> Result<()> {
     Ok(())
 }
 
+fn prepare_from_live_target(
+    profile_store: &ProfileStore,
+    tool: Tool,
+    name: &str,
+    yes: bool,
+) -> Result<bool> {
+    let overwriting = profile_store.exists(tool, name);
+    if overwriting {
+        confirm_overwrite(tool, name, yes)?;
+    } else {
+        profile_store.create(tool, name)?;
+    }
+    Ok(overwriting)
+}
+
 fn from_live(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
     match args.tool {
         Tool::Claude => from_live_claude(args, home, user_home),
@@ -262,14 +277,8 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         })?;
 
     let stored_backend = auth::claude::preferred_import_backend(&snapshot.source);
-
-    if profile_store.exists(Tool::Claude, &args.profile_name) {
-        confirm_overwrite(Tool::Claude, &args.profile_name, args.yes)?;
-        config_store.remove_profile(Tool::Claude, &args.profile_name)?;
-        let _ = profile_store.delete(Tool::Claude, &args.profile_name);
-    }
-
-    profile_store.create(Tool::Claude, &args.profile_name)?;
+    let overwriting =
+        prepare_from_live_target(&profile_store, Tool::Claude, &args.profile_name, args.yes)?;
 
     let write_result = match stored_backend {
         CredentialBackend::File => profile_store.write_file(
@@ -286,7 +295,13 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
     };
 
     if let Err(e) = write_result {
-        let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
+        if !overwriting && stored_backend == CredentialBackend::SystemKeyring {
+            let _ =
+                crate::auth::secure_store::delete_profile_secret(Tool::Claude, &args.profile_name);
+        }
         return Err(e);
     }
 
@@ -295,7 +310,9 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         &args.profile_name,
         user_home,
     ) {
-        let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
         return Err(e);
     }
 
@@ -306,26 +323,45 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         &args.profile_name,
         stored_backend,
     ) {
-        let _ = profile_store.delete(Tool::Claude, &args.profile_name);
-        if stored_backend == CredentialBackend::SystemKeyring {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
+        if !overwriting && stored_backend == CredentialBackend::SystemKeyring {
             let _ =
                 crate::auth::secure_store::delete_profile_secret(Tool::Claude, &args.profile_name);
         }
         return Err(e);
     }
 
-    if let Err(e) = config_store.add_profile(
-        Tool::Claude,
-        &args.profile_name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::OAuth,
-            credential_backend: stored_backend,
-            label: args.label.clone(),
-        },
-    ) {
-        let _ = profile_store.delete(Tool::Claude, &args.profile_name);
-        if stored_backend == CredentialBackend::SystemKeyring {
+    let add_result = if overwriting {
+        config_store.upsert_profile(
+            Tool::Claude,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: stored_backend,
+                label: args.label.clone(),
+            },
+        )
+    } else {
+        config_store.add_profile(
+            Tool::Claude,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: stored_backend,
+                label: args.label.clone(),
+            },
+        )
+    };
+
+    if let Err(e) = add_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
+        if !overwriting && stored_backend == CredentialBackend::SystemKeyring {
             let _ =
                 crate::auth::secure_store::delete_profile_secret(Tool::Claude, &args.profile_name);
         }
@@ -395,16 +431,13 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         }
     }
 
-    if profile_store.exists(Tool::Codex, &args.profile_name) {
-        confirm_overwrite(Tool::Codex, &args.profile_name, args.yes)?;
-        config_store.remove_profile(Tool::Codex, &args.profile_name)?;
-        let _ = profile_store.delete(Tool::Codex, &args.profile_name);
-    }
-
-    profile_store.create(Tool::Codex, &args.profile_name)?;
+    let overwriting =
+        prepare_from_live_target(&profile_store, Tool::Codex, &args.profile_name, args.yes)?;
 
     if let Err(e) = auth::codex::write_file_store_config(&profile_store, &args.profile_name) {
-        let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
         return Err(e);
     }
 
@@ -414,7 +447,9 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         auth::codex::AUTH_FILE,
         &snapshot.bytes,
     ) {
-        let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
         return Err(e);
     }
 
@@ -426,22 +461,41 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
             &args.profile_name,
             CredentialBackend::File,
         ) {
-            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+            if !overwriting {
+                let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+            }
             return Err(e);
         }
     }
 
-    if let Err(e) = config_store.add_profile(
-        Tool::Codex,
-        &args.profile_name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method,
-            credential_backend: CredentialBackend::File,
-            label: args.label.clone(),
-        },
-    ) {
-        let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+    let add_result = if overwriting {
+        config_store.upsert_profile(
+            Tool::Codex,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    } else {
+        config_store.add_profile(
+            Tool::Codex,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    };
+
+    if let Err(e) = add_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
         return Err(e);
     }
 
@@ -501,13 +555,8 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         }
     }
 
-    if profile_store.exists(Tool::Gemini, &args.profile_name) {
-        confirm_overwrite(Tool::Gemini, &args.profile_name, args.yes)?;
-        config_store.remove_profile(Tool::Gemini, &args.profile_name)?;
-        let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
-    }
-
-    profile_store.create(Tool::Gemini, &args.profile_name)?;
+    let overwriting =
+        prepare_from_live_target(&profile_store, Tool::Gemini, &args.profile_name, args.yes)?;
 
     let copy_result = if auth_method == AuthMethod::OAuth {
         auth::gemini::copy_live_oauth_files_into_profile(
@@ -520,7 +569,9 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
     };
 
     if let Err(e) = copy_result {
-        let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+        }
         return Err(e);
     }
 
@@ -532,22 +583,41 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
             &args.profile_name,
             CredentialBackend::File,
         ) {
-            let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+            if !overwriting {
+                let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+            }
             return Err(e);
         }
     }
 
-    if let Err(e) = config_store.add_profile(
-        Tool::Gemini,
-        &args.profile_name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method,
-            credential_backend: CredentialBackend::File,
-            label: args.label.clone(),
-        },
-    ) {
-        let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+    let add_result = if overwriting {
+        config_store.upsert_profile(
+            Tool::Gemini,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    } else {
+        config_store.add_profile(
+            Tool::Gemini,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    };
+
+    if let Err(e) = add_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+        }
         return Err(e);
     }
 
@@ -1198,6 +1268,52 @@ mod tests {
             err.to_string().contains("no live credentials"),
             "unexpected: {err}"
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn from_live_codex_overwrite_keeps_profile_when_parent_not_writable() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_codex_credentials(&user_home, "codex-v1");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Codex, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let codex_profiles = aisw_home.join("profiles").join(Tool::Codex.dir_name());
+        let original_mode = fs::metadata(&codex_profiles).unwrap().permissions().mode() & 0o777;
+        fs::set_permissions(&codex_profiles, fs::Permissions::from_mode(0o500)).unwrap();
+
+        write_codex_credentials(&user_home, "codex-v2");
+        let result = run_in(
+            from_live_args(Tool::Codex, "work"),
+            &aisw_home,
+            OsString::new(),
+        );
+
+        fs::set_permissions(
+            &codex_profiles,
+            fs::Permissions::from_mode(original_mode.max(0o700)),
+        )
+        .unwrap();
+
+        result.unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        let stored = ps.read_file(Tool::Codex, "work", "auth.json").unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(json["oauthToken"], "codex-v2");
+
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert!(config.profiles_for(Tool::Codex).contains_key("work"));
     }
 
     #[test]

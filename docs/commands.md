@@ -51,7 +51,7 @@ aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active]
 | `--set-active` | Switch to this profile immediately after adding |
 | `--from-env` | Read the API key from the tool's standard environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) |
 | `--from-live` | Capture whatever credentials the tool currently has in its live config and store them as a new aisw profile — no login flow is launched. The profile is always activated immediately, since the live credentials are already in use. Use this after a native `claude login` / `codex login` / `gemini login` when you want aisw to manage those credentials going forward. |
-| `--yes` | Overwrite an existing same-name profile without prompting (only used with `--from-live`) |
+| `--yes` | Overwrite an existing same-name profile without prompting (only used with `--from-live`). Overwrite updates the existing profile in place; aisw does not delete the profile entry before capture succeeds. |
 
 `--from-live` reads from each tool's live credential location:
 
