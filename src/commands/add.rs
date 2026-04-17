@@ -455,22 +455,18 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
 
-    let gemini_dir = auth::gemini::live_dir(user_home);
-    let env_file = gemini_dir.join(".env");
-    let oauth_files = auth::gemini::live_oauth_files_for_import(user_home)?;
-
-    let auth_method = if env_file.exists() {
-        AuthMethod::ApiKey
-    } else if !oauth_files.is_empty() {
-        AuthMethod::OAuth
-    } else {
-        bail!(
+    let selection = auth::gemini::detect_live_import_selection(user_home)?.with_context(|| {
+        format!(
             "no live credentials found in {} — run 'gemini login' first, \
              then retry 'aisw add gemini {} --from-live'.",
-            gemini_dir.display(),
+            auth::gemini::live_dir(user_home).display(),
             args.profile_name,
         )
-    };
+    })?;
+    let gemini_dir = auth::gemini::live_dir(user_home);
+    let env_file = selection.env_file;
+    let oauth_files = selection.oauth_files;
+    let auth_method = selection.method;
 
     if auth_method == AuthMethod::ApiKey {
         let source_bytes = std::fs::read(&env_file)
@@ -559,12 +555,19 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         AuthMethod::OAuth => {
             auth::gemini::apply_token_cache(&profile_store, &args.profile_name, &gemini_dir)?
         }
-        AuthMethod::ApiKey => {
-            auth::gemini::apply_env_file(&profile_store, &args.profile_name, &gemini_dir)?
-        }
+        AuthMethod::ApiKey => auth::gemini::apply_env_file(
+            &profile_store,
+            &args.profile_name,
+            &gemini_dir.join(".env"),
+        )?,
     }
     config_store.activate_profile(Tool::Gemini, &args.profile_name, None)?;
 
+    if selection.has_both_sources {
+        output::print_info(
+            "Both Gemini API key (.env) and OAuth cache were found. Imported .env by precedence.",
+        );
+    }
     finalize_from_live(&args, Tool::Gemini, CredentialBackend::File, auth_method)
 }
 
@@ -1041,6 +1044,14 @@ mod tests {
         fs::set_permissions(&creds, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
+    fn write_gemini_env(user_home: &Path, key: &str) {
+        let gemini_dir = user_home.join(".gemini");
+        fs::create_dir_all(&gemini_dir).unwrap();
+        let env = gemini_dir.join(".env");
+        fs::write(&env, format!("GEMINI_API_KEY={key}\n")).unwrap();
+        fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
     #[test]
     fn from_live_claude_creates_profile() {
         let tmp = tempdir().unwrap();
@@ -1260,6 +1271,40 @@ mod tests {
         let meta = &config.profiles_for(Tool::Gemini)["personal"];
         assert_eq!(meta.auth_method, crate::config::AuthMethod::OAuth);
         assert_eq!(config.active_for(Tool::Gemini), Some("personal"));
+    }
+
+    #[test]
+    fn from_live_gemini_prefers_env_when_both_sources_exist() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_gemini_oauth(&user_home);
+        write_gemini_env(&user_home, "AIza-priority-key");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Gemini, "priority"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps
+            .profile_dir(Tool::Gemini, "priority")
+            .join(".env")
+            .exists());
+        assert!(!ps
+            .profile_dir(Tool::Gemini, "priority")
+            .join("oauth_creds.json")
+            .exists());
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert_eq!(
+            config.profiles_for(Tool::Gemini)["priority"].auth_method,
+            crate::config::AuthMethod::ApiKey
+        );
     }
 
     #[test]

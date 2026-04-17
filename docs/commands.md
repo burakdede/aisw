@@ -45,6 +45,13 @@ Bootstrap command:
 - offers shell hook setup
 - offers importing existing live credentials
 
+Notes:
+- For Gemini, when both `.env` and OAuth cache files are present under `~/.gemini/`, import precedence is `.env` first.
+- `aisw init` reports current live upstream state, not a full inventory of every stored `~/.aisw` profile.
+- If a tool's live account was changed outside `aisw`, `init` reports that current live account and whether it matches the profile `aisw` records as active.
+- For Claude Code, `init` distinguishes local Claude state from importable auth and reports when local state exists without importable credentials.
+- When imported credentials are OAuth-based and aisw can resolve the authenticated account identity, it blocks importing a duplicate alias for an already stored account.
+
 Examples:
 
 ```sh
@@ -75,11 +82,11 @@ Notes:
 - In `--non-interactive` mode, interactive add fails by design.
 - `--from-live` reads the current native tool credentials and stores them as an aisw-managed profile.
 - `--from-live` always activates the captured profile because those credentials are already live.
-
 Live credential sources:
 - Claude: `~/.claude/.credentials.json`, or the system keyring on macOS
 - Codex: `~/.codex/auth.json`
 - Gemini: `~/.gemini/.env` or OAuth files in `~/.gemini/`
+- When both Gemini `.env` and OAuth cache files are present, `aisw` uses `.env` first by design.
 
 Examples:
 

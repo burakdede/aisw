@@ -31,6 +31,46 @@ pub fn live_dir(user_home: &Path) -> PathBuf {
     user_home.join(GEMINI_CACHE_DIR)
 }
 
+#[derive(Debug, Clone)]
+pub struct LiveImportSelection {
+    pub method: AuthMethod,
+    pub source_description: String,
+    pub env_file: PathBuf,
+    pub oauth_files: Vec<files::RegularFile>,
+    pub has_both_sources: bool,
+}
+
+pub fn detect_live_import_selection(user_home: &Path) -> Result<Option<LiveImportSelection>> {
+    let gemini_dir = live_dir(user_home);
+    let env_file = gemini_dir.join(ENV_FILE);
+    let oauth_files = live_oauth_files_for_import(user_home)?;
+    let has_env = env_file.exists();
+    let has_oauth = !oauth_files.is_empty();
+
+    if !has_env && !has_oauth {
+        return Ok(None);
+    }
+
+    let (method, source_description) = if has_env {
+        (AuthMethod::ApiKey, format!("found {}", env_file.display()))
+    } else {
+        let primary_file = preferred_live_oauth_file(&oauth_files)
+            .context("could not determine primary Gemini OAuth credential file")?;
+        (
+            AuthMethod::OAuth,
+            live_import_source_description(&primary_file.path, oauth_files.len()),
+        )
+    };
+
+    Ok(Some(LiveImportSelection {
+        method,
+        source_description,
+        env_file,
+        oauth_files,
+        has_both_sources: has_env && has_oauth,
+    }))
+}
+
 pub fn live_oauth_files_for_import(user_home: &Path) -> Result<Vec<files::RegularFile>> {
     let gemini_dir = live_dir(user_home);
     if !gemini_dir.exists() {
@@ -1243,6 +1283,33 @@ mod tests {
         let preferred = preferred_live_oauth_file(&files).expect("preferred file");
 
         assert_eq!(preferred.file_name, "settings.json");
+    }
+
+    #[test]
+    fn detect_live_import_selection_prefers_env_when_both_sources_exist() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+        std::fs::write(gemini_dir.join(".env"), "GEMINI_API_KEY=test\n").unwrap();
+        std::fs::write(gemini_dir.join("oauth_creds.json"), "{}").unwrap();
+
+        let selection = detect_live_import_selection(&user_home)
+            .unwrap()
+            .expect("selection should be present");
+        assert_eq!(selection.method, AuthMethod::ApiKey);
+        assert!(selection.has_both_sources);
+        assert_eq!(selection.oauth_files.len(), 1);
+    }
+
+    #[test]
+    fn detect_live_import_selection_returns_none_when_empty() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(user_home.join(".gemini")).unwrap();
+
+        let selection = detect_live_import_selection(&user_home).unwrap();
+        assert!(selection.is_none());
     }
 
     #[test]
