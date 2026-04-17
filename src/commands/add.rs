@@ -785,6 +785,7 @@ mod tests {
 
     #[test]
     fn tool_not_found_errors() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -802,6 +803,7 @@ mod tests {
 
     #[test]
     fn api_key_claude_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -818,6 +820,7 @@ mod tests {
 
     #[test]
     fn set_active_marks_profile_active() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -835,6 +838,7 @@ mod tests {
 
     #[test]
     fn label_stored_in_config() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -855,6 +859,7 @@ mod tests {
 
     #[test]
     fn invalid_profile_name_errors() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -868,6 +873,7 @@ mod tests {
 
     #[test]
     fn codex_api_key_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -884,6 +890,7 @@ mod tests {
 
     #[test]
     fn gemini_api_key_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -913,6 +920,7 @@ mod tests {
 
     #[test]
     fn from_env_claude_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _key = EnvVarGuard::set(
             "ANTHROPIC_API_KEY",
             "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -932,6 +940,7 @@ mod tests {
 
     #[test]
     fn from_env_codex_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _key = EnvVarGuard::set("OPENAI_API_KEY", "sk-codex-test-key-12345");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -948,6 +957,7 @@ mod tests {
 
     #[test]
     fn from_env_gemini_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _key = EnvVarGuard::set("GEMINI_API_KEY", "AIzatest1234567890ABCDEF");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -964,6 +974,7 @@ mod tests {
 
     #[test]
     fn from_env_unset_errors() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _key = EnvVarGuard::unset("ANTHROPIC_API_KEY");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -982,6 +993,7 @@ mod tests {
 
     #[test]
     fn from_env_empty_errors() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _key = EnvVarGuard::set("ANTHROPIC_API_KEY", "");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1000,6 +1012,7 @@ mod tests {
 
     #[test]
     fn claude_oauth_add_without_set_active_restores_live_state() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw-home");
         let user_home = tmp.path().join("user-home");
@@ -1099,6 +1112,7 @@ mod tests {
 
     #[test]
     fn from_live_claude_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1126,6 +1140,7 @@ mod tests {
 
     #[test]
     fn from_live_claude_always_activates() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1149,6 +1164,7 @@ mod tests {
 
     #[test]
     fn from_live_claude_overwrites_with_yes() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1183,6 +1199,7 @@ mod tests {
 
     #[test]
     fn from_live_claude_fails_without_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1205,6 +1222,7 @@ mod tests {
 
     #[test]
     fn from_live_codex_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1229,6 +1247,7 @@ mod tests {
 
     #[test]
     fn from_live_codex_always_activates() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1251,6 +1270,7 @@ mod tests {
 
     #[test]
     fn from_live_codex_fails_without_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1273,6 +1293,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn from_live_codex_overwrite_keeps_profile_when_parent_not_writable() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1318,6 +1339,7 @@ mod tests {
 
     #[test]
     fn from_live_gemini_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1343,6 +1365,7 @@ mod tests {
 
     #[test]
     fn from_live_gemini_always_activates() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1366,6 +1389,7 @@ mod tests {
 
     #[test]
     fn from_live_gemini_prefers_env_when_both_sources_exist() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
@@ -1400,6 +1424,7 @@ mod tests {
 
     #[test]
     fn from_live_gemini_fails_without_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
         let user_home = tmp.path().join("user");
