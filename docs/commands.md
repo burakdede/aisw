@@ -61,6 +61,8 @@ aisw add <tool> <profile_name> [--api-key <key>] [--label <text>] [--set-active]
 | `codex` | `~/.codex/auth.json` |
 | `gemini` | `~/.gemini/.env` (API key) or OAuth files in `~/.gemini/` |
 
+When both Gemini `.env` and OAuth cache files are present, `aisw` uses `.env` first by design. This precedence is the same in `aisw add --from-live` and `aisw init`.
+
 Without `--api-key`, `--from-env`, or `--from-live`, aisw presents an interactive menu to choose between browser OAuth login and API key entry.
 
 For OAuth capture, `aisw` uses the narrowest upstream login flow it can:
@@ -233,6 +235,8 @@ aisw init
 ```
 
 Detects installed tools, installs the shell hook into your rc file, creates `~/.aisw/`, and offers to import the current live credentials each upstream tool is using. During interactive onboarding, imported profiles default to name `default` and label `imported`, but you can override both. Imported live credentials are marked active by default when no aisw-managed active profile already exists for that tool, and `aisw init` applies that active profile to the live tool config immediately. `aisw init --yes` stays deterministic and uses the default name and label. Safe to run multiple times — will not duplicate the shell hook.
+
+For Gemini, when both `.env` and OAuth cache files are present under `~/.gemini/`, import precedence is `.env` first.
 
 `aisw init` reports current live upstream state, not a full inventory of every stored `~/.aisw` profile. If a tool's live account was changed outside `aisw`, `init` will report that current live account and note whether it matches the profile `aisw` records as active.
 

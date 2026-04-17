@@ -795,22 +795,16 @@ fn import_gemini(
     confirmed: bool,
 ) -> Result<()> {
     print_import_header(Tool::Gemini, detected);
-    let gemini_dir = auth::gemini::live_dir(user_home);
-    let env_file = gemini_dir.join(".env");
-    let oauth_files = auth::gemini::live_oauth_files_for_import(user_home)?;
-
-    let (src_desc, method) = if env_file.exists() {
-        (format!("found {}", env_file.display()), AuthMethod::ApiKey)
-    } else if let Some(primary_file) = auth::gemini::preferred_live_oauth_file(&oauth_files) {
-        (
-            auth::gemini::live_import_source_description(&primary_file.path, oauth_files.len()),
-            AuthMethod::OAuth,
-        )
-    } else {
+    let Some(selection) = auth::gemini::detect_live_import_selection(user_home)? else {
         output::print_kv("Credentials", "not found");
         output::print_blank_line();
         return Ok(());
     };
+    let src_desc = selection.source_description;
+    let method = selection.method;
+    let env_file = selection.env_file;
+    let oauth_files = selection.oauth_files;
+    let has_both_sources = selection.has_both_sources;
 
     let profile_store = ProfileStore::new(aisw_home);
     let config_store = ConfigStore::new(aisw_home);
@@ -859,6 +853,11 @@ fn import_gemini(
     }
 
     output::print_kv("Credentials", &src_desc);
+    if has_both_sources {
+        output::print_info(
+            "Both Gemini API key (.env) and OAuth cache were found. Import precedence is .env first.",
+        );
+    }
     output::print_kv(
         "Auth",
         if method == AuthMethod::ApiKey {
@@ -1080,6 +1079,39 @@ mod tests {
 
         let ps = ProfileStore::new(&aisw_home);
         assert!(ps.exists(Tool::Gemini, "default"));
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert_eq!(
+            config.profiles_for(Tool::Gemini)["default"].auth_method,
+            AuthMethod::ApiKey
+        );
+    }
+
+    #[test]
+    fn imports_gemini_prefers_env_when_both_sources_exist() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        fs::create_dir_all(&gemini_dir).unwrap();
+        fs::write(gemini_dir.join(".env"), b"GEMINI_API_KEY=abc123\n").unwrap();
+        fs::write(
+            gemini_dir.join("oauth_creds.json"),
+            b"{\"token\":\"oauth\"}",
+        )
+        .unwrap();
+
+        run(&aisw_home, &user_home, None).unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps.exists(Tool::Gemini, "default"));
+        assert!(ps
+            .profile_dir(Tool::Gemini, "default")
+            .join(".env")
+            .exists());
+        assert!(!ps
+            .profile_dir(Tool::Gemini, "default")
+            .join("oauth_creds.json")
+            .exists());
         let config = ConfigStore::new(&aisw_home).load().unwrap();
         assert_eq!(
             config.profiles_for(Tool::Gemini)["default"].auth_method,
