@@ -82,6 +82,7 @@ Notes:
 - In `--non-interactive` mode, interactive add fails by design.
 - `--from-live` reads the current native tool credentials and stores them as an aisw-managed profile.
 - `--from-live` always activates the captured profile because those credentials are already live.
+- With `--from-live --yes`, overwrite updates the existing profile in place; aisw does not delete the profile entry before capture succeeds.
 Live credential sources:
 - Claude: `~/.claude/.credentials.json`, or the system keyring on macOS
 - Codex: `~/.codex/auth.json`
