@@ -40,6 +40,9 @@ Pre-release suffixes are not supported by the release workflow; use a separate t
 6. Once all five build jobs pass, open the draft release on the
    [Releases page](https://github.com/burakdede/aisw/releases), review the
    generated changelog, and click **Publish release**.
+7. After publishing, the Homebrew workflow
+   (`.github/workflows/homebrew-release.yml`) runs automatically and updates
+   `burakdede/homebrew-tap` `Formula/aisw.rb` for that version.
 
 ## What the release workflow does
 
@@ -55,6 +58,26 @@ Pre-release suffixes are not supported by the release workflow; use a separate t
 | Release | Downloads all artifacts; creates a **draft** GitHub Release with release notes and all assets |
 
 The release is always created as a draft. A human must publish it.
+
+## Homebrew publishing
+
+Homebrew is published by a separate workflow:
+
+- Trigger: GitHub Release `published` event
+- Workflow: `.github/workflows/homebrew-release.yml`
+- Target tap repository: `burakdede/homebrew-tap`
+- Updated file: `Formula/aisw.rb`
+
+Required repository secret in `burakdede/aisw`:
+
+- `HOMEBREW_TAP_GITHUB_TOKEN` (PAT with write access to `burakdede/homebrew-tap`)
+
+After that job succeeds, users can install with:
+
+```sh
+brew tap burakdede/tap
+brew install aisw
+```
 
 ## Build targets
 
