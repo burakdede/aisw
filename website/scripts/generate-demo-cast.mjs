@@ -13,15 +13,17 @@ const outputPath = path.join(
 );
 
 const prompt = 'demo@aisw:~$ ';
+const shellPath = '~/workspace/aisw';
 const ansi = {
   reset: '\u001b[0m',
   dim: '\u001b[2m',
-  prompt: '\u001b[1;38;5;114m',
-  command: '\u001b[1;38;5;81m',
-  body: '\u001b[38;5;252m',
-  muted: '\u001b[38;5;245m',
-  heading: '\u001b[1;38;5;223m',
-  note: '\u001b[38;5;186m',
+  prompt: '\u001b[1;38;5;213m',
+  command: '\u001b[1;38;5;226m',
+  body: '\u001b[38;5;255m',
+  muted: '\u001b[38;5;244m',
+  heading: '\u001b[1;38;5;51m',
+  note: '\u001b[1;38;5;208m',
+  accent: '\u001b[1;38;5;121m',
 };
 
 const header = {
@@ -35,6 +37,7 @@ const header = {
     TERM: 'xterm-256color',
   },
 };
+const commandViewportLines = header.height - 10;
 
 const steps = [
   {
@@ -135,51 +138,36 @@ function pause(seconds) {
   t += seconds;
 }
 
-function printIntro() {
+function printStepBanner(title, detail) {
+  const border = `${ansi.accent}┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐${ansi.reset}`;
+  const divider = `${ansi.accent}├────────────────────────────────────────────────────────────────────────────────────────────────────────┤${ansi.reset}`;
+  const footer = `${ansi.accent}└────────────────────────────────────────────────────────────────────────────────────────────────────────┘${ansi.reset}`;
   const lines = [
-    `${ansi.heading}aisw demo${ansi.reset}`,
-    `${ansi.body}Manage and switch Claude Code, Codex CLI, and Gemini CLI accounts from one local profile store.${ansi.reset}`,
-    `${ansi.muted}This walkthrough uses real command output captured from an isolated demo environment.${ansi.reset}`,
+    border,
+    `${ansi.accent}│${ansi.reset} ${ansi.note}${title}${ansi.reset}`,
+    divider,
+    `${ansi.accent}│${ansi.reset} ${ansi.dim}Use case:${ansi.reset} ${ansi.body}${detail}${ansi.reset}`,
+    `${ansi.accent}│${ansi.reset} ${ansi.dim}Workspace:${ansi.reset} ${ansi.muted}${shellPath}${ansi.reset}`,
+    footer,
     '',
   ];
   pushOutput(`${lines.join('\r\n')}\r\n`);
   pause(2.4);
 }
 
-function printStepBanner(title, detail) {
-  const lines = [
-    `${ansi.note}${title}${ansi.reset}`,
-    `${ansi.dim}${detail}${ansi.reset}`,
-    '',
-  ];
-  pushOutput(`${lines.join('\r\n')}\r\n`);
-  pause(2.1);
-}
-
 function typeCommand(command) {
   pushOutput(`${ansi.prompt}${prompt}${ansi.reset}`);
   for (const ch of command) {
-    pause(0.076);
+    pause(0.07);
     pushOutput(`${ansi.command}${ch}${ansi.reset}`);
   }
-  pause(0.32);
+  pause(0.5);
   pushOutput('\r\n');
 }
 
 function printCapturedOutput(output) {
-  pause(0.8);
-  pushOutput(output);
-}
-
-function printOutro() {
-  pause(2.0);
-  const lines = [
-    '',
-    `${ansi.heading}Done${ansi.reset}`,
-    `${ansi.body}aisw keeps named profiles separate from the live tool config, switches with one command, and preserves backups for safe recovery.${ansi.reset}`,
-    '',
-  ];
-  pushOutput(`${lines.join('\r\n')}\r\n`);
+  pause(0.55);
+  pushOutput(`${fitOutputToViewport(output)}\r\n`);
 }
 
 function sanitizeOutput(text, tempRoot) {
@@ -193,8 +181,30 @@ function sanitizeOutput(text, tempRoot) {
     .join('\r\n');
 }
 
+function fitOutputToViewport(output) {
+  const lines = output.split('\r\n');
+  if (lines.length <= commandViewportLines) {
+    return output;
+  }
+  return lines.slice(0, commandViewportLines).join('\r\n');
+}
+
+function clearScreen() {
+  // Clear screen + move cursor to top-left so each workflow starts from a clean terminal.
+  pushOutput('\u001b[2J\u001b[H');
+}
+
+function transitionToNextFeature() {
+  // Keep transition minimal: pause for readability, then clear.
+  pause(1.6);
+  clearScreen();
+  pause(0.4);
+}
+
 function captureCommandOutput(command, env) {
-  return execFileSync('script', ['-qec', command, '/dev/null'], {
+  // Keep capture portable across macOS/Linux and CI environments.
+  // CLICOLOR_FORCE in env preserves colored aisw output for the cast.
+  return execFileSync('bash', ['-lc', command], {
     cwd: process.cwd(),
     env,
     encoding: 'utf8',
@@ -266,24 +276,30 @@ async function main() {
   const demoEnv = await setupDemoEnv();
   const state = {};
 
-  printIntro();
+  clearScreen();
+  pause(0.4);
 
-  for (const step of steps) {
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const nextStep = steps[index + 1];
     const command = typeof step.command === 'function' ? step.command({ state }) : step.command;
     markers.push([Number(t.toFixed(1)), step.marker]);
     printStepBanner(step.title, step.detail);
     typeCommand(command);
     const rawOutput = captureCommandOutput(command, demoEnv.env);
     const sanitizedOutput = sanitizeOutput(rawOutput, demoEnv.tempRoot);
-    printCapturedOutput(`${sanitizedOutput}\r\n`);
+    printCapturedOutput(sanitizedOutput);
     if (step.after) {
       step.after({ output: sanitizedOutput, state });
     }
-    pause(2.8);
+    pause(3.2);
+    if (nextStep) {
+      transitionToNextFeature();
+    }
   }
 
-  printOutro();
-  pushOutput(`${ansi.prompt}${prompt}${ansi.reset}`);
+  clearScreen();
+  pause(0.3);
 
   const contents = [
     JSON.stringify(header),
