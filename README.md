@@ -7,7 +7,7 @@
   </picture>
 </p>
 
-<p align="center">AI and coding agent account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI.</p>
+<p align="center">Account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI.</p>
 
 <p align="center">
   <a href="https://crates.io/crates/aisw">
@@ -24,103 +24,72 @@
   </a>
 </p>
 
-`aisw` manages multiple accounts for Claude Code, Codex CLI, and Gemini CLI.
-
-It is built for a simple problem: AI coding CLIs make it easy to get blocked by quota limits, account separation, or messy credential state. Switching between work, personal, and backup accounts is usually manual and tool-specific.
-
-`aisw` gives you one workflow for:
-
-- switching to another account when a quota is exhausted
-- keeping work and personal accounts separate
-- importing the account a tool is already using
-- managing profiles across Claude Code, Codex CLI, and Gemini CLI with one CLI
-
-It stores named profiles under `~/.aisw/` and applies the selected profile to the live config each tool actually reads.
+`aisw` stores named profiles under `~/.aisw/` and applies the selected profile to each tool's live config.
 
 ## Install
 
-Full install and setup details: [Quickstart](https://burakdede.github.io/aisw/quickstart/).
-
-**curl (Linux, macOS):**
-
 ```sh
-curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
-```
-
-**Homebrew (macOS, Linux):**
-
-```sh
+# Homebrew
 brew tap burakdede/tap
 brew install aisw
-```
 
-**Cargo:**
+# or shell installer (Linux/macOS)
+curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
 
-```sh
+# or Cargo
 cargo install aisw
 ```
 
-If `aisw` is not available immediately in the same shell session, refresh `PATH` in that shell:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-If that `PATH` line is already in your shell config, just run `source ~/.zshrc`.
-
 ## Quickstart
 
-First time:
-
 ```sh
+# First-time setup
 aisw init
-```
 
-That detects installed tools, installs shell integration if needed, and offers to import the live account each tool is already using.
+# Add profiles
+aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+aisw add codex personal --api-key "$OPENAI_API_KEY"
 
-Example: switch Claude accounts when one hits quota.
+# Switch
+aisw use claude work
 
-```sh
-aisw add claude personal
-aisw use claude personal
-```
-
-Useful commands:
-
-```sh
-aisw add <tool> <name>
-aisw use <tool> <name>
-aisw list [tool]
+# Inspect
 aisw status
+aisw list
 ```
 
-## Shell integration
+## Command surface
 
-Normal switching works without shell hooks, but shell integration is available if you want it.
-
-```sh
-eval "$(aisw shell-hook bash)"
-aisw shell-hook fish | source
+```text
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--label TEXT] [--set-active]
+aisw use <tool> <profile> [--state-mode isolated|shared]
+aisw use --all --profile <profile>
+aisw list [tool] [--json]
+aisw status [--json]
+aisw remove <tool> <profile> [--yes] [--force]
+aisw rename <tool> <old> <new>
+aisw backup list [--json]
+aisw backup restore <backup_id> [--yes]
+aisw init [--yes]
+aisw uninstall [--dry-run] [--remove-data] [--yes]
+aisw shell-hook <bash|zsh|fish>
+aisw doctor [--json]
 ```
-
-`aisw init` can add this automatically.
 
 ## Supported tools
 
 | Tool | Binary | Auth methods |
 |---|---|---|
-| Claude Code | `claude` | OAuth (browser), API key |
-| Codex CLI | `codex` | OAuth (ChatGPT), API key |
-| Gemini CLI | `gemini` | OAuth (Google), API key |
+| Claude Code | `claude` | OAuth, API key |
+| Codex CLI | `codex` | OAuth, API key |
+| Gemini CLI | `gemini` | OAuth, API key |
 
 ## Docs
 
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/)
 - [Commands](https://burakdede.github.io/aisw/commands/)
-- [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/)
-- [Shell Integration](https://burakdede.github.io/aisw/shell-integration/)
-- [Supported Tools](https://burakdede.github.io/aisw/supported-tools/)
+- [Automation](https://burakdede.github.io/aisw/automation/)
+- [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/)
 
 ## License
 

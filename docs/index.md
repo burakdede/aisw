@@ -1,108 +1,50 @@
 # aisw documentation
 
-`aisw` stands for AI Switcher. It is a multi-account manager and account switcher for Claude Code, Codex CLI, and Gemini CLI, built to help you switch AI CLI accounts without manually copying credential files, editing config directories, or re-running login flows every time you hit a usage limit.
+`aisw` is a local account/profile manager for Claude Code, Codex CLI, and Gemini CLI.
 
 ## Install
 
-### Shell installer
+```sh
+brew tap burakdede/tap
+brew install aisw
+```
+
+Alternative installers:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
-```
-
-### Cargo
-
-```sh
+# or
 cargo install aisw
 ```
 
-## Watch aisw work
-
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.css">
-<div id="aisw-home-demo"></div>
-<script src="https://cdn.jsdelivr.net/npm/asciinema-player@3.8.0/dist/bundle/asciinema-player.min.js"></script>
-<script>
-  AsciinemaPlayer.create('/aisw/demos/aisw-important-workflows.cast', document.getElementById('aisw-home-demo'), {
-    cols: 108,
-    rows: 32,
-    autoPlay: false,
-    loop: false,
-    preload: true,
-    fit: 'width',
-    poster: 'npt:2',
-    terminalFontSize: '16px',
-    markers: [
-      [2.4, 'Init'],
-      [9.6, 'Add work'],
-      [23.4, 'Add personal'],
-      [37.9, 'Switch'],
-      [45.7, 'Status'],
-      [52.6, 'Rename'],
-      [61.2, 'List'],
-      [67.9, 'Remove'],
-      [76.7, 'Backups'],
-      [83.9, 'Restore']
-    ]
-  });
-</script>
-
-## What aisw helps with
-
-Developers usually find `aisw` when they are trying to solve one of these problems:
-
-- switch between multiple Claude Code accounts
-- switch between multiple Codex CLI accounts
-- switch between multiple Gemini CLI accounts
-- manage several AI CLI subscriptions on one machine
-- rotate between work and personal AI coding tool profiles
-- keep Claude, Codex, and Gemini credentials organized without manual file copying
-
-If you were searching for an AI CLI account switcher, a multi-account CLI manager, or a way to manage multiple Claude, Codex, or Gemini logins locally, this documentation is the right place to start.
-
 ## Start here
 
-| Document | Description |
-|---|---|
-| [Why aisw?](why-aisw.md) | Why you need an AI agent account manager |
-| [Quickstart](quickstart.md) | Install aisw, run first-time setup, and switch accounts quickly |
-| [Commands](commands.md) | Full reference for all subcommands and flags |
-| [Adding Profiles](adding-profiles.md) | OAuth and API key auth flows per tool |
-| [Automation and Scripting](automation.md) | Prompt behavior, JSON output, stdout/stderr expectations, and scripting patterns |
+1. [Quickstart](quickstart.md)
+2. [Commands](commands.md)
+3. [Automation and Scripting](automation.md)
+4. [Troubleshooting](troubleshooting.md)
 
-## Value at a glance
+## Command summary
 
-- **Zero Manual File Copying:** Switch profiles with one command. No more searching for hidden `.env` or `.credentials.json` files.
-- **Safety First:** Automatic backups before every switch and enforced `0600` permissions.
-- **Identity Awareness:** Prevent duplicate aliases by automatically resolving account emails and IDs.
-- **Seamless Setup:** `aisw init` imports your existing credentials in seconds.
+```text
+aisw init [--yes]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--label TEXT] [--set-active]
+aisw use <tool> <profile> [--state-mode isolated|shared]
+aisw list [tool] [--json]
+aisw status [--json]
+aisw remove <tool> <profile> [--yes] [--force]
+aisw rename <tool> <old> <new>
+aisw backup list [--json]
+aisw backup restore <backup_id> [--yes]
+aisw uninstall [--dry-run] [--remove-data] [--yes]
+aisw shell-hook <bash|zsh|fish>
+aisw doctor [--json]
+```
 
-## Setup and operation
+## Additional references
 
-| Document | Description |
-|---|---|
-| [Shell Integration](shell-integration.md) | Shell hook setup for bash, zsh, fish |
-| [Supported Tools](supported-tools.md) | Tool compatibility, binary names, auth methods |
-| [Configuration](config.md) | `~/.aisw/config.json` schema and settings |
-
-## Common questions
-
-- [Troubleshooting](troubleshooting.md): Issues with shell hooks, tool detection, or permissions.
-- [What aisw actually changes when I switch accounts?](#what-aisw-actually-changes-when-i-switch-accounts)
-- [Does aisw send credentials or prompts over the network?](#does-aisw-send-credentials-or-prompts-over-the-network)
-- [Where are profiles stored, and how are they protected?](#where-are-profiles-stored-and-how-are-they-protected)
-
-### What does aisw actually change when I switch accounts?
-
-`aisw use` applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files.
-
-### Does aisw send credentials or prompts over the network?
-
-No. `aisw` itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher.
-
-### Where are profiles stored, and how are they protected?
-
-Stored profiles live under `~/.aisw/profiles/<tool>/<name>/`. Credential files are written with `0600` permissions so only your user can read or write them, and `aisw status` reports files that are broader than that.
-
-### Can I use this for work, personal, and backup accounts across different tools?
-
-Yes. A common setup is separate work, personal, client, or backup profiles for Claude Code, Codex CLI, and Gemini CLI so you can switch in seconds when a quota runs out or you need a different subscription.
+- [Adding Profiles](adding-profiles.md)
+- [Shell Integration](shell-integration.md)
+- [Supported Tools](supported-tools.md)
+- [Configuration](config.md)
+- [Releases](https://github.com/burakdede/aisw/releases)

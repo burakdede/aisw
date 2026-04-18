@@ -14,47 +14,31 @@ const logoUrl = `${siteOrigin}${siteBasePath}/aisw-512.png`;
 const cargoTomlPath = path.join(repoRoot, 'Cargo.toml');
 const docsKeywords = [
   'aisw',
-  'AI Switcher',
-  'AI CLI account switcher',
-  'AI account manager',
-  'AI CLI account manager',
-  'coding agent account manager',
-  'coding agent account switcher',
   'Claude Code',
   'Codex CLI',
   'Gemini CLI',
-  'multi-account CLI',
-  'developer tooling',
+  'account switching',
+  'cli tooling',
 ];
 
 const DOCS = [
   {
     source: 'index.md',
     output: 'index.md',
-    title: 'aisw AI Switcher Documentation',
-    description: 'Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.',
+    title: 'aisw documentation',
+    description: 'Install and use aisw for account/profile management across Claude Code, Codex CLI, and Gemini CLI.',
     section: 'overview',
     queries: [
-      'AI Switcher',
-      'aisw AI Switcher',
-      'AI CLI account switcher',
-      'AI CLI account manager',
-      'AI account manager',
-      'coding agent account manager',
-      'Claude Code account switcher',
-      'Claude Code account manager',
-      'Codex CLI account switcher',
-      'Codex CLI account manager',
-      'Gemini CLI account switcher',
-      'Gemini CLI account manager',
-      'manage multiple AI CLI accounts',
+      'aisw docs',
+      'aisw install',
+      'aisw quickstart',
     ],
   },
   {
     source: 'quickstart.md',
     output: 'quickstart.md',
     title: 'Quickstart',
-    description: 'Install aisw, run first-time setup, add profiles, and switch accounts quickly.',
+    description: 'Install aisw, initialize, add profiles, and switch accounts.',
     section: 'getting-started',
     queries: [
       'install aisw',
@@ -67,7 +51,7 @@ const DOCS = [
     source: 'commands.md',
     output: 'commands.md',
     title: 'Commands',
-    description: 'Full command reference for aisw commands, flags, and usage patterns.',
+    description: 'Command and flag reference for aisw.',
     section: 'reference',
     queries: [
       'aisw command reference',
@@ -78,7 +62,7 @@ const DOCS = [
     source: 'automation.md',
     output: 'automation.md',
     title: 'Automation and Scripting',
-    description: 'Understand prompt behavior, JSON output, stdout/stderr expectations, and safe scripting patterns for aisw.',
+    description: 'Non-interactive usage, JSON output, and scripting-safe patterns.',
     section: 'reference',
     queries: [
       'aisw automation',
@@ -91,7 +75,7 @@ const DOCS = [
     source: 'shell-integration.md',
     output: 'shell-integration.md',
     title: 'Shell Integration',
-    description: 'Set up shell hooks, completions, and shell-specific integration for aisw.',
+    description: 'Shell hook and completion setup for bash, zsh, and fish.',
     section: 'reference',
     queries: [
       'aisw shell hook',
@@ -104,7 +88,7 @@ const DOCS = [
     source: 'adding-profiles.md',
     output: 'adding-profiles.md',
     title: 'Adding Profiles',
-    description: 'Understand OAuth and API key profile flows for each supported tool.',
+    description: 'Add profiles with API keys or interactive OAuth flows.',
     section: 'reference',
     queries: [
       'add second Claude Code account',
@@ -117,7 +101,7 @@ const DOCS = [
     source: 'supported-tools.md',
     output: 'supported-tools.md',
     title: 'Supported Tools',
-    description: 'See which tools aisw supports and how authentication works for each one.',
+    description: 'Tool support matrix and auth/backend behavior.',
     section: 'reference',
     queries: [
       'does aisw support Claude Code',
@@ -129,7 +113,7 @@ const DOCS = [
     source: 'config.md',
     output: 'configuration.md',
     title: 'Configuration',
-    description: 'Reference the aisw config file, active profile state, and stored settings.',
+    description: 'Config file structure and active-profile state.',
     section: 'reference',
     queries: [
       'aisw config.json',
@@ -140,7 +124,7 @@ const DOCS = [
     source: 'why-aisw.md',
     output: 'why-aisw.md',
     title: 'Why aisw?',
-    description: 'Why you need an AI agent account manager to bypass quotas and manage credentials securely.',
+    description: 'Problem statement and scope of aisw.',
     section: 'overview',
     queries: [
       'why use aisw',
@@ -154,7 +138,7 @@ const DOCS = [
     source: 'troubleshooting.md',
     output: 'troubleshooting.md',
     title: 'Troubleshooting',
-    description: 'Common issues and solutions for aisw shell hooks, tool detection, and permissions.',
+    description: 'Common errors and direct fixes.',
     section: 'reference',
     queries: [
       'aisw troubleshooting',
@@ -192,7 +176,7 @@ async function main() {
     const editUrl = `https://github.com/burakdede/aisw/edit/main/docs/${doc.source}`;
     const route = docRouteBySource.get(doc.source);
     const schema = buildDocSchema(doc, route, currentVersion);
-    const keywords = [...docsKeywords, doc.title, doc.section, ...(doc.queries ?? [])].join(', ');
+    const keywords = buildKeywords(doc);
     const heroBlock = buildHeroFrontmatter(doc, currentVersion);
     const contents = `---\ntitle: ${doc.title}\ndescription: ${doc.description}\neditUrl: ${editUrl}\n${heroBlock}head:\n  - tag: meta\n    attrs:\n      name: robots\n      content: index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1\n  - tag: meta\n    attrs:\n      name: keywords\n      content: ${keywords}\n  - tag: meta\n    attrs:\n      property: article:section\n      content: ${doc.section}\n  - tag: script\n    attrs:\n      type: application/ld+json\n    content: >-\n      ${JSON.stringify(schema)}\n---\n\n${body}\n`;
     await fs.writeFile(outputPath, contents);
@@ -257,7 +241,7 @@ function buildLlmsTxt(currentVersion) {
   const lines = [
     '# aisw',
     '',
-    '> Documentation for aisw, a CLI for switching between Claude Code, Codex CLI, and Gemini CLI accounts.',
+    '> Documentation for aisw CLI.',
     '',
     `Current version: ${currentVersion}`,
     '',
@@ -365,7 +349,7 @@ function buildDocSchema(doc, route, currentVersion) {
       description: doc.description,
       url,
       inLanguage: 'en',
-      keywords: [...docsKeywords, ...(doc.queries ?? [])].join(', '),
+      keywords: buildKeywords(doc),
       image: logoUrl,
       isPartOf: {
         '@type': 'WebSite',
@@ -375,7 +359,6 @@ function buildDocSchema(doc, route, currentVersion) {
       about: {
         '@type': 'SoftwareApplication',
         name: 'aisw',
-        alternateName: 'AI Switcher',
         applicationCategory: 'DeveloperApplication',
         operatingSystem: 'macOS, Linux, Windows',
         softwareVersion: currentVersion,
@@ -427,11 +410,20 @@ function buildDocSchema(doc, route, currentVersion) {
   };
 }
 
+function buildKeywords(doc) {
+  const items = [
+    ...docsKeywords,
+    doc.title,
+    doc.section,
+  ].map((item) => item.trim().toLowerCase());
+  return [...new Set(items)].join(', ');
+}
+
 function buildHeroFrontmatter(doc, currentVersion) {
   if (doc.source !== 'index.md') {
     return '';
   }
-  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "AI / Coding Agent account manager and switcher for Claude Code, Codex CLI, and Gemini CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Watch Demo\n      link: ${withBasePath('/#watch-aisw-work')}\n      variant: secondary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: minimal\n`;
+  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "Account manager and switcher for Claude Code, Codex CLI, and Gemini CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Commands\n      link: ${withBasePath('/commands/')}\n      variant: secondary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: minimal\n`;
 }
 
 function injectVersionContext(doc, body, currentVersion) {

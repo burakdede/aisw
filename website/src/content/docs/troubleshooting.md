@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Common issues and solutions for aisw shell hooks, tool detection, and permissions.
+description: Common errors and direct fixes.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/troubleshooting.md
 head:
   - tag: meta
@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Troubleshooting, reference, aisw troubleshooting, aisw shell hook not working, aisw tool not found, aisw gemini oauth fail
+      content: aisw, claude code, codex cli, gemini cli, account switching, cli tooling, troubleshooting, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,113 +19,134 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Common issues and solutions for aisw shell hooks, tool detection, and permissions.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, aisw troubleshooting, aisw shell hook not working, aisw tool not found, aisw gemini oauth fail","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Common errors and direct fixes.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, troubleshooting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
 ---
 
-Common issues and solutions for `aisw`.
+Targeted fixes for common failures.
 
----
+## `tool not installed`
 
-## 1. Shell integration not working
+Symptom:
+- `aisw status` shows a tool as not installed.
+- `aisw use` fails for that tool.
 
-If running `aisw use` updates the profile list but doesn't change the active shell environment for a tool (for example `CLAUDE_CONFIG_DIR` or `CODEX_HOME`), the shell hook might not be loaded.
+Checks:
 
-### Diagnosis
-Run:
 ```sh
-echo $AISW_SHELL_HOOK
-```
-If it's empty, the hook is not loaded.
-
-### Solution
-1. Verify the hook line is in your RC file (`.zshrc`, `.bashrc`, or `config.fish`).
-2. Restart your terminal or source the RC file manually:
-   ```sh
-   source ~/.zshrc
-   ```
-3. Check for shell-specific issues in [Shell Integration](/aisw/shell-integration/).
-
-If you want to remove the hook cleanly instead of editing rc files by hand:
-```sh
-aisw uninstall --dry-run
-aisw uninstall --yes
+which claude
+which codex
+which gemini
 ```
 
----
+Fix:
+- install the missing tool
+- ensure binary is on `PATH`
+- refresh shell cache (`hash -r` for bash, `rehash` for zsh)
 
-## 2. "Tool not installed" error
+## Hook not loaded
 
-If `aisw status` reports a tool as not installed, `aisw` cannot find the binary on your PATH.
+Symptom:
+- shell-specific env behavior does not update as expected.
 
-### Solution
-1. Verify the tool is installed and its binary is on your PATH.
-   ```sh
-   which claude
-   which codex
-   which gemini
-   ```
-2. If you installed a tool *after* starting your terminal, try `hash -r` (bash) or `rehash` (zsh) to update the binary cache.
+Check:
 
----
+```sh
+echo "$AISW_SHELL_HOOK"
+```
 
-## 3. Gemini OAuth Capture Fails
+Fix:
 
-Gemini's OAuth flow captures a token cache by overriding the `HOME` directory to a temporary "scratch" location. 
+```sh
+# zsh
+source ~/.zshrc
+# bash
+source ~/.bashrc
+# fish
+source ~/.config/fish/config.fish
+```
 
-### Symptom
-`aisw add gemini` completes the login in the browser, but `aisw` reports:
-`Gemini login completed but no credential files were found in the token cache.`
+If needed, re-install hook:
 
-### Solution
-- Ensure `aisw` has permission to create and write to the system temporary directory (usually `/tmp` or `$TMPDIR`).
-- Try using an API key instead: `aisw add gemini work --api-key <key>`.
+```sh
+aisw shell-hook zsh >> ~/.zshrc
+```
 
----
+## Non-interactive failures
 
-## 4. Gemini does not support shared state mode
+Symptom:
+- command exits in CI with prompt-related error.
 
-If `aisw use gemini ... --state-mode shared` fails, that is expected.
+Cause:
+- `--non-interactive` forbids prompts.
 
-### Why
-Gemini's native `~/.gemini` directory mixes credentials with broader local state such as:
-- history
-- trusted folders
-- project mappings
-- settings
-- MCP-related config
+Fix patterns:
 
-Because of that, a Gemini "shared" mode would share the whole native Gemini state, not just account credentials.
+```sh
+aisw --non-interactive add codex ci --api-key "$OPENAI_API_KEY"
+aisw --non-interactive remove codex ci --yes
+aisw backup restore <backup_id> --yes
+```
 
-### What to do instead
-- Use Gemini in the default isolated mode.
-- Use Claude or Codex with `--state-mode shared` if you need cross-account continuity while keeping one local tool state.
+## Gemini shared state error
 
----
+Symptom:
 
-## 5. Permission Denied errors
+```text
+aisw use gemini ... --state-mode shared
+```
 
-`aisw` strictly enforces `0600` permissions for your security.
+fails.
 
-### Symptom
-Errors when writing to `~/.aisw/` or `~/.claude/`.
+Cause:
+- Gemini does not support configurable shared state mode in `aisw`.
 
-### Solution
-1. Ensure your user owns the `~/.aisw` directory and its contents.
-2. Check if another process or a different version of the tool has locked the credential files.
-3. On macOS, ensure your terminal has "Full Disk Access" if you are trying to manage files in protected system directories.
+Fix:
+- remove `--state-mode` for Gemini.
 
----
+## Permission errors
 
-## 6. Duplicate Identity Warning
+Symptom:
+- write/read failures under `~/.aisw` or tool config dirs.
 
-If you get a warning that an account identity already exists under a different profile name, it means `aisw` detected the same email or account ID in the credentials.
+Fix:
 
-### Solution
-- Use the existing profile name reported in the warning.
-- If you genuinely want a second alias for the same account, you may need to rename or remove the existing profile first.
+```sh
+ls -ld ~/.aisw ~/.aisw/profiles
+find ~/.aisw -type f -maxdepth 3 -exec ls -l {} \;
+```
 
----
+- ensure your user owns files
+- ensure credential files are writable by your user
+- re-run `aisw doctor`
 
-## Need more help?
+## Backup restore did not switch active profile
 
-If you encounter an issue not listed here, please [report it on GitHub](https://github.com/burakdede/aisw/issues).
+Expected behavior:
+- restore only restores files into profile storage.
+- restore does not activate profile.
+
+Use:
+
+```sh
+aisw backup restore <backup_id> --yes
+aisw use <tool> <profile>
+```
+
+## Useful diagnostics
+
+```sh
+aisw doctor
+aisw status --json
+aisw list --json
+aisw backup list --json
+```
+
+## Still blocked?
+
+Open an issue with:
+- command run
+- exact error output
+- `aisw doctor --json`
+- `aisw status --json`
+
+Issues: https://github.com/burakdede/aisw/issues
