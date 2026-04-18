@@ -208,6 +208,7 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     use tempfile::tempdir;
 
@@ -219,19 +220,35 @@ mod tests {
     struct EnvVarGuard {
         key: &'static str,
         previous: Option<OsString>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
+            let lock = env_lock().lock().unwrap();
             let previous = std::env::var_os(key);
             unsafe { std::env::set_var(key, value) };
-            Self { key, previous }
+            Self {
+                key,
+                previous,
+                _lock: lock,
+            }
         }
 
         fn unset(key: &'static str) -> Self {
+            let lock = env_lock().lock().unwrap();
             let previous = std::env::var_os(key);
             unsafe { std::env::remove_var(key) };
-            Self { key, previous }
+            Self {
+                key,
+                previous,
+                _lock: lock,
+            }
         }
     }
 
