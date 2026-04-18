@@ -208,7 +208,7 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::sync::{Mutex, OnceLock};
 
     use tempfile::tempdir;
 
@@ -220,7 +220,6 @@ mod tests {
     struct EnvVarGuard {
         key: &'static str,
         previous: Option<OsString>,
-        _lock: MutexGuard<'static, ()>,
     }
 
     fn env_lock() -> &'static Mutex<()> {
@@ -228,27 +227,22 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
+    fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
+        let _lock = env_lock().lock().unwrap();
+        f()
+    }
+
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
-            let lock = env_lock().lock().unwrap();
             let previous = std::env::var_os(key);
             unsafe { std::env::set_var(key, value) };
-            Self {
-                key,
-                previous,
-                _lock: lock,
-            }
+            Self { key, previous }
         }
 
         fn unset(key: &'static str) -> Self {
-            let lock = env_lock().lock().unwrap();
             let previous = std::env::var_os(key);
             unsafe { std::env::remove_var(key) };
-            Self {
-                key,
-                previous,
-                _lock: lock,
-            }
+            Self { key, previous }
         }
     }
 
@@ -434,146 +428,160 @@ mod tests {
 
     #[test]
     fn from_env_claude_creates_profile() {
-        let _key = EnvVarGuard::set(
-            "ANTHROPIC_API_KEY",
-            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        );
-        let tmp = tempdir().unwrap();
-        let home = tmp.path().join("home");
-        let bin_dir = tmp.path().join("bin");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&bin_dir).unwrap();
-        make_fake_binary(&bin_dir, "claude");
+        with_env_lock(|| {
+            let _key = EnvVarGuard::set(
+                "ANTHROPIC_API_KEY",
+                "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            );
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            let bin_dir = tmp.path().join("bin");
+            fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_fake_binary(&bin_dir, "claude");
 
-        run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap();
+            run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap();
 
-        let config = ConfigStore::new(&home).load().unwrap();
-        assert!(config.profiles_for(Tool::Claude).contains_key("ci"));
+            let config = ConfigStore::new(&home).load().unwrap();
+            assert!(config.profiles_for(Tool::Claude).contains_key("ci"));
+        });
     }
 
     #[test]
     fn from_env_codex_creates_profile() {
-        let _key = EnvVarGuard::set("OPENAI_API_KEY", "sk-codex-test-key-12345");
-        let tmp = tempdir().unwrap();
-        let home = tmp.path().join("home");
-        let bin_dir = tmp.path().join("bin");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&bin_dir).unwrap();
-        make_fake_binary(&bin_dir, "codex");
+        with_env_lock(|| {
+            let _key = EnvVarGuard::set("OPENAI_API_KEY", "sk-codex-test-key-12345");
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            let bin_dir = tmp.path().join("bin");
+            fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_fake_binary(&bin_dir, "codex");
 
-        run_in(from_env_args(Tool::Codex, "ci"), &home, path_of(&bin_dir)).unwrap();
+            run_in(from_env_args(Tool::Codex, "ci"), &home, path_of(&bin_dir)).unwrap();
 
-        let config = ConfigStore::new(&home).load().unwrap();
-        assert!(config.profiles_for(Tool::Codex).contains_key("ci"));
+            let config = ConfigStore::new(&home).load().unwrap();
+            assert!(config.profiles_for(Tool::Codex).contains_key("ci"));
+        });
     }
 
     #[test]
     fn from_env_gemini_creates_profile() {
-        let _key = EnvVarGuard::set("GEMINI_API_KEY", "AIzatest1234567890ABCDEF");
-        let tmp = tempdir().unwrap();
-        let home = tmp.path().join("home");
-        let bin_dir = tmp.path().join("bin");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&bin_dir).unwrap();
-        make_fake_binary(&bin_dir, "gemini");
+        with_env_lock(|| {
+            let _key = EnvVarGuard::set("GEMINI_API_KEY", "AIzatest1234567890ABCDEF");
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            let bin_dir = tmp.path().join("bin");
+            fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_fake_binary(&bin_dir, "gemini");
 
-        run_in(from_env_args(Tool::Gemini, "ci"), &home, path_of(&bin_dir)).unwrap();
+            run_in(from_env_args(Tool::Gemini, "ci"), &home, path_of(&bin_dir)).unwrap();
 
-        let config = ConfigStore::new(&home).load().unwrap();
-        assert!(config.profiles_for(Tool::Gemini).contains_key("ci"));
+            let config = ConfigStore::new(&home).load().unwrap();
+            assert!(config.profiles_for(Tool::Gemini).contains_key("ci"));
+        });
     }
 
     #[test]
     fn from_env_unset_errors() {
-        let _key = EnvVarGuard::unset("ANTHROPIC_API_KEY");
-        let tmp = tempdir().unwrap();
-        let home = tmp.path().join("home");
-        let bin_dir = tmp.path().join("bin");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&bin_dir).unwrap();
-        make_fake_binary(&bin_dir, "claude");
+        with_env_lock(|| {
+            let _key = EnvVarGuard::unset("ANTHROPIC_API_KEY");
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            let bin_dir = tmp.path().join("bin");
+            fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_fake_binary(&bin_dir, "claude");
 
-        let err = run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap_err();
-        assert!(
-            err.to_string().contains("ANTHROPIC_API_KEY"),
-            "unexpected: {}",
-            err
-        );
+            let err =
+                run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap_err();
+            assert!(
+                err.to_string().contains("ANTHROPIC_API_KEY"),
+                "unexpected: {}",
+                err
+            );
+        });
     }
 
     #[test]
     fn from_env_empty_errors() {
-        let _key = EnvVarGuard::set("ANTHROPIC_API_KEY", "");
-        let tmp = tempdir().unwrap();
-        let home = tmp.path().join("home");
-        let bin_dir = tmp.path().join("bin");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(&bin_dir).unwrap();
-        make_fake_binary(&bin_dir, "claude");
+        with_env_lock(|| {
+            let _key = EnvVarGuard::set("ANTHROPIC_API_KEY", "");
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            let bin_dir = tmp.path().join("bin");
+            fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_fake_binary(&bin_dir, "claude");
 
-        let err = run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap_err();
-        assert!(
-            err.to_string().contains("ANTHROPIC_API_KEY"),
-            "unexpected: {}",
-            err
-        );
+            let err =
+                run_in(from_env_args(Tool::Claude, "ci"), &home, path_of(&bin_dir)).unwrap_err();
+            assert!(
+                err.to_string().contains("ANTHROPIC_API_KEY"),
+                "unexpected: {}",
+                err
+            );
+        });
     }
 
     #[test]
     fn claude_oauth_add_without_set_active_restores_live_state() {
-        let tmp = tempdir().unwrap();
-        let aisw_home = tmp.path().join("aisw-home");
-        let user_home = tmp.path().join("user-home");
-        let bin_dir = tmp.path().join("bin");
-        fs::create_dir_all(&aisw_home).unwrap();
-        fs::create_dir_all(&user_home).unwrap();
-        fs::create_dir_all(&bin_dir).unwrap();
-        make_claude_oauth_binary(&bin_dir);
+        with_env_lock(|| {
+            let tmp = tempdir().unwrap();
+            let aisw_home = tmp.path().join("aisw-home");
+            let user_home = tmp.path().join("user-home");
+            let bin_dir = tmp.path().join("bin");
+            fs::create_dir_all(&aisw_home).unwrap();
+            fs::create_dir_all(&user_home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_claude_oauth_binary(&bin_dir);
 
-        fs::create_dir_all(user_home.join(".claude")).unwrap();
-        fs::write(
-            user_home.join(".claude").join(".credentials.json"),
-            r#"{"oauthToken":"old-token","account":{"email":"old@example.com"}}"#,
-        )
-        .unwrap();
-        fs::write(
-            user_home.join(".claude.json"),
-            r#"{"oauthAccount":{"emailAddress":"old@example.com"}}"#,
-        )
-        .unwrap();
-
-        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
-        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
-
-        let args = AddArgs {
-            tool: Tool::Claude,
-            profile_name: "work".to_owned(),
-            api_key: None,
-            label: None,
-            set_active: false,
-            from_env: false,
-        };
-        run_in(args, &aisw_home, path_of(&bin_dir)).unwrap();
-
-        let config = ConfigStore::new(&aisw_home).load().unwrap();
-        assert_eq!(config.active_for(Tool::Claude), None);
-
-        let stored = ProfileStore::new(&aisw_home)
-            .read_file(Tool::Claude, "work", ".credentials.json")
+            fs::create_dir_all(user_home.join(".claude")).unwrap();
+            fs::write(
+                user_home.join(".claude").join(".credentials.json"),
+                r#"{"oauthToken":"old-token","account":{"email":"old@example.com"}}"#,
+            )
             .unwrap();
-        let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
-        assert_eq!(stored_json["oauthToken"], "new-token");
+            fs::write(
+                user_home.join(".claude.json"),
+                r#"{"oauthAccount":{"emailAddress":"old@example.com"}}"#,
+            )
+            .unwrap();
 
-        let live_credentials =
-            fs::read_to_string(user_home.join(".claude").join(".credentials.json")).unwrap();
-        let live_json: serde_json::Value = serde_json::from_str(&live_credentials).unwrap();
-        assert_eq!(live_json["oauthToken"], "old-token");
+            let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+            let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
 
-        let live_metadata = fs::read_to_string(user_home.join(".claude.json")).unwrap();
-        let metadata_json: serde_json::Value = serde_json::from_str(&live_metadata).unwrap();
-        assert_eq!(
-            metadata_json["oauthAccount"]["emailAddress"],
-            "old@example.com"
-        );
+            let args = AddArgs {
+                tool: Tool::Claude,
+                profile_name: "work".to_owned(),
+                api_key: None,
+                label: None,
+                set_active: false,
+                from_env: false,
+            };
+            run_in(args, &aisw_home, path_of(&bin_dir)).unwrap();
+
+            let config = ConfigStore::new(&aisw_home).load().unwrap();
+            assert_eq!(config.active_for(Tool::Claude), None);
+
+            let stored = ProfileStore::new(&aisw_home)
+                .read_file(Tool::Claude, "work", ".credentials.json")
+                .unwrap();
+            let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+            assert_eq!(stored_json["oauthToken"], "new-token");
+
+            let live_credentials =
+                fs::read_to_string(user_home.join(".claude").join(".credentials.json")).unwrap();
+            let live_json: serde_json::Value = serde_json::from_str(&live_credentials).unwrap();
+            assert_eq!(live_json["oauthToken"], "old-token");
+
+            let live_metadata = fs::read_to_string(user_home.join(".claude.json")).unwrap();
+            let metadata_json: serde_json::Value = serde_json::from_str(&live_metadata).unwrap();
+            assert_eq!(
+                metadata_json["oauthAccount"]["emailAddress"],
+                "old@example.com"
+            );
+        });
     }
 }
