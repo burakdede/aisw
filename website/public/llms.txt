@@ -1,21 +1,21 @@
 # aisw
 
-> Documentation for aisw, a CLI for switching between Claude Code, Codex CLI, and Gemini CLI accounts.
+> Documentation for aisw CLI.
 
 Current version: 0.3.2
 
 ## Docs
 
-- [aisw AI Switcher Documentation](https://burakdede.github.io/aisw/): Install, configure, and use aisw, the AI Switcher for Claude Code, Codex CLI, and Gemini CLI accounts.
-- [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, run first-time setup, add profiles, and switch accounts quickly.
-- [Commands](https://burakdede.github.io/aisw/commands/): Full command reference for aisw commands, flags, and usage patterns.
-- [Automation and Scripting](https://burakdede.github.io/aisw/automation/): Understand prompt behavior, JSON output, stdout/stderr expectations, and safe scripting patterns for aisw.
-- [Shell Integration](https://burakdede.github.io/aisw/shell-integration/): Set up shell hooks, completions, and shell-specific integration for aisw.
-- [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/): Understand OAuth and API key profile flows for each supported tool.
-- [Supported Tools](https://burakdede.github.io/aisw/supported-tools/): See which tools aisw supports and how authentication works for each one.
-- [Configuration](https://burakdede.github.io/aisw/configuration/): Reference the aisw config file, active profile state, and stored settings.
-- [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Why you need an AI agent account manager to bypass quotas and manage credentials securely.
-- [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/): Common issues and solutions for aisw shell hooks, tool detection, and permissions.
+- [aisw documentation](https://burakdede.github.io/aisw/): Install and use aisw for account/profile management across Claude Code, Codex CLI, and Gemini CLI.
+- [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, initialize, add profiles, and switch accounts.
+- [Commands](https://burakdede.github.io/aisw/commands/): Command and flag reference for aisw.
+- [Automation and Scripting](https://burakdede.github.io/aisw/automation/): Non-interactive usage, JSON output, and scripting-safe patterns.
+- [Shell Integration](https://burakdede.github.io/aisw/shell-integration/): Shell hook and completion setup for bash, zsh, and fish.
+- [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/): Add profiles with API keys or interactive OAuth flows.
+- [Supported Tools](https://burakdede.github.io/aisw/supported-tools/): Tool support matrix and auth/backend behavior.
+- [Configuration](https://burakdede.github.io/aisw/configuration/): Config file structure and active-profile state.
+- [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Problem statement and scope of aisw.
+- [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/): Common errors and direct fixes.
 
 ## Project
 

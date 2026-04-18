@@ -1,177 +1,96 @@
 # Quickstart
 
-This guide walks through installing `aisw`, running the first-run wizard, and switching
-between accounts.
+Minimal path to productive usage.
 
-It is the fastest path if you want to:
-
-- install an AI CLI account switcher
-- manage multiple Claude Code accounts on one machine
-- manage multiple Codex CLI accounts on one machine
-- manage multiple Gemini CLI accounts on one machine
-- switch between work and personal AI CLI profiles
-
----
-
-## 1. Install aisw
-
-Install from crates.io:
+## 1. Install
 
 ```sh
-cargo install aisw
+brew tap burakdede/tap
+brew install aisw
 ```
 
-If `aisw` is not available immediately in the same shell session, add `~/.local/bin` to your shell config and reload it:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-If that `PATH` line is already present, `source ~/.zshrc` is enough.
-
-For local development, build from the checked out repository:
-
-```sh
-cargo install --path .
-```
-
-Or download a pre-built binary from the GitHub Releases page and place it somewhere on your PATH.
-
----
-
-## 2. Run the first-run wizard
+## 2. Run setup
 
 ```sh
 aisw init
 ```
 
-The wizard will:
+What `init` does:
+- creates `~/.aisw/`
+- offers shell-hook setup
+- offers importing currently logged-in accounts for Claude/Codex/Gemini
 
-1. Create `~/.aisw/` and write a default `config.json`.
-2. Detect your shell and offer to append the shell hook to your RC file.
-3. Scan for existing credentials for Claude Code, Codex CLI, and Gemini CLI, and offer
-   to import each one with defaults of profile name `default` and label `imported`. You can
-   override both during interactive onboarding. Imported live credentials become active by
-   default unless aisw is already managing an active profile for that tool. When an import is
-   marked active, `aisw` also applies it to the live tool config immediately.
-   `aisw init` is checking the current live upstream account for each tool, not listing every
-   stored profile in `~/.aisw`, so what it shows may have changed outside `aisw`.
-
-For Claude Code specifically, onboarding is platform-aware: file-backed auth is imported from
-the live Claude config directory, and on macOS `aisw` can also import Claude auth from Keychain
-when Claude is signed in that way.
-
-Running `aisw init` a second time is safe — the shell hook will not be duplicated, and
-existing profiles will not be overwritten.
-
-Successful setup also prints a short next-step hint so you can move directly into `list` or `use`.
-
-### Shell hook
-
-The shell hook is optional. Normal `aisw use` behavior updates the live config locations that
-Claude, Codex, and Gemini actually read, so standalone `claude`, `codex`, and `gemini` commands
-pick up the selected profile without extra shell steps.
-
-Accept the prompt during `init`, or install the hook manually if you want shell-level
-environment exports for advanced or manual workflows:
-
-| Shell | Command |
-|-------|---------|
-| bash  | `echo 'eval "$(aisw shell-hook bash)"' >> ~/.bashrc` |
-| zsh   | `echo 'eval "$(aisw shell-hook zsh)"' >> ~/.zshrc` |
-| fish  | `echo 'aisw shell-hook fish | source' >> ~/.config/fish/config.fish` |
-
-After adding the hook, restart your shell or source the file.
-
----
-
-## 3. Add a profile
+## 3. Add profiles
 
 ```sh
-aisw add claude work --api-key sk-ant-api03-...
-aisw add codex personal --api-key sk-...
-aisw add gemini client --api-key AIza...
+# API key flow
+aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+aisw add codex personal --api-key "$OPENAI_API_KEY"
+aisw add gemini team --api-key "$GEMINI_API_KEY"
+
+# Interactive OAuth flow
+aisw add claude personal
+aisw add codex work
+aisw add gemini personal
+
+# From existing environment variable
+aisw add codex ci --from-env
 ```
 
-Use `--label` to add a human-readable description:
-
-```sh
-aisw add claude work --api-key sk-ant-api03-... --label "Work subscription"
-```
-
-Use `--set-active` to switch to the new profile immediately after adding it:
-
-```sh
-aisw add claude work --api-key sk-ant-api03-... --set-active
-```
-
----
+Useful flags:
+- `--label "..."` add description
+- `--set-active` activate immediately
 
 ## 4. Switch profiles
 
 ```sh
 aisw use claude work
 aisw use codex personal
+aisw use gemini team
 ```
 
-The selected profile is applied directly to the live config location each tool reads. For
-manual shell workflows, `--emit-env` is still available:
+Batch switch all tools to same profile name:
 
 ```sh
-eval "$(aisw use claude work --emit-env)"
+aisw use --all --profile work
 ```
 
----
+State mode (Claude/Codex only):
 
-## 5. Check status
+```sh
+aisw use codex work --state-mode shared
+aisw use claude work --state-mode isolated
+```
+
+## 5. Inspect state
 
 ```sh
 aisw status
-```
-
-Shows which profile is active for each tool, whether the binary is installed, and the
-state of credential files and whether the live tool config matches the configured active
-profile. Token validity, quota, and subscription state are not checked. If profiles are stored
-for a tool but none is active, `status` reports that explicitly.
-
----
-
-## 6. List profiles
-
-```sh
 aisw list
-aisw list claude
 aisw list --json
 ```
 
----
-
-## 7. Remove a profile
+## 6. Common maintenance
 
 ```sh
-aisw remove claude old-work
-```
-
-A backup of the profile is created before deletion. Use `--force` to remove the currently
-active profile, and `--yes` to skip the confirmation prompt.
-
-## Automation note
-
-If you are scripting `aisw` today:
-
-- use `--yes` for `init`, `remove`, and `backup restore`
-- use `--api-key` for non-interactive `add`
-- use `--json` on `list`, `status`, and `backup list`
-- use `use --emit-env` only when you explicitly want raw shell exports
-
----
-
-## 8. Rename a profile
-
-```sh
+# Rename
 aisw rename claude default work
+
+# Remove (backup is automatic)
+aisw remove codex old --yes
+
+# Restore backup then re-apply
+aisw backup list
+aisw backup restore <backup_id> --yes
+aisw use codex work
 ```
 
-Use this when onboarding imported a generic profile name like `default` and you want a
-clearer identifier without deleting and recreating the profile.
+## Automation-safe patterns
+
+```sh
+aisw --non-interactive add codex ci --api-key "$OPENAI_API_KEY"
+aisw --non-interactive remove codex ci --yes
+aisw status --json
+```
+
+If you only need command syntax, use [Commands](commands.md).

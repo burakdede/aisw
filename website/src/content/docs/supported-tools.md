@@ -1,6 +1,6 @@
 ---
 title: Supported Tools
-description: See which tools aisw supports and how authentication works for each one.
+description: Tool support matrix and auth/backend behavior.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/supported-tools.md
 head:
   - tag: meta
@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, Supported Tools, reference, does aisw support Claude Code, does aisw support Codex CLI, does aisw support Gemini CLI
+      content: aisw, claude code, codex cli, gemini cli, account switching, cli tooling, supported tools, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,42 +19,49 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"See which tools aisw supports and how authentication works for each one.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, AI Switcher, AI CLI account switcher, AI account manager, AI CLI account manager, coding agent account manager, coding agent account switcher, Claude Code, Codex CLI, Gemini CLI, multi-account CLI, developer tooling, does aisw support Claude Code, does aisw support Codex CLI, does aisw support Gemini CLI","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","alternateName":"AI Switcher","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"Tool support matrix and auth/backend behavior.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, supported tools, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
 ---
 
-`aisw` supports the main AI coding CLI tools people usually want to manage across multiple accounts: Claude Code, Codex CLI, and Gemini CLI.
+`aisw` currently supports:
 
-If you are looking for a Claude Code account switcher, a Codex CLI profile manager, or a Gemini CLI multi-account workflow, these are the tools currently covered.
+- Claude Code (`claude`)
+- Codex CLI (`codex`)
+- Gemini CLI (`gemini`)
 
-| Tool | Binary expected on PATH | Minimum version known to work |
+## Binary detection
+
+`aisw` resolves tools from `PATH` and checks version via `<binary> --version`.
+
+| Tool | Binary | Minimum known-good version |
 |---|---|---|
-| Claude Code | `claude` | 1.0.0 |
-| Codex CLI | `codex` | 1.0.0 |
-| Gemini CLI | `gemini` | 0.1.0 |
+| Claude Code | `claude` | `1.0.0` |
+| Codex CLI | `codex` | `1.0.0` |
+| Gemini CLI | `gemini` | `0.1.0` |
 
-aisw detects each tool by searching PATH for the binary name. It does not hardcode install locations. If a binary is not found, `aisw status` reports it as not installed and `aisw use` will refuse to switch to that tool.
-
-Version detection runs `<binary> --version` and captures the output as-is. If the binary exits non-zero or produces no output, the version is reported as unknown — this does not prevent aisw from managing the tool's profiles.
+If binary lookup fails, `aisw status` reports the tool as missing and `aisw use` for that tool is blocked.
 
 ## State mode support
 
-Claude Code and Codex CLI support configurable switch behavior:
-- `isolated`: switch account credentials and local tool state together
-- `shared`: keep the tool's local state shared and switch account credentials only
+| Tool | `--state-mode isolated` | `--state-mode shared` |
+|---|---|---|
+| Claude Code | supported | supported |
+| Codex CLI | supported | supported |
+| Gemini CLI | supported | not supported |
 
-Gemini CLI is currently isolated-only.
+Gemini remains isolated-only because auth and broader CLI state are coupled under `~/.gemini`.
 
-Why Gemini differs:
-- Gemini stores credentials and broader local state together under `~/.gemini`
-- that native directory can include history, trusted folders, project mappings, settings, and MCP-related config
-- a Gemini "shared" mode would therefore share the whole native Gemini state, not just auth
+## Auth backend support
 
-Because of that, `aisw` does not currently expose `--state-mode` for Gemini.
+| Tool | Backend | Import | Use | Notes |
+|---|---|---|---|---|
+| Claude Code | file credentials | yes | yes | profile stores file state |
+| Claude Code | system keyring | yes (when live entry can be read) | yes | profile can remain keyring-backed |
+| Codex CLI | file `auth.json` | yes | yes | portable across OSes |
+| Codex CLI | system keyring (discoverable account) | yes | yes | uses resolved keyring account |
+| Codex CLI | system keyring (not discoverable) | partial | fail-closed | no fabricated keyring account |
+| Gemini CLI | file-backed `~/.gemini` state | yes | yes | no keyring mode in `aisw` |
 
-## Typical search intents this page answers
+## References
 
-- Which AI CLI tools does aisw support?
-- Does aisw support Claude Code?
-- Does aisw support OpenAI Codex CLI?
-- Does aisw support Google Gemini CLI?
-- Can I manage multiple accounts for Claude, Codex, and Gemini from one CLI?
+- [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md)
+- [Acceptance Matrix](https://github.com/burakdede/aisw/blob/main/docs/acceptance-matrix.md)
