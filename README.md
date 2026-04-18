@@ -26,6 +26,10 @@
 
 `aisw` stores named profiles under `~/.aisw/` and applies the selected profile to each tool's live config.
 
+## Demo
+
+![aisw CLI demo](website/public/demos/aisw-important-workflows.gif)
+
 ## Install
 
 ```sh
