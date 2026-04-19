@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Output};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use assert_cmd::Command;
 use tempfile::TempDir;
@@ -46,18 +48,42 @@ impl TestEnv {
 
     pub fn add_fake_tool_with_exit(&self, name: &str, version_output: &str, exit_code: i32) {
         let path = self.bin_dir.join(name);
-        fs::write(
-            &path,
-            format!("#!/bin/sh\necho '{}'\nexit {}\n", version_output, exit_code),
-        )
-        .unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        #[cfg(unix)]
+        {
+            fs::write(
+                &path,
+                format!("#!/bin/sh\necho '{}'\nexit {}\n", version_output, exit_code),
+            )
+            .unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            let script = self.bin_dir.join(format!("{name}.cmd"));
+            fs::write(
+                &script,
+                format!(
+                    "@echo off\r\necho {}\r\nexit /b {}\r\n",
+                    version_output, exit_code
+                ),
+            )
+            .unwrap();
+            let _ = path;
+        }
     }
 
     pub fn add_script_tool(&self, name: &str, script: &str) {
-        let path = self.bin_dir.join(name);
-        fs::write(&path, script).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        #[cfg(unix)]
+        {
+            let path = self.bin_dir.join(name);
+            fs::write(&path, script).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            let script_path = self.bin_dir.join(format!("{name}.cmd"));
+            fs::write(&script_path, script).unwrap();
+        }
     }
 
     /// Returns an `assert_cmd::Command` for `aisw` pre-configured with the
@@ -168,14 +194,21 @@ impl TestEnv {
 
     /// Assert a file inside AISW_HOME has 0600 permissions.
     pub fn assert_file_is_600(&self, path: &Path) {
-        let mode = fs::metadata(path).unwrap().permissions().mode();
-        assert_eq!(
-            mode & 0o777,
-            0o600,
-            "expected 0600 on {}, got {:o}",
-            path.display(),
-            mode & 0o777
-        );
+        #[cfg(unix)]
+        {
+            let mode = fs::metadata(path).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o777,
+                0o600,
+                "expected 0600 on {}, got {:o}",
+                path.display(),
+                mode & 0o777
+            );
+        }
+        #[cfg(windows)]
+        {
+            let _ = path;
+        }
     }
 }
 
