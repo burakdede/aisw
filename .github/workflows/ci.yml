@@ -64,7 +64,7 @@ jobs:
         run: cargo test --locked
 
   build-windows:
-    name: Build (windows-latest)
+    name: Build + Unit Tests (windows-latest)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +77,9 @@ jobs:
 
       - name: Build
         run: cargo build --release --locked
+
+      - name: Unit tests
+        run: cargo test --locked --lib
 
   coverage:
     name: Coverage
