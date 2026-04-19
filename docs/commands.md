@@ -18,7 +18,7 @@ aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 
 ```text
 aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--label TEXT] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active]
 aisw use <tool> <profile> [--state-mode isolated|shared]
 aisw use --all --profile <profile>
 aisw list [tool] [--json]
@@ -45,6 +45,13 @@ Bootstrap command:
 - offers shell hook setup
 - offers importing existing live credentials
 
+Notes:
+- For Gemini, when both `.env` and OAuth cache files are present under `~/.gemini/`, import precedence is `.env` first.
+- `aisw init` reports current live upstream state, not a full inventory of every stored `~/.aisw` profile.
+- If a tool's live account was changed outside `aisw`, `init` reports that current live account and whether it matches the profile `aisw` records as active.
+- For Claude Code, `init` distinguishes local Claude state from importable auth and reports when local state exists without importable credentials.
+- When imported credentials are OAuth-based and aisw can resolve the authenticated account identity, it blocks importing a duplicate alias for an already stored account.
+
 Examples:
 
 ```sh
@@ -52,22 +59,35 @@ aisw init
 aisw init --yes
 ```
 
+## Automation and scripting
+
+For prompt behavior, JSON interfaces, stdout/stderr expectations, and automation-safe usage patterns, see [Automation and Scripting](automation.md).
+
 ## `aisw add`
 
 ```text
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--label TEXT] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active]
 ```
 
 | Flag | Purpose |
 |---|---|
 | `--api-key KEY` | Add with explicit API key |
 | `--from-env` | Read key from tool env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) |
+| `--from-live` | Import the tool's current live credentials into aisw without launching login |
 | `--label TEXT` | Add human-readable label |
 | `--set-active` | Activate immediately after add |
-
+| `--yes` | Overwrite existing profile name when used with `--from-live` |
 Notes:
-- Without `--api-key` and `--from-env`, add uses interactive auth flow.
+- Without `--api-key`, `--from-env`, or `--from-live`, add uses interactive auth flow.
 - In `--non-interactive` mode, interactive add fails by design.
+- `--from-live` reads the current native tool credentials and stores them as an aisw-managed profile.
+- `--from-live` always activates the captured profile because those credentials are already live.
+- With `--from-live --yes`, overwrite updates the existing profile in place; aisw does not delete the profile entry before capture succeeds.
+Live credential sources:
+- Claude: `~/.claude/.credentials.json`, or the system keyring on macOS
+- Codex: `~/.codex/auth.json`
+- Gemini: `~/.gemini/.env` or OAuth files in `~/.gemini/`
+- When both Gemini `.env` and OAuth cache files are present, `aisw` uses `.env` first by design.
 
 Examples:
 
@@ -75,6 +95,8 @@ Examples:
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
 aisw add codex ci --from-env
 aisw add gemini personal --label "Personal" --set-active
+aisw add claude work --from-live
+aisw add codex work --from-live --yes
 ```
 
 ## `aisw use`

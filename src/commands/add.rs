@@ -1,11 +1,13 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
+use chrono::Utc;
 
 use crate::auth;
+use crate::auth::identity;
 use crate::cli::AddArgs;
-use crate::config::ConfigStore;
+use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::runtime;
@@ -21,6 +23,14 @@ pub fn run(args: AddArgs, home: &Path) -> Result<()> {
 }
 
 pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<()> {
+    // --from-live captures live credentials without launching any login flow.
+    // Tool detection is intentionally skipped: the tool is already installed
+    // and logged in, which is the prerequisite for --from-live to succeed.
+    if args.from_live {
+        let user_home = dirs::home_dir().context("could not determine home directory")?;
+        return from_live(args, home, &user_home);
+    }
+
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
@@ -202,6 +212,475 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
     Ok(())
 }
 
+// ---- --from-live implementation --------------------------------------------
+
+fn confirm_overwrite(tool: Tool, name: &str, yes: bool) -> Result<()> {
+    if yes {
+        return Ok(());
+    }
+    if runtime::is_non_interactive() {
+        bail!(
+            "profile '{}' already exists for {}.\n  \
+             Re-run with --yes to overwrite, or choose a different name.",
+            name,
+            tool,
+        );
+    }
+    eprint!(
+        "Profile '{}' already exists for {}. Overwrite? [y/N] ",
+        name, tool
+    );
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .context("could not read confirmation from stdin")?;
+    if !matches!(line.trim(), "y" | "Y") {
+        bail!("operation cancelled by user.");
+    }
+    Ok(())
+}
+
+fn prepare_from_live_target(
+    profile_store: &ProfileStore,
+    tool: Tool,
+    name: &str,
+    yes: bool,
+) -> Result<bool> {
+    let overwriting = profile_store.exists(tool, name);
+    if overwriting {
+        confirm_overwrite(tool, name, yes)?;
+    } else {
+        profile_store.create(tool, name)?;
+    }
+    Ok(overwriting)
+}
+
+fn from_live(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
+    match args.tool {
+        Tool::Claude => from_live_claude(args, home, user_home),
+        Tool::Codex => from_live_codex(args, home, user_home),
+        Tool::Gemini => from_live_gemini(args, home, user_home),
+    }
+}
+
+fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
+    let profile_store = ProfileStore::new(home);
+    let config_store = ConfigStore::new(home);
+
+    let snapshot =
+        auth::claude::live_credentials_snapshot_for_import(user_home)?.with_context(|| {
+            format!(
+                "no live credentials found — run 'claude login' first, \
+                 then retry 'aisw add claude {} --from-live'.",
+                args.profile_name,
+            )
+        })?;
+
+    let stored_backend = auth::claude::preferred_import_backend(&snapshot.source);
+    let overwriting =
+        prepare_from_live_target(&profile_store, Tool::Claude, &args.profile_name, args.yes)?;
+
+    let write_result = match stored_backend {
+        CredentialBackend::File => profile_store.write_file(
+            Tool::Claude,
+            &args.profile_name,
+            ".credentials.json",
+            &snapshot.bytes,
+        ),
+        CredentialBackend::SystemKeyring => crate::auth::secure_store::write_profile_secret(
+            Tool::Claude,
+            &args.profile_name,
+            &snapshot.bytes,
+        ),
+    };
+
+    if let Err(e) = write_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
+        if !overwriting && stored_backend == CredentialBackend::SystemKeyring {
+            let _ =
+                crate::auth::secure_store::delete_profile_secret(Tool::Claude, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    if let Err(e) = auth::claude::capture_live_oauth_account_metadata(
+        &profile_store,
+        &args.profile_name,
+        user_home,
+    ) {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    if let Err(e) = identity::ensure_unique_oauth_identity(
+        &profile_store,
+        &config_store,
+        Tool::Claude,
+        &args.profile_name,
+        stored_backend,
+    ) {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
+        if !overwriting && stored_backend == CredentialBackend::SystemKeyring {
+            let _ =
+                crate::auth::secure_store::delete_profile_secret(Tool::Claude, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    let add_result = if overwriting {
+        config_store.upsert_profile(
+            Tool::Claude,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: stored_backend,
+                label: args.label.clone(),
+            },
+        )
+    } else {
+        config_store.add_profile(
+            Tool::Claude,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: stored_backend,
+                label: args.label.clone(),
+            },
+        )
+    };
+
+    if let Err(e) = add_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Claude, &args.profile_name);
+        }
+        if !overwriting && stored_backend == CredentialBackend::SystemKeyring {
+            let _ =
+                crate::auth::secure_store::delete_profile_secret(Tool::Claude, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    auth::claude::apply_live_credentials(
+        &profile_store,
+        &args.profile_name,
+        stored_backend,
+        user_home,
+    )?;
+    config_store.activate_profile(Tool::Claude, &args.profile_name, None)?;
+
+    finalize_from_live(&args, Tool::Claude, stored_backend, AuthMethod::OAuth)
+}
+
+fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
+    let profile_store = ProfileStore::new(home);
+    let config_store = ConfigStore::new(home);
+
+    let snapshot =
+        auth::codex::live_credentials_snapshot_for_import(user_home)?.with_context(|| {
+            format!(
+                "no live credentials found — run 'codex login' first, \
+                 then retry 'aisw add codex {} --from-live'.",
+                args.profile_name,
+            )
+        })?;
+
+    let is_api_key = json_string_field(&snapshot.bytes, "token").is_some();
+    let auth_method = if is_api_key {
+        AuthMethod::ApiKey
+    } else {
+        AuthMethod::OAuth
+    };
+
+    if is_api_key {
+        if let Some(secret) = json_string_field(&snapshot.bytes, "token") {
+            if let Some(existing) = identity::existing_api_key_profile_for_secret(
+                &profile_store,
+                &config_store,
+                Tool::Codex,
+                &secret,
+            )? {
+                if existing != args.profile_name {
+                    bail!(
+                        "A Codex API key profile for this account already exists as '{}'.\n  \
+                         Use that profile or remove it before saving another alias.",
+                        existing
+                    );
+                }
+            }
+        }
+    } else if let Some(existing) = identity::existing_oauth_profile_for_json_bytes(
+        &profile_store,
+        &config_store,
+        Tool::Codex,
+        &snapshot.bytes,
+    )? {
+        if existing != args.profile_name {
+            bail!(
+                "A Codex OAuth profile for this account already exists as '{}'.\n  \
+                 Use that profile or remove it before saving another alias.",
+                existing
+            );
+        }
+    }
+
+    let overwriting =
+        prepare_from_live_target(&profile_store, Tool::Codex, &args.profile_name, args.yes)?;
+
+    if let Err(e) = auth::codex::write_file_store_config(&profile_store, &args.profile_name) {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    if let Err(e) = profile_store.write_file(
+        Tool::Codex,
+        &args.profile_name,
+        auth::codex::AUTH_FILE,
+        &snapshot.bytes,
+    ) {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    if auth_method == AuthMethod::OAuth {
+        if let Err(e) = identity::ensure_unique_oauth_identity(
+            &profile_store,
+            &config_store,
+            Tool::Codex,
+            &args.profile_name,
+            CredentialBackend::File,
+        ) {
+            if !overwriting {
+                let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+            }
+            return Err(e);
+        }
+    }
+
+    let add_result = if overwriting {
+        config_store.upsert_profile(
+            Tool::Codex,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    } else {
+        config_store.add_profile(
+            Tool::Codex,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    };
+
+    if let Err(e) = add_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+    config_store.activate_profile(Tool::Codex, &args.profile_name, None)?;
+
+    finalize_from_live(&args, Tool::Codex, CredentialBackend::File, auth_method)
+}
+
+fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
+    let profile_store = ProfileStore::new(home);
+    let config_store = ConfigStore::new(home);
+
+    let selection = auth::gemini::detect_live_import_selection(user_home)?.with_context(|| {
+        format!(
+            "no live credentials found in {} — run 'gemini login' first, \
+             then retry 'aisw add gemini {} --from-live'.",
+            auth::gemini::live_dir(user_home).display(),
+            args.profile_name,
+        )
+    })?;
+    let gemini_dir = auth::gemini::live_dir(user_home);
+    let env_file = selection.env_file;
+    let oauth_files = selection.oauth_files;
+    let auth_method = selection.method;
+
+    if auth_method == AuthMethod::ApiKey {
+        let source_bytes = std::fs::read(&env_file)
+            .with_context(|| format!("could not read {}", env_file.display()))?;
+        if let Some(api_key) = gemini_api_key_from_env(&source_bytes) {
+            if let Some(existing) = identity::existing_api_key_profile_for_secret(
+                &profile_store,
+                &config_store,
+                Tool::Gemini,
+                &api_key,
+            )? {
+                if existing != args.profile_name {
+                    bail!(
+                        "A Gemini API key profile for this account already exists as '{}'.\n  \
+                         Use that profile or remove it before saving another alias.",
+                        existing
+                    );
+                }
+            }
+        }
+    } else if let Some(existing) = auth::gemini::existing_oauth_profile_for_live_files(
+        &profile_store,
+        &config_store,
+        &oauth_files,
+    )? {
+        if existing != args.profile_name {
+            bail!(
+                "A Gemini OAuth profile for this account already exists as '{}'.\n  \
+                 Use that profile or remove it before saving another alias.",
+                existing
+            );
+        }
+    }
+
+    let overwriting =
+        prepare_from_live_target(&profile_store, Tool::Gemini, &args.profile_name, args.yes)?;
+
+    let copy_result = if auth_method == AuthMethod::OAuth {
+        auth::gemini::copy_live_oauth_files_into_profile(
+            &profile_store,
+            &args.profile_name,
+            &oauth_files,
+        )
+    } else {
+        profile_store.copy_file_into(Tool::Gemini, &args.profile_name, &env_file, ".env")
+    };
+
+    if let Err(e) = copy_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    if auth_method == AuthMethod::OAuth {
+        if let Err(e) = identity::ensure_unique_oauth_identity(
+            &profile_store,
+            &config_store,
+            Tool::Gemini,
+            &args.profile_name,
+            CredentialBackend::File,
+        ) {
+            if !overwriting {
+                let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+            }
+            return Err(e);
+        }
+    }
+
+    let add_result = if overwriting {
+        config_store.upsert_profile(
+            Tool::Gemini,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    } else {
+        config_store.add_profile(
+            Tool::Gemini,
+            &args.profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label: args.label.clone(),
+            },
+        )
+    };
+
+    if let Err(e) = add_result {
+        if !overwriting {
+            let _ = profile_store.delete(Tool::Gemini, &args.profile_name);
+        }
+        return Err(e);
+    }
+
+    match auth_method {
+        AuthMethod::OAuth => {
+            auth::gemini::apply_token_cache(&profile_store, &args.profile_name, &gemini_dir)?
+        }
+        AuthMethod::ApiKey => auth::gemini::apply_env_file(
+            &profile_store,
+            &args.profile_name,
+            &gemini_dir.join(".env"),
+        )?,
+    }
+    config_store.activate_profile(Tool::Gemini, &args.profile_name, None)?;
+
+    if selection.has_both_sources {
+        output::print_info(
+            "Both Gemini API key (.env) and OAuth cache were found. Imported .env by precedence.",
+        );
+    }
+    finalize_from_live(&args, Tool::Gemini, CredentialBackend::File, auth_method)
+}
+
+fn finalize_from_live(
+    args: &AddArgs,
+    tool: Tool,
+    backend: CredentialBackend,
+    auth_method: AuthMethod,
+) -> Result<()> {
+    output::print_title("Added profile");
+    output::print_kv("Tool", tool.display_name());
+    output::print_kv("Profile", &args.profile_name);
+    output::print_kv(
+        "Auth",
+        match auth_method {
+            AuthMethod::OAuth => "oauth",
+            AuthMethod::ApiKey => "api_key",
+        },
+    );
+    output::print_kv("Backend", backend.display_name());
+    output::print_kv("Activation", "active");
+    output::print_blank_line();
+    output::print_effects_header();
+    output::print_effect("Profile credentials stored in aisw.");
+    output::print_effect("Live tool configuration updated.");
+    output::print_effect("Active profile updated.");
+    output::print_blank_line();
+    output::print_next_step(output::next_step_after_add(tool, &args.profile_name, true));
+    Ok(())
+}
+
+fn json_string_field(bytes: &[u8], field: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    value.get(field)?.as_str().map(ToOwned::to_owned)
+}
+
+fn gemini_api_key_from_env(bytes: &[u8]) -> Option<String> {
+    std::str::from_utf8(bytes)
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("GEMINI_API_KEY=").map(ToOwned::to_owned))
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -228,6 +707,7 @@ mod tests {
     }
 
     fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
+        let _spawn_lock = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _lock = env_lock().lock().unwrap();
         f()
     }
@@ -297,11 +777,27 @@ mod tests {
             label: None,
             set_active: false,
             from_env: false,
+            from_live: false,
+            yes: false,
+        }
+    }
+
+    fn from_live_args(tool: Tool, name: &str) -> AddArgs {
+        AddArgs {
+            tool,
+            profile_name: name.to_owned(),
+            api_key: None,
+            label: None,
+            set_active: false,
+            from_env: false,
+            from_live: true,
+            yes: true,
         }
     }
 
     #[test]
     fn tool_not_found_errors() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -319,6 +815,7 @@ mod tests {
 
     #[test]
     fn api_key_claude_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -335,6 +832,7 @@ mod tests {
 
     #[test]
     fn set_active_marks_profile_active() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -352,6 +850,7 @@ mod tests {
 
     #[test]
     fn label_stored_in_config() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -372,6 +871,7 @@ mod tests {
 
     #[test]
     fn invalid_profile_name_errors() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -385,6 +885,7 @@ mod tests {
 
     #[test]
     fn codex_api_key_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -401,6 +902,7 @@ mod tests {
 
     #[test]
     fn gemini_api_key_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let bin_dir = tmp.path().join("bin");
@@ -423,6 +925,8 @@ mod tests {
             label: None,
             set_active: false,
             from_env: true,
+            from_live: false,
+            yes: false,
         }
     }
 
@@ -559,6 +1063,8 @@ mod tests {
                 label: None,
                 set_active: false,
                 from_env: false,
+                from_live: false,
+                yes: false,
             };
             run_in(args, &aisw_home, path_of(&bin_dir)).unwrap();
 
@@ -583,5 +1089,378 @@ mod tests {
                 "old@example.com"
             );
         });
+    }
+
+    // ---- --from-live tests -------------------------------------------------
+
+    fn write_claude_credentials(user_home: &Path, token: &str) {
+        let claude_dir = user_home.join(".claude");
+        fs::create_dir_all(&claude_dir).unwrap();
+        let creds = claude_dir.join(".credentials.json");
+        let content =
+            format!(r#"{{"oauthToken":"{token}","account":{{"email":"test@example.com"}}}}"#);
+        fs::write(&creds, content).unwrap();
+        fs::set_permissions(&creds, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn write_codex_credentials(user_home: &Path, token: &str) {
+        let codex_dir = user_home.join(".codex");
+        fs::create_dir_all(&codex_dir).unwrap();
+        let auth = codex_dir.join("auth.json");
+        let content = format!(
+            r#"{{"primaryEmail":"test@example.com","oauthToken":"{token}","refreshToken":"refresh"}}"#
+        );
+        fs::write(&auth, content).unwrap();
+        fs::set_permissions(&auth, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn write_gemini_oauth(user_home: &Path) {
+        let gemini_dir = user_home.join(".gemini");
+        fs::create_dir_all(&gemini_dir).unwrap();
+        let creds = gemini_dir.join("oauth_creds.json");
+        fs::write(&creds, r#"{"token":"gemini-tok","expiry":"2099-01-01"}"#).unwrap();
+        fs::set_permissions(&creds, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn write_gemini_env(user_home: &Path, key: &str) {
+        let gemini_dir = user_home.join(".gemini");
+        fs::create_dir_all(&gemini_dir).unwrap();
+        let env = gemini_dir.join(".env");
+        fs::write(&env, format!("GEMINI_API_KEY={key}\n")).unwrap();
+        fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn from_live_claude_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_claude_credentials(&user_home, "tok-abc");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        run_in(
+            from_live_args(Tool::Claude, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps.exists(Tool::Claude, "work"));
+        let stored = ps
+            .read_file(Tool::Claude, "work", ".credentials.json")
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(json["oauthToken"], "tok-abc");
+    }
+
+    #[test]
+    fn from_live_claude_always_activates() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_claude_credentials(&user_home, "tok-xyz");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        run_in(
+            from_live_args(Tool::Claude, "personal"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert!(config.profiles_for(Tool::Claude).contains_key("personal"));
+        assert_eq!(config.active_for(Tool::Claude), Some("personal"));
+    }
+
+    #[test]
+    fn from_live_claude_overwrites_with_yes() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        write_claude_credentials(&user_home, "tok-v1");
+        run_in(
+            from_live_args(Tool::Claude, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        write_claude_credentials(&user_home, "tok-v2");
+        run_in(
+            from_live_args(Tool::Claude, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        let stored = ps
+            .read_file(Tool::Claude, "work", ".credentials.json")
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(json["oauthToken"], "tok-v2");
+    }
+
+    #[test]
+    fn from_live_claude_fails_without_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        let err = run_in(
+            from_live_args(Tool::Claude, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("no live credentials"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn from_live_codex_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_codex_credentials(&user_home, "codex-tok");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Codex, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps.exists(Tool::Codex, "work"));
+        let stored = ps.read_file(Tool::Codex, "work", "auth.json").unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(json["oauthToken"], "codex-tok");
+    }
+
+    #[test]
+    fn from_live_codex_always_activates() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_codex_credentials(&user_home, "codex-reg");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Codex, "personal"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert!(config.profiles_for(Tool::Codex).contains_key("personal"));
+        assert_eq!(config.active_for(Tool::Codex), Some("personal"));
+    }
+
+    #[test]
+    fn from_live_codex_fails_without_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        let err = run_in(
+            from_live_args(Tool::Codex, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("no live credentials"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn from_live_codex_overwrite_keeps_profile_when_parent_not_writable() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_codex_credentials(&user_home, "codex-v1");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Codex, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let codex_profiles = aisw_home.join("profiles").join(Tool::Codex.dir_name());
+        let original_mode = fs::metadata(&codex_profiles).unwrap().permissions().mode() & 0o777;
+        fs::set_permissions(&codex_profiles, fs::Permissions::from_mode(0o500)).unwrap();
+
+        write_codex_credentials(&user_home, "codex-v2");
+        let result = run_in(
+            from_live_args(Tool::Codex, "work"),
+            &aisw_home,
+            OsString::new(),
+        );
+
+        fs::set_permissions(
+            &codex_profiles,
+            fs::Permissions::from_mode(original_mode.max(0o700)),
+        )
+        .unwrap();
+
+        result.unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        let stored = ps.read_file(Tool::Codex, "work", "auth.json").unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(json["oauthToken"], "codex-v2");
+
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert!(config.profiles_for(Tool::Codex).contains_key("work"));
+    }
+
+    #[test]
+    fn from_live_gemini_creates_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_gemini_oauth(&user_home);
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Gemini, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps.exists(Tool::Gemini, "work"));
+        assert!(ps
+            .profile_dir(Tool::Gemini, "work")
+            .join("oauth_creds.json")
+            .exists());
+    }
+
+    #[test]
+    fn from_live_gemini_always_activates() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_gemini_oauth(&user_home);
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Gemini, "personal"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        let meta = &config.profiles_for(Tool::Gemini)["personal"];
+        assert_eq!(meta.auth_method, crate::config::AuthMethod::OAuth);
+        assert_eq!(config.active_for(Tool::Gemini), Some("personal"));
+    }
+
+    #[test]
+    fn from_live_gemini_prefers_env_when_both_sources_exist() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_gemini_oauth(&user_home);
+        write_gemini_env(&user_home, "AIza-priority-key");
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        run_in(
+            from_live_args(Tool::Gemini, "priority"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps
+            .profile_dir(Tool::Gemini, "priority")
+            .join(".env")
+            .exists());
+        assert!(!ps
+            .profile_dir(Tool::Gemini, "priority")
+            .join("oauth_creds.json")
+            .exists());
+        let config = ConfigStore::new(&aisw_home).load().unwrap();
+        assert_eq!(
+            config.profiles_for(Tool::Gemini)["priority"].auth_method,
+            crate::config::AuthMethod::ApiKey
+        );
+    }
+
+    #[test]
+    fn from_live_gemini_fails_without_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        let err = run_in(
+            from_live_args(Tool::Gemini, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("no live credentials"),
+            "unexpected: {err}"
+        );
     }
 }
