@@ -185,6 +185,40 @@ fn seed_system_keyring_profile(env: &TestEnv, name: &str, secret: &str) -> Seede
     }
 }
 
+fn seed_system_keyring_codex_profile(env: &TestEnv, name: &str, secret: &str) -> PathBuf {
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join(name);
+    fs::create_dir_all(&profile_dir).unwrap();
+    fs::write(
+        profile_dir.join("config.toml"),
+        b"cli_auth_credentials_store = \"file\"\n",
+    )
+    .unwrap();
+
+    let account = format!("profile:codex:{}", name);
+    seed_keychain_item(env, "aisw", &account, secret);
+
+    let config_path = env.aisw_home.join("config.json");
+    let mut config: serde_json::Value = if config_path.exists() {
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap()
+    } else {
+        serde_json::json!({
+            "version": 1,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {"claude": {}, "codex": {}, "gemini": {}},
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        })
+    };
+    config["profiles"]["codex"][name] = serde_json::json!({
+        "added_at": "2026-01-01T00:00:00Z",
+        "auth_method": "o_auth",
+        "credential_backend": "system_keyring",
+        "label": null
+    });
+    fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+
+    keychain_secret_path(env, "aisw", &account)
+}
+
 fn cmd_with_secure_env(env: &TestEnv) -> Command {
     let mut cmd = env.cmd();
     cmd.env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
@@ -644,4 +678,93 @@ fn failing_claude_keychain_use_does_not_leak_secret() {
         "use should fail with missing secret"
     );
     common::assert_output_redacts_secret(&output, "sk-ant-api03-AAAA");
+}
+
+// ---------------------------------------------------------------------------
+// Codex secure backend lifecycle
+// ---------------------------------------------------------------------------
+
+#[test]
+fn codex_secure_backend_lifecycle_supports_backup_restore_end_to_end() {
+    let env = TestEnv::new();
+    add_fake_security_tool(&env);
+    add_fake_tool_versions(&env);
+
+    let stored_secret = seed_system_keyring_codex_profile(
+        &env,
+        "work",
+        r#"{"account":{"email":"dev@example.com"},"token":"oauth-token"}"#,
+    );
+
+    secure_cmd_for_tool(&env, "codex")
+        .args(["use", "codex", "work"])
+        .assert()
+        .success();
+
+    let live_auth = env.fake_home.join(".codex").join("auth.json");
+    let live_config = env.fake_home.join(".codex").join("config.toml");
+    assert_eq!(
+        fs::read(&live_auth).unwrap(),
+        br#"{"account":{"email":"dev@example.com"},"token":"oauth-token"}"#
+    );
+    assert!(
+        fs::read_to_string(&live_config)
+            .unwrap()
+            .contains("cli_auth_credentials_store = \"file\""),
+        "codex live config should be normalized to file-backed storage"
+    );
+
+    secure_cmd_for_tool(&env, "codex")
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("work"))
+        .stdout(contains("Active"));
+
+    cmd_with_secure_env(&env)
+        .args(["rename", "codex", "work", "personal"])
+        .assert()
+        .success();
+
+    let old_secret = keychain_secret_path(&env, "aisw", "profile:codex:work");
+    let new_secret = keychain_secret_path(&env, "aisw", "profile:codex:personal");
+    assert!(
+        !old_secret.exists(),
+        "old codex keyring secret should be removed"
+    );
+    assert!(
+        new_secret.exists(),
+        "renamed codex keyring secret should exist"
+    );
+
+    secure_cmd_for_tool(&env, "codex")
+        .args(["use", "codex", "personal"])
+        .assert()
+        .success();
+    let backup_id = backup_id_for(&env, "codex", "personal");
+
+    fs::write(&new_secret, br#"{"token":"tampered"}"#).unwrap();
+
+    cmd_with_secure_env(&env)
+        .args(["backup", "restore", &backup_id, "--yes"])
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read(&new_secret).unwrap(),
+        br#"{"account":{"email":"dev@example.com"},"token":"oauth-token"}"#
+    );
+
+    cmd_with_secure_env(&env)
+        .args(["remove", "codex", "personal", "--yes", "--force"])
+        .assert()
+        .success();
+    assert!(
+        !new_secret.exists(),
+        "codex system keyring secret should be deleted on remove"
+    );
+
+    assert!(
+        !stored_secret.exists(),
+        "original codex keyring entry should no longer exist after rename/remove"
+    );
 }

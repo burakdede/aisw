@@ -8,6 +8,7 @@ use chrono::Utc;
 
 use super::files;
 use super::identity;
+use super::secure_store;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
@@ -422,12 +423,35 @@ pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> 
     })
 }
 
-pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Path) -> Result<()> {
+fn read_stored_credentials(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+) -> Result<Vec<u8>> {
+    match backend {
+        CredentialBackend::File => profile_store.read_file(Tool::Codex, name, AUTH_FILE),
+        CredentialBackend::SystemKeyring => {
+            secure_store::read_profile_secret(Tool::Codex, name)?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "secure credentials for codex profile '{}' are missing from the managed system keyring",
+                    name
+                )
+            })
+        }
+    }
+}
+
+pub fn apply_live_credentials(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+    user_home: &Path,
+) -> Result<()> {
     let live_dir = live_dir(user_home);
     std::fs::create_dir_all(&live_dir)
         .with_context(|| format!("could not create {}", live_dir.display()))?;
 
-    let auth_bytes = profile_store.read_file(Tool::Codex, name, AUTH_FILE)?;
+    let auth_bytes = read_stored_credentials(profile_store, name, backend)?;
     let auth_dest = live_auth_path(user_home);
     let config_dest = live_config_path(user_home);
     let config_bytes = desired_live_file_store_config(user_home)?.into_bytes();
@@ -436,6 +460,10 @@ pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Pa
         LiveFileChange::write(auth_dest, auth_bytes),
         LiveFileChange::write(config_dest, config_bytes),
     ])
+}
+
+pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Path) -> Result<()> {
+    apply_live_credentials(profile_store, name, CredentialBackend::File, user_home)
 }
 
 pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode) {
@@ -453,6 +481,7 @@ pub fn emit_shell_env(name: &str, profile_store: &ProfileStore, mode: StateMode)
 pub fn live_files_match(
     profile_store: &ProfileStore,
     name: &str,
+    backend: CredentialBackend,
     user_home: &Path,
 ) -> Result<bool> {
     let config_dest = live_config_path(user_home);
@@ -461,13 +490,14 @@ pub fn live_files_match(
     }
     let config = std::fs::read_to_string(&config_dest)
         .with_context(|| format!("could not read {}", config_dest.display()))?;
-    if !files::stored_profile_file_matches_live(
-        profile_store,
-        Tool::Codex,
-        name,
-        AUTH_FILE,
-        &live_auth_path(user_home),
-    )? {
+    let live_auth = live_auth_path(user_home);
+    if !live_auth.exists() {
+        return Ok(false);
+    }
+    let stored = read_stored_credentials(profile_store, name, backend)?;
+    let live = std::fs::read(&live_auth)
+        .with_context(|| format!("could not read {}", live_auth.display()))?;
+    if stored != live {
         return Ok(false);
     }
     Ok(config_uses_file_store(&config))
@@ -1057,7 +1087,7 @@ mod tests {
         add_api_key(&ps, &cs, "main", valid_key(), None).unwrap();
         apply_live_files(&ps, "main", &user_home).unwrap();
 
-        assert!(live_files_match(&ps, "main", &user_home).unwrap());
+        assert!(live_files_match(&ps, "main", CredentialBackend::File, &user_home).unwrap());
     }
 
     #[test]
@@ -1071,7 +1101,7 @@ mod tests {
         let auth_bytes = ps.read_file(Tool::Codex, "main", AUTH_FILE).unwrap();
         std::fs::write(user_home.join(".codex").join(AUTH_FILE), &auth_bytes).unwrap();
 
-        assert!(!live_files_match(&ps, "main", &user_home).unwrap());
+        assert!(!live_files_match(&ps, "main", CredentialBackend::File, &user_home).unwrap());
     }
 
     #[test]
@@ -1088,7 +1118,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!live_files_match(&ps, "main", &user_home).unwrap());
+        assert!(!live_files_match(&ps, "main", CredentialBackend::File, &user_home).unwrap());
     }
 
     // ---- desired_live_file_store_config / TOML validation tests ----

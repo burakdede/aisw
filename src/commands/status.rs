@@ -70,7 +70,12 @@ fn assess_live_state(
             credential_backend,
             user_home,
         )?,
-        Tool::Codex => auth::codex::live_files_match(profile_store, profile_name, user_home)?,
+        Tool::Codex => auth::codex::live_files_match(
+            profile_store,
+            profile_name,
+            credential_backend,
+            user_home,
+        )?,
         Tool::Gemini => match auth_method {
             AuthMethod::ApiKey => auth::gemini::live_env_matches(
                 profile_store,
@@ -330,7 +335,7 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use tempfile::tempdir;
 
@@ -381,6 +386,82 @@ mod tests {
         let path = dir.join(name);
         fs::write(&path, "#!/bin/sh\necho 'fake 1.0'\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn make_fake_security_binary(dir: &Path) -> PathBuf {
+        let path = dir.join("security");
+        fs::write(
+            &path,
+            "#!/bin/sh\n\
+             store_root=\"${AISW_KEYRING_TEST_DIR:-$HOME/keychain}\"\n\
+             item_dir() {\n\
+               printf '%s/%s/%s' \"$store_root\" \"$1\" \"$2\"\n\
+             }\n\
+             cmd=\"$1\"\n\
+             shift\n\
+             service=''\n\
+             account=''\n\
+             password=''\n\
+             want_secret='false'\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+               case \"$1\" in\n\
+                 -s)\n\
+                   shift\n\
+                   service=\"$1\"\n\
+                   ;;\n\
+                 -a)\n\
+                   shift\n\
+                   account=\"$1\"\n\
+                   ;;\n\
+                 -w)\n\
+                   if [ \"$cmd\" = \"find-generic-password\" ]; then\n\
+                     want_secret='true'\n\
+                   else\n\
+                     shift\n\
+                     password=\"$1\"\n\
+                   fi\n\
+                   ;;\n\
+               esac\n\
+               shift\n\
+             done\n\
+             item=\"$(item_dir \"$service\" \"$account\")\"\n\
+             case \"$cmd\" in\n\
+               find-generic-password)\n\
+                 if [ ! -f \"$item/secret\" ]; then\n\
+                   echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+                   exit 44\n\
+                 fi\n\
+                 if [ \"$want_secret\" = 'true' ]; then\n\
+                   /bin/cat \"$item/secret\"\n\
+                 else\n\
+                   acct=$(/bin/cat \"$item/account\")\n\
+                   printf 'keychain: \"/fake/login.keychain-db\"\\n'\n\
+                   printf 'attributes:\\n'\n\
+                   printf '    \"acct\"<blob>=\"%s\"\\n' \"$acct\"\n\
+                 fi\n\
+                 ;;\n\
+               add-generic-password)\n\
+                 /bin/mkdir -p \"$item\"\n\
+                 printf '%s' \"$account\" > \"$item/account\"\n\
+                 printf '%s' \"$password\" > \"$item/secret\"\n\
+                 ;;\n\
+               delete-generic-password)\n\
+                 if [ -d \"$item\" ]; then\n\
+                   /bin/rm -rf \"$item\"\n\
+                 else\n\
+                   echo 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.' >&2\n\
+                   exit 44\n\
+                 fi\n\
+                 ;;\n\
+               *)\n\
+                 echo \"unexpected security command: $cmd\" >&2\n\
+                 exit 1\n\
+                 ;;\n\
+             esac\n",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
     }
 
     fn status_args(json: bool) -> StatusArgs {
@@ -628,6 +709,54 @@ mod tests {
         .unwrap();
 
         assert_eq!(status, LiveActivation::NotApplied);
+    }
+
+    #[test]
+    fn codex_system_keyring_live_state_is_applied_when_live_files_match() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let security_bin = make_fake_security_binary(&bin_dir);
+        let keyring_dir = tmp.path().join("keychain");
+        let _security_bin_guard =
+            EnvVarGuard::set("AISW_SECURITY_BIN", &security_bin.display().to_string());
+        let _keyring_dir_guard =
+            EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir.display().to_string());
+        let _user_guard = EnvVarGuard::set("USER", "tester");
+
+        let profile_store = ProfileStore::new(tmp.path());
+        let config_store = ConfigStore::new(tmp.path());
+        auth::codex::add_api_key(&profile_store, &config_store, "work", CODEX_KEY, None).unwrap();
+        let auth_bytes = profile_store
+            .read_file(Tool::Codex, "work", "auth.json")
+            .unwrap();
+        auth::secure_store::write_profile_secret(Tool::Codex, "work", &auth_bytes).unwrap();
+        std::fs::remove_file(
+            profile_store
+                .profile_dir(Tool::Codex, "work")
+                .join("auth.json"),
+        )
+        .unwrap();
+        auth::codex::apply_live_credentials(
+            &profile_store,
+            "work",
+            CredentialBackend::SystemKeyring,
+            tmp.path(),
+        )
+        .unwrap();
+
+        let status = assess_live_state(
+            Tool::Codex,
+            AuthMethod::ApiKey,
+            CredentialBackend::SystemKeyring,
+            &profile_store,
+            "work",
+            tmp.path(),
+        )
+        .unwrap();
+
+        assert_eq!(status, LiveActivation::Applied);
     }
 
     #[test]

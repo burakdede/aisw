@@ -179,7 +179,12 @@ fn run_for_tool(
                 if emit_env {
                     auth::codex::emit_shell_env(profile_name, &profile_store, state_mode);
                 } else {
-                    auth::codex::apply_live_files(&profile_store, profile_name, user_home)?;
+                    auth::codex::apply_live_credentials(
+                        &profile_store,
+                        profile_name,
+                        profile_meta.credential_backend,
+                        user_home,
+                    )?;
                 }
             }
             AuthMethod::ApiKey => {
@@ -193,7 +198,12 @@ fn run_for_tool(
                         }
                     }
                 } else {
-                    auth::codex::apply_live_files(&profile_store, profile_name, user_home)?;
+                    auth::codex::apply_live_credentials(
+                        &profile_store,
+                        profile_name,
+                        profile_meta.credential_backend,
+                        user_home,
+                    )?;
                 }
             }
         },
