@@ -82,7 +82,7 @@ jobs:
         run: cargo test --locked --lib
 
       - name: Windows integration smoke tests
-        run: cargo test --locked --test windows_integration_smoke
+        run: cargo test --locked --test windows_integration_smoke --test windows_secure_backend_parity
 
   coverage:
     name: Coverage
