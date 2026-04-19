@@ -105,3 +105,120 @@ fn backup_account(tool: Tool, profile_name: &str, backup_id: &str) -> String {
         profile_name
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct CanaryCleanup {
+        accounts: Vec<String>,
+    }
+
+    impl CanaryCleanup {
+        fn new() -> Self {
+            Self {
+                accounts: Vec::new(),
+            }
+        }
+
+        fn track_profile(&mut self, tool: Tool, profile_name: &str) {
+            self.accounts.push(profile_account(tool, profile_name));
+        }
+
+        fn track_backup(&mut self, tool: Tool, profile_name: &str, backup_id: &str) {
+            self.accounts
+                .push(backup_account(tool, profile_name, backup_id));
+        }
+    }
+
+    impl Drop for CanaryCleanup {
+        fn drop(&mut self) {
+            for account in &self.accounts {
+                let _ = secure_backend::delete_generic_password(BACKEND, SERVICE, account);
+            }
+        }
+    }
+
+    fn canary_profile_name() -> String {
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after UNIX_EPOCH")
+            .as_millis();
+        format!("canary-{}-{}", std::process::id(), millis)
+    }
+
+    #[test]
+    #[ignore = "opt-in real credential-store canary; set AISW_ENABLE_REAL_CREDENTIAL_STORE_CANARY=1"]
+    fn real_credential_store_roundtrip_canary() {
+        if std::env::var("AISW_ENABLE_REAL_CREDENTIAL_STORE_CANARY").as_deref() != Ok("1") {
+            eprintln!(
+                "skipping real credential-store canary: set AISW_ENABLE_REAL_CREDENTIAL_STORE_CANARY=1"
+            );
+            return;
+        }
+
+        let tool = Tool::Codex;
+        let profile_name = canary_profile_name();
+        let renamed_profile_name = format!("{profile_name}-renamed");
+        let backup_id = format!("canary-backup-{}", std::process::id());
+        let original = br#"{"token":"canary-original-token"}"#;
+        let replacement = br#"{"token":"canary-replacement-token"}"#;
+
+        let mut cleanup = CanaryCleanup::new();
+        cleanup.track_profile(tool, &profile_name);
+        cleanup.track_profile(tool, &renamed_profile_name);
+        cleanup.track_backup(tool, &renamed_profile_name, &backup_id);
+
+        write_profile_secret(tool, &profile_name, original).expect("write should succeed");
+        let read_back = read_profile_secret(tool, &profile_name)
+            .expect("read should succeed")
+            .expect("secret should exist after write");
+        assert_eq!(read_back, original);
+
+        rename_profile_secret(tool, &profile_name, &renamed_profile_name)
+            .expect("rename should succeed");
+        assert!(
+            read_profile_secret(tool, &profile_name)
+                .expect("read old profile should succeed")
+                .is_none(),
+            "old profile secret should not exist after rename"
+        );
+        assert_eq!(
+            read_profile_secret(tool, &renamed_profile_name)
+                .expect("read renamed profile should succeed")
+                .expect("renamed profile should exist"),
+            original
+        );
+
+        snapshot_profile_secret(tool, &renamed_profile_name, &backup_id)
+            .expect("snapshot should succeed");
+        write_profile_secret(tool, &renamed_profile_name, replacement)
+            .expect("overwrite should succeed");
+        assert_eq!(
+            read_profile_secret(tool, &renamed_profile_name)
+                .expect("read replacement should succeed")
+                .expect("replacement value should exist"),
+            replacement
+        );
+
+        restore_profile_secret(tool, &renamed_profile_name, &backup_id)
+            .expect("restore should succeed");
+        assert_eq!(
+            read_profile_secret(tool, &renamed_profile_name)
+                .expect("read restored secret should succeed")
+                .expect("restored secret should exist"),
+            original
+        );
+
+        delete_backup_secret(tool, &renamed_profile_name, &backup_id)
+            .expect("delete backup secret should succeed");
+        delete_profile_secret(tool, &renamed_profile_name).expect("delete profile should succeed");
+        assert!(
+            read_profile_secret(tool, &renamed_profile_name)
+                .expect("final read should succeed")
+                .is_none(),
+            "secret should not exist after delete"
+        );
+    }
+}
