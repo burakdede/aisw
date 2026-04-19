@@ -67,7 +67,16 @@ impl TestEnv {
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("PATH", &self.bin_dir)
             .env("HOME", &self.fake_home)
-            .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"));
+            .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"))
+            // Prevent ambient developer env from redirecting writes into real homes/config.
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
+            .env_remove("AISW_SECURITY_BIN")
+            .env_remove("AISW_SECURITY_KEYCHAIN")
+            .env_remove("AISW_CLAUDE_AUTH_STORAGE")
+            .env_remove("AISW_CODEX_AUTH_STORAGE");
         cmd
     }
 
@@ -87,12 +96,12 @@ impl TestEnv {
         let aisw_dir = aisw_bin
             .parent()
             .expect("aisw binary should have a parent directory");
-        let system_path = std::env::var("PATH").unwrap_or_default();
+        // Keep shell tests deterministic: prefer test bins + cargo target dir,
+        // then only baseline system paths (not user-local PATH entries).
         format!(
-            "{}:{}:{}",
+            "{}:{}:/usr/bin:/bin:/usr/sbin:/sbin",
             self.bin_dir.display(),
             aisw_dir.display(),
-            system_path
         )
     }
 
@@ -119,7 +128,15 @@ impl TestEnv {
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("HOME", &self.fake_home)
             .env("PATH", self.shell_path())
-            .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"));
+            .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"))
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
+            .env_remove("AISW_SECURITY_BIN")
+            .env_remove("AISW_SECURITY_KEYCHAIN")
+            .env_remove("AISW_CLAUDE_AUTH_STORAGE")
+            .env_remove("AISW_CODEX_AUTH_STORAGE");
 
         Some(cmd)
     }
