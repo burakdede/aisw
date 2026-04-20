@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use std::fs;
+#[cfg(unix)]
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Output};
 
@@ -8,6 +10,8 @@ use std::process::{Command as StdCommand, Output};
 use std::os::unix::fs::PermissionsExt;
 
 use assert_cmd::Command;
+#[cfg(unix)]
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tempfile::TempDir;
 
 /// Sandboxed environment for integration tests.
@@ -22,6 +26,12 @@ pub struct TestEnv {
     /// Fake HOME dir — set as HOME env var so tools that use dirs::home_dir()
     /// (e.g. Gemini .env rewrite) write to a sandboxed location.
     pub fake_home: PathBuf,
+}
+
+#[cfg(unix)]
+pub struct PtyRunResult {
+    pub exit_code: i32,
+    pub output: String,
 }
 
 impl TestEnv {
@@ -122,6 +132,67 @@ impl TestEnv {
             .args(args)
             .output()
             .unwrap_or_else(|_| panic!("command failed to launch: {}", args.join(" ")))
+    }
+
+    #[cfg(unix)]
+    pub fn run_in_pty(&self, args: &[&str], input: &str) -> PtyRunResult {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 24,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("failed to allocate PTY");
+
+        let aisw_bin = self.aisw_bin();
+        let mut cmd = CommandBuilder::new(aisw_bin);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        cmd.env("AISW_HOME", &self.aisw_home);
+        cmd.env("PATH", &self.bin_dir);
+        cmd.env("HOME", &self.fake_home);
+        cmd.env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"));
+        cmd.env_remove("CLAUDE_CONFIG_DIR");
+        cmd.env_remove("CODEX_HOME");
+        cmd.env_remove("XDG_CONFIG_HOME");
+        cmd.env_remove("XDG_DATA_HOME");
+        cmd.env_remove("AISW_SECURITY_BIN");
+        cmd.env_remove("AISW_SECURITY_KEYCHAIN");
+        cmd.env_remove("AISW_CLAUDE_AUTH_STORAGE");
+        cmd.env_remove("AISW_CODEX_AUTH_STORAGE");
+
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("failed to spawn child in PTY");
+        drop(pair.slave);
+
+        let mut writer = pair
+            .master
+            .take_writer()
+            .expect("failed to open PTY writer");
+        writer
+            .write_all(input.as_bytes())
+            .expect("failed to write PTY input");
+        drop(writer);
+
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .expect("failed to open PTY reader");
+        let mut output = String::new();
+        reader
+            .read_to_string(&mut output)
+            .expect("failed to read PTY output");
+
+        let status = child.wait().expect("failed waiting for PTY child");
+        PtyRunResult {
+            exit_code: status.exit_code() as i32,
+            output,
+        }
     }
 
     pub fn aisw_bin(&self) -> PathBuf {
