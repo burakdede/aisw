@@ -103,6 +103,16 @@ impl TestEnv {
             .env_remove("AISW_SECURITY_KEYCHAIN")
             .env_remove("AISW_CLAUDE_AUTH_STORAGE")
             .env_remove("AISW_CODEX_AUTH_STORAGE");
+        #[cfg(windows)]
+        {
+            let roaming = self.fake_home.join("AppData").join("Roaming");
+            let local = self.fake_home.join("AppData").join("Local");
+            fs::create_dir_all(&roaming).expect("failed to create fake AppData/Roaming");
+            fs::create_dir_all(&local).expect("failed to create fake AppData/Local");
+            cmd.env("USERPROFILE", &self.fake_home)
+                .env("APPDATA", roaming)
+                .env("LOCALAPPDATA", local);
+        }
         cmd
     }
 
