@@ -11,7 +11,6 @@ jobs:
   update-homebrew-tap:
     name: Update Formula In Tap
     runs-on: ubuntu-latest
-    if: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN != '' }}
     env:
       REPO: ${{ github.repository }}
       TAG: ${{ github.event.release.tag_name }}
@@ -19,9 +18,20 @@ jobs:
       GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
     steps:
+      - name: Validate Homebrew token
+        shell: bash
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "Skipping Homebrew update: HOMEBREW_TAP_GITHUB_TOKEN is not configured."
+            echo "SKIP_HOMEBREW=1" >> "$GITHUB_ENV"
+          fi
+
       - name: Validate release tag
         shell: bash
         run: |
+          if [ "${SKIP_HOMEBREW:-0}" = "1" ]; then
+            exit 0
+          fi
           case "$TAG" in
             v[0-9]*.[0-9]*.[0-9]*) ;;
             *)
@@ -118,13 +128,3 @@ jobs:
           git add Formula/aisw.rb
           git commit -m "aisw ${VERSION}"
           git push origin HEAD
-
-  homebrew-token-missing:
-    name: Homebrew Tap Token Missing
-    runs-on: ubuntu-latest
-    if: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN == '' }}
-    steps:
-      - name: Explain missing secret
-        run: |
-          echo "HOMEBREW_TAP_GITHUB_TOKEN is not configured."
-          echo "Skipping Homebrew formula update."
