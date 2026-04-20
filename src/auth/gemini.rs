@@ -626,15 +626,32 @@ fn prepare_scratch_home(scratch: &Path, scratch_workdir: &Path) -> Result<()> {
 
 fn create_scratch_dir() -> Result<std::path::PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
-    // Use an atomic counter (not a timestamp) to guarantee uniqueness across
-    // concurrent calls within the same process — timestamps can collide when two
-    // threads call this function in the same nanosecond.
+    use std::time::{SystemTime, UNIX_EPOCH};
+    // Use an atomic counter for uniqueness within one process and a time-based
+    // suffix to avoid collisions with stale directories from previous runs.
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("aisw-gemini-{}-{}", std::process::id(), id));
-    std::fs::create_dir(&dir)
-        .with_context(|| format!("could not create scratch dir {}", dir.display()))?;
-    Ok(dir)
+    let temp_root = std::env::temp_dir();
+    let pid = std::process::id();
+
+    for _ in 0..32 {
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = temp_root.join(format!("aisw-gemini-{}-{}-{}", pid, id, nanos));
+
+        match std::fs::create_dir(&dir) {
+            Ok(_) => return Ok(dir),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(err)
+                    .with_context(|| format!("could not create scratch dir {}", dir.display()))
+            }
+        }
+    }
+
+    bail!("could not create a unique Gemini scratch directory after multiple attempts")
 }
 
 /// Copy every file from `cache_dir` into `profile_dir`, enforcing 0600.

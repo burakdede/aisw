@@ -7,6 +7,7 @@ use predicates::str::contains;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
+const LONG_LABEL: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO";
 
 fn add_claude(env: &TestEnv, name: &str) {
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -108,6 +109,31 @@ fn list_active_profile_marked_in_output() {
         .success()
         .stdout(contains("work"))
         .stdout(contains("active"));
+}
+
+#[test]
+fn list_truncates_long_label_in_human_output() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            VALID_CLAUDE_KEY,
+            "--label",
+            LONG_LABEL,
+        ])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJK..."))
+        .stdout(predicates::str::contains(LONG_LABEL).not());
 }
 
 #[test]

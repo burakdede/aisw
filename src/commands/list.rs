@@ -74,6 +74,9 @@ pub fn run(args: ListArgs, home: &Path) -> Result<()> {
 }
 
 fn print_table(rows: &[Row]) {
+    const PROFILE_WIDTH: usize = 36;
+    const LABEL_WIDTH: usize = 40;
+
     if rows.is_empty() {
         output::print_title("Profiles");
         output::print_empty_state("No profiles found.");
@@ -108,10 +111,11 @@ fn print_table(rows: &[Row]) {
             format!("{}", style("\u{25cb}").dim())
         };
 
+        let display_profile = output::ellipsize(&row.profile, PROFILE_WIDTH);
         let name_part = if row.active {
-            format!("{}", style(&row.profile).bold())
+            format!("{}", style(&display_profile).bold())
         } else {
-            format!("{}", style(&row.profile).dim())
+            format!("{}", style(&display_profile).dim())
         };
 
         let auth_badge = match row.auth_method {
@@ -121,7 +125,10 @@ fn print_table(rows: &[Row]) {
         };
 
         let label_part = match row.label.as_deref() {
-            Some(l) => format!("  {}", style(format!("({})", l)).dim()),
+            Some(l) => format!(
+                "  {}",
+                style(format!("({})", output::ellipsize(l, LABEL_WIDTH))).dim()
+            ),
             None => String::new(),
         };
 

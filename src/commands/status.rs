@@ -286,21 +286,33 @@ fn backend_diagnostic(s: &ToolStatus) -> Option<String> {
 }
 
 fn print_text(statuses: &[ToolStatus]) {
+    const ACTIVE_WIDTH: usize = 36;
+    const AUTH_WIDTH: usize = 18;
+    const BACKEND_WIDTH: usize = 28;
+    const STATE_MODE_WIDTH: usize = 14;
+    const STATE_WIDTH: usize = 80;
+
     output::print_title("Status");
 
     for s in statuses {
         output::print_tool_section(s.tool);
-        output::print_kv("Active", output::active_value(s.active_profile.as_deref()));
+        output::print_kv(
+            "Active",
+            output::ellipsize(
+                output::active_value(s.active_profile.as_deref()),
+                ACTIVE_WIDTH,
+            ),
+        );
         if let Some(auth) = s.auth_method.as_deref() {
-            output::print_kv("Auth", auth);
+            output::print_kv("Auth", output::ellipsize(auth, AUTH_WIDTH));
         }
         if let Some(backend) = s.credential_backend.as_deref() {
-            output::print_kv("Backend", backend);
+            output::print_kv("Backend", output::ellipsize(backend, BACKEND_WIDTH));
         }
         if let Some(mode) = s.state_mode.as_deref() {
-            output::print_kv("State mode", mode);
+            output::print_kv("State mode", output::ellipsize(mode, STATE_MODE_WIDTH));
         }
-        output::print_kv("State", status_message(s));
+        output::print_kv("State", output::ellipsize(status_message(s), STATE_WIDTH));
         if let Some(diagnostic) = backend_diagnostic(s) {
             output::print_warning(diagnostic);
         }

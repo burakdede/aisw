@@ -211,6 +211,22 @@ pub fn print_table_row(cells: &[(&str, usize)]) {
     println!("{line}");
 }
 
+pub fn ellipsize(value: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = value.chars().collect();
+    if chars.len() <= max_chars {
+        return value.to_owned();
+    }
+
+    if max_chars <= 3 {
+        return ".".repeat(max_chars);
+    }
+
+    let keep = max_chars - 3;
+    let mut out: String = chars.into_iter().take(keep).collect();
+    out.push_str("...");
+    out
+}
+
 pub fn print_warning_stderr(message: impl AsRef<str>) {
     if runtime::is_quiet() {
         return;
@@ -365,7 +381,7 @@ fn should_enable_color(no_color_flag: bool, no_color_env: Option<OsString>) -> b
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_sensitive_text, should_enable_color};
+    use super::{ellipsize, redact_sensitive_text, should_enable_color};
 
     #[test]
     fn color_enabled_by_default() {
@@ -409,5 +425,21 @@ mod tests {
         assert!(!redacted.contains("sk-ant-api03-AAAAAAAAAAAAAAAA"));
         assert!(!redacted.contains("AIzaToken123"));
         assert_eq!(redacted.matches("[REDACTED]").count(), 2);
+    }
+
+    #[test]
+    fn ellipsize_keeps_short_text_unchanged() {
+        assert_eq!(ellipsize("profile", 12), "profile");
+    }
+
+    #[test]
+    fn ellipsize_truncates_long_text() {
+        assert_eq!(ellipsize("very-long-profile-name", 12), "very-long...");
+    }
+
+    #[test]
+    fn ellipsize_handles_tiny_widths() {
+        assert_eq!(ellipsize("abcdef", 3), "...");
+        assert_eq!(ellipsize("abcdef", 2), "..");
     }
 }

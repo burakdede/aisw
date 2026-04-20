@@ -17,6 +17,8 @@ pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
 }
 
 fn run_list(args: BackupListArgs, home: &Path) -> Result<()> {
+    const PROFILE_WIDTH: usize = 40;
+
     let entries = BackupManager::new(home).list()?;
     if args.json {
         return print_json(&entries);
@@ -33,10 +35,11 @@ fn run_list(args: BackupListArgs, home: &Path) -> Result<()> {
     output::print_title("Backups");
     output::print_table_header(&[("BACKUP ID", 31), ("TOOL", 8), ("PROFILE", 0)]);
     for e in &entries {
+        let profile = output::ellipsize(&e.profile, PROFILE_WIDTH);
         output::print_table_row(&[
             (e.backup_id.as_str(), 31),
             (e.tool.binary_name(), 8),
-            (e.profile.as_str(), 0),
+            (profile.as_str(), 0),
         ]);
     }
     Ok(())
