@@ -10,16 +10,38 @@ use common::TestEnv;
 
 #[cfg(windows)]
 fn keyring_secret_path(env: &TestEnv, service: &str, account: &str) -> PathBuf {
-    env.fake_home
-        .join("keychain")
-        .join(service)
-        .join(account)
-        .join("secret")
+    let service_dir = env.fake_home.join("keychain").join(service);
+    let entries = std::fs::read_dir(&service_dir).expect("service keyring directory should exist");
+    for entry in entries {
+        let entry = entry.expect("keyring entry should be readable");
+        let item_dir = entry.path();
+        let account_path = item_dir.join("account");
+        if !account_path.exists() {
+            continue;
+        }
+        let stored_account =
+            std::fs::read_to_string(&account_path).expect("account marker should be valid UTF-8");
+        if stored_account == account {
+            return item_dir.join("secret");
+        }
+    }
+    service_dir.join(account).join("secret")
 }
 
 #[cfg(windows)]
 fn seed_keyring_item(env: &TestEnv, service: &str, account: &str, secret: &str) {
-    let secret_path = keyring_secret_path(env, service, account);
+    let mut encoded = String::with_capacity(2 + account.len() * 2);
+    encoded.push_str("h_");
+    for byte in account.as_bytes() {
+        use std::fmt::Write as _;
+        let _ = write!(&mut encoded, "{byte:02x}");
+    }
+    let secret_path = env
+        .fake_home
+        .join("keychain")
+        .join(service)
+        .join(encoded)
+        .join("secret");
     fs::create_dir_all(
         secret_path
             .parent()

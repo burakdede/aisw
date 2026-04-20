@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -153,7 +154,24 @@ fn fake_root() -> Option<PathBuf> {
     test_overrides::string("AISW_KEYRING_TEST_DIR").map(PathBuf::from)
 }
 
+fn fake_item_component(account: &str) -> String {
+    if !cfg!(windows) {
+        return account.to_owned();
+    }
+
+    let mut encoded = String::with_capacity(2 + account.len() * 2);
+    encoded.push_str("h_");
+    for byte in account.as_bytes() {
+        let _ = write!(&mut encoded, "{byte:02x}");
+    }
+    encoded
+}
+
 fn fake_item_dir(root: &Path, service: &str, account: &str) -> PathBuf {
+    root.join(service).join(fake_item_component(account))
+}
+
+fn fake_legacy_item_dir(root: &Path, service: &str, account: &str) -> PathBuf {
     root.join(service).join(account)
 }
 
@@ -182,12 +200,19 @@ fn read_fake_password(
     }) else {
         return Ok(None);
     };
-    let path = fake_item_dir(root, service, &account).join("secret");
-    if !path.exists() {
+    let preferred = fake_item_dir(root, service, &account).join("secret");
+    if preferred.exists() {
+        return fs::read(&preferred)
+            .with_context(|| format!("could not read {}", preferred.display()))
+            .map(Some);
+    }
+
+    let legacy = fake_legacy_item_dir(root, service, &account).join("secret");
+    if !legacy.exists() {
         return Ok(None);
     }
-    fs::read(&path)
-        .with_context(|| format!("could not read {}", path.display()))
+    fs::read(&legacy)
+        .with_context(|| format!("could not read {}", legacy.display()))
         .map(Some)
 }
 
@@ -202,12 +227,26 @@ fn write_fake_password(root: &Path, service: &str, account: &str, secret: &[u8])
 }
 
 fn delete_fake_password(root: &Path, service: &str, account: &str) -> Result<()> {
+    let mut deleted_any = false;
+
     let item_dir = fake_item_dir(root, service, account);
-    if !item_dir.exists() {
+    if item_dir.exists() {
+        fs::remove_dir_all(&item_dir)
+            .with_context(|| format!("could not delete {}", item_dir.display()))?;
+        deleted_any = true;
+    }
+
+    let legacy_dir = fake_legacy_item_dir(root, service, account);
+    if legacy_dir.exists() {
+        fs::remove_dir_all(&legacy_dir)
+            .with_context(|| format!("could not delete {}", legacy_dir.display()))?;
+        deleted_any = true;
+    }
+
+    if !deleted_any {
         return Ok(());
     }
-    fs::remove_dir_all(&item_dir)
-        .with_context(|| format!("could not delete {}", item_dir.display()))
+    Ok(())
 }
 
 fn find_fake_account(root: &Path, service: &str) -> Result<Option<String>> {
@@ -222,17 +261,24 @@ fn find_fake_account(root: &Path, service: &str) -> Result<Option<String>> {
     {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
-            accounts.push(entry.file_name());
+            let account_path = entry.path().join("account");
+            if let Ok(raw) = fs::read(&account_path) {
+                if let Ok(text) = String::from_utf8(raw) {
+                    accounts.push(text);
+                    continue;
+                }
+            }
+            if let Some(name) = entry.file_name().to_str() {
+                accounts.push(name.to_owned());
+            }
         }
     }
     accounts.sort();
+    accounts.dedup();
     let Some(account) = accounts.into_iter().next() else {
         return Ok(None);
     };
-    account
-        .into_string()
-        .map(Some)
-        .map_err(|_| anyhow!("keyring account name for {} is not valid UTF-8", service))
+    Ok(Some(account))
 }
 
 fn current_username() -> Option<String> {
