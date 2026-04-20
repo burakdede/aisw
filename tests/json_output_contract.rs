@@ -3,6 +3,7 @@ mod common;
 use common::TestEnv;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const VALID_CLAUDE_KEY_ALT: &str = "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 
@@ -13,6 +14,12 @@ fn run_json(env: &TestEnv, args: &[&str]) -> serde_json::Value {
         "command failed: aisw {}\nstdout:\n{}\nstderr:\n{}",
         args.join(" "),
         String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "stderr should be empty in --json mode for successful command: aisw {}\nstderr:\n{}",
+        args.join(" "),
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("stdout should be valid json")
@@ -148,4 +155,147 @@ fn backup_list_json_contract_snapshot_with_normalized_ids() {
     ]);
 
     assert_eq!(json, expected);
+}
+
+#[test]
+fn list_json_contract_preserved_with_filter_and_sort_flags() {
+    let env = TestEnv::new();
+    setup_three_active_profiles(&env);
+
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "personal",
+            "--api-key",
+            VALID_CLAUDE_KEY_ALT,
+            "--label",
+            "Personal",
+        ])
+        .assert()
+        .success();
+
+    let json = run_json(
+        &env,
+        &[
+            "list",
+            "--json",
+            "--tool",
+            "claude",
+            "--search",
+            "work",
+            "--active-only",
+            "--sort",
+            "recent",
+        ],
+    );
+
+    let root = json.as_object().expect("list json should be object");
+    assert_eq!(root.len(), 3);
+    for tool in ["codex", "gemini"] {
+        let entry = root.get(tool).expect("tool key should exist");
+        assert_eq!(entry["active"], serde_json::Value::Null);
+        assert_eq!(
+            entry["profiles"]
+                .as_array()
+                .expect("profiles should be array")
+                .len(),
+            0
+        );
+    }
+    let claude = root.get("claude").expect("claude key should exist");
+    let profiles = claude["profiles"]
+        .as_array()
+        .expect("profiles should be array");
+    assert_eq!(profiles.len(), 1);
+    let profile = profiles[0]
+        .as_object()
+        .expect("profile entry should be object");
+    assert!(profile.contains_key("name"));
+    assert!(profile.contains_key("auth"));
+    assert!(profile.contains_key("label"));
+    assert_eq!(profile.len(), 3);
+}
+
+#[test]
+fn status_json_contract_preserved_with_filter_and_sort_flags() {
+    let env = TestEnv::new();
+    setup_three_active_profiles(&env);
+
+    let json = run_json(
+        &env,
+        &[
+            "status",
+            "--json",
+            "--tool",
+            "claude",
+            "--search",
+            "work",
+            "--active-only",
+            "--sort",
+            "recent",
+        ],
+    );
+
+    let statuses = json.as_array().expect("status json should be array");
+    assert_eq!(statuses.len(), 1);
+    let entry = statuses[0]
+        .as_object()
+        .expect("status entry should be object");
+    let expected_keys = [
+        "tool",
+        "binary_found",
+        "stored_profiles",
+        "active_profile",
+        "auth_method",
+        "credential_backend",
+        "state_mode",
+        "active_profile_applied",
+        "credentials_present",
+        "permissions_ok",
+    ];
+    for key in expected_keys {
+        assert!(
+            entry.contains_key(key),
+            "missing key `{key}` in status entry"
+        );
+    }
+    assert_eq!(entry.len(), 10);
+}
+
+#[test]
+fn backup_list_json_contract_preserved_with_filter_and_sort_flags() {
+    let env = TestEnv::new();
+    setup_three_active_profiles(&env);
+
+    let json = run_json(
+        &env,
+        &[
+            "backup",
+            "list",
+            "--json",
+            "--tool",
+            "claude",
+            "--search",
+            "work",
+            "--active-only",
+            "--sort",
+            "recent",
+        ],
+    );
+
+    let entries = json.as_array().expect("backup list json should be array");
+    assert!(
+        !entries.is_empty(),
+        "backup list should contain at least one entry"
+    );
+    for entry in entries {
+        let obj = entry
+            .as_object()
+            .expect("backup list entry should be object");
+        assert!(obj.contains_key("backup_id"));
+        assert!(obj.contains_key("tool"));
+        assert!(obj.contains_key("profile"));
+        assert_eq!(obj.len(), 3);
+    }
 }
