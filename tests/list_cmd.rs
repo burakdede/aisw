@@ -163,3 +163,42 @@ fn list_invalid_tool_exits_nonzero() {
         .assert()
         .failure();
 }
+
+#[test]
+fn list_supports_long_tool_filter_and_search_and_active_only() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            VALID_CLAUDE_KEY,
+            "--label",
+            "Billing",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "codex", "main", "--api-key", VALID_CODEX_KEY])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    env.cmd()
+        .args([
+            "list",
+            "--tool",
+            "claude",
+            "--search",
+            "bill",
+            "--active-only",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("work"))
+        .stdout(contains("Billing"))
+        .stdout(predicates::str::contains("main").not());
+}

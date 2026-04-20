@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use console::style;
 
 use crate::cli::ListArgs;
@@ -16,6 +17,7 @@ pub(crate) struct Row {
     #[allow(dead_code)]
     pub(crate) credential_backend: &'static str,
     pub(crate) label: Option<String>,
+    pub(crate) added_at: DateTime<Utc>,
 }
 
 fn auth_display(method: AuthMethod) -> &'static str {
@@ -33,7 +35,8 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
 
-    let tools: Vec<Tool> = match args.tool {
+    let selected_tool = args.tool.or(args.tool_filter);
+    let tools: Vec<Tool> = match selected_tool {
         Some(t) => vec![t],
         None => Tool::ALL.to_vec(),
     };
@@ -55,8 +58,44 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
                 auth_method: auth_display(meta.auth_method),
                 credential_backend: backend_display(meta.credential_backend),
                 label: meta.label.clone(),
+                added_at: meta.added_at,
             });
         }
+    }
+
+    if args.active_only {
+        rows.retain(|row| row.active);
+    }
+
+    if let Some(search) = args.search.as_deref() {
+        let needle = search.trim().to_ascii_lowercase();
+        if !needle.is_empty() {
+            rows.retain(|row| {
+                row.profile.to_ascii_lowercase().contains(&needle)
+                    || row
+                        .label
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&needle)
+                    || row.tool.to_ascii_lowercase().contains(&needle)
+            });
+        }
+    }
+
+    match args.sort {
+        Some(crate::cli::SortBy::Name) => {
+            rows.sort_by(|a, b| a.tool.cmp(b.tool).then_with(|| a.profile.cmp(&b.profile)));
+        }
+        Some(crate::cli::SortBy::Recent) => {
+            rows.sort_by(|a, b| {
+                b.added_at
+                    .cmp(&a.added_at)
+                    .then_with(|| a.tool.cmp(b.tool))
+                    .then_with(|| a.profile.cmp(&b.profile))
+            });
+        }
+        None => {}
     }
     Ok(rows)
 }
@@ -199,7 +238,14 @@ mod tests {
     }
 
     fn list_args(tool: Option<Tool>, json: bool) -> ListArgs {
-        ListArgs { tool, json }
+        ListArgs {
+            tool,
+            tool_filter: None,
+            search: None,
+            sort: None,
+            active_only: false,
+            json,
+        }
     }
 
     #[test]
@@ -279,5 +325,43 @@ mod tests {
         let rows = collect_rows(&list_args(Some(Tool::Claude), false), tmp.path()).unwrap();
         assert_eq!(rows[0].profile, "aaa");
         assert_eq!(rows[1].profile, "zzz");
+    }
+
+    #[test]
+    fn search_filters_by_label_or_name() {
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let cs = ConfigStore::new(tmp.path());
+        auth::claude::add_api_key(&ps, &cs, "work", claude_key(), Some("Billing".into())).unwrap();
+        auth::claude::add_api_key(
+            &ps,
+            &cs,
+            "personal",
+            "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            None,
+        )
+        .unwrap();
+
+        let mut args = list_args(None, false);
+        args.search = Some("bill".into());
+        let rows = collect_rows(&args, tmp.path()).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].profile, "work");
+    }
+
+    #[test]
+    fn active_only_filters_non_active_rows() {
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let cs = ConfigStore::new(tmp.path());
+        auth::claude::add_api_key(&ps, &cs, "work", claude_key(), None).unwrap();
+        auth::codex::add_api_key(&ps, &cs, "main", "sk-codex-test-key-12345", None).unwrap();
+        cs.set_active(Tool::Claude, "work").unwrap();
+
+        let mut args = list_args(None, false);
+        args.active_only = true;
+        let rows = collect_rows(&args, tmp.path()).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].tool, "claude");
     }
 }

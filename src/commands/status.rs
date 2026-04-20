@@ -25,6 +25,7 @@ pub(crate) struct ToolStatus {
     pub auth_method: Option<String>,
     pub credential_backend: Option<String>,
     pub state_mode: Option<String>,
+    pub active_profile_added_at: Option<chrono::DateTime<chrono::Utc>>,
     pub active_profile_applied: Option<bool>,
     pub credentials_present: bool,
     pub permissions_ok: bool,
@@ -46,7 +47,8 @@ pub(crate) fn run_in(
     user_home: &Path,
     tool_path: OsString,
 ) -> Result<()> {
-    let statuses = collect_status(home, user_home, &tool_path)?;
+    let mut statuses = collect_status(home, user_home, &tool_path)?;
+    apply_status_filters(&mut statuses, &args);
     if args.json {
         print_json(&statuses)?;
     } else {
@@ -129,6 +131,7 @@ pub(crate) fn collect_status(
             active_profile,
             auth_method,
             credential_backend,
+            active_profile_added_at,
             active_profile_applied,
             credentials_present,
             permissions_ok,
@@ -144,6 +147,7 @@ pub(crate) fn collect_status(
             let backend = profiles
                 .get(name)
                 .map(|m| m.credential_backend.display_name().to_owned());
+            let added_at = profiles.get(name).map(|m| m.added_at);
             let applied = if creds {
                 profiles
                     .get(name)
@@ -172,9 +176,17 @@ pub(crate) fn collect_status(
             } else {
                 Some(false)
             };
-            (Some(name.to_owned()), auth, backend, applied, creds, perms)
+            (
+                Some(name.to_owned()),
+                auth,
+                backend,
+                added_at,
+                applied,
+                creds,
+                perms,
+            )
         } else {
-            (None, None, None, None, false, true)
+            (None, None, None, None, None, false, true)
         };
 
         statuses.push(ToolStatus {
@@ -185,12 +197,62 @@ pub(crate) fn collect_status(
             auth_method,
             credential_backend,
             state_mode,
+            active_profile_added_at,
             active_profile_applied,
             credentials_present,
             permissions_ok,
         });
     }
     Ok(statuses)
+}
+
+fn apply_status_filters(statuses: &mut Vec<ToolStatus>, args: &StatusArgs) {
+    if let Some(tool) = args.tool {
+        statuses.retain(|s| s.tool == tool);
+    }
+
+    if args.active_only {
+        statuses.retain(|s| s.active_profile.is_some());
+    }
+
+    if let Some(search) = args.search.as_deref() {
+        let needle = search.trim().to_ascii_lowercase();
+        if !needle.is_empty() {
+            statuses.retain(|s| {
+                s.tool.binary_name().to_ascii_lowercase().contains(&needle)
+                    || s.tool.display_name().to_ascii_lowercase().contains(&needle)
+                    || s.active_profile
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&needle)
+                    || s.auth_method
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&needle)
+                    || s.credential_backend
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&needle)
+            });
+        }
+    }
+
+    match args.sort {
+        Some(crate::cli::SortBy::Name) => {
+            statuses.sort_by_key(|s| s.tool.binary_name());
+        }
+        Some(crate::cli::SortBy::Recent) => {
+            statuses.sort_by(|a, b| {
+                b.active_profile_added_at
+                    .cmp(&a.active_profile_added_at)
+                    .then_with(|| a.tool.binary_name().cmp(b.tool.binary_name()))
+            });
+        }
+        None => {}
+    }
 }
 
 fn auth_label(method: AuthMethod) -> &'static str {
@@ -477,7 +539,13 @@ mod tests {
     }
 
     fn status_args(json: bool) -> StatusArgs {
-        StatusArgs { json }
+        StatusArgs {
+            tool: None,
+            search: None,
+            sort: None,
+            active_only: false,
+            json,
+        }
     }
 
     #[test]
@@ -833,5 +901,98 @@ mod tests {
         .unwrap();
 
         assert_eq!(status, LiveActivation::NotApplied);
+    }
+
+    #[test]
+    fn apply_status_filters_honors_tool_search_and_active_only() {
+        let mut statuses = vec![
+            ToolStatus {
+                tool: Tool::Claude,
+                binary_found: true,
+                stored_profiles: 1,
+                active_profile: Some("work".to_owned()),
+                auth_method: Some("api_key".to_owned()),
+                credential_backend: Some("file".to_owned()),
+                state_mode: Some("isolated".to_owned()),
+                active_profile_added_at: Some(chrono::Utc::now()),
+                active_profile_applied: Some(true),
+                credentials_present: true,
+                permissions_ok: true,
+            },
+            ToolStatus {
+                tool: Tool::Codex,
+                binary_found: true,
+                stored_profiles: 1,
+                active_profile: None,
+                auth_method: None,
+                credential_backend: None,
+                state_mode: Some("isolated".to_owned()),
+                active_profile_added_at: None,
+                active_profile_applied: None,
+                credentials_present: false,
+                permissions_ok: true,
+            },
+        ];
+
+        let args = StatusArgs {
+            tool: Some(Tool::Claude),
+            search: Some("work".to_owned()),
+            sort: None,
+            active_only: true,
+            json: false,
+        };
+        apply_status_filters(&mut statuses, &args);
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].tool, Tool::Claude);
+    }
+
+    #[test]
+    fn apply_status_filters_sort_recent_orders_newest_first() {
+        let older = chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let newer = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        let mut statuses = vec![
+            ToolStatus {
+                tool: Tool::Claude,
+                binary_found: true,
+                stored_profiles: 1,
+                active_profile: Some("old".to_owned()),
+                auth_method: Some("api_key".to_owned()),
+                credential_backend: Some("file".to_owned()),
+                state_mode: Some("isolated".to_owned()),
+                active_profile_added_at: Some(older),
+                active_profile_applied: Some(true),
+                credentials_present: true,
+                permissions_ok: true,
+            },
+            ToolStatus {
+                tool: Tool::Codex,
+                binary_found: true,
+                stored_profiles: 1,
+                active_profile: Some("new".to_owned()),
+                auth_method: Some("api_key".to_owned()),
+                credential_backend: Some("file".to_owned()),
+                state_mode: Some("isolated".to_owned()),
+                active_profile_added_at: Some(newer),
+                active_profile_applied: Some(true),
+                credentials_present: true,
+                permissions_ok: true,
+            },
+        ];
+        let args = StatusArgs {
+            tool: None,
+            search: None,
+            sort: Some(crate::cli::SortBy::Recent),
+            active_only: false,
+            json: false,
+        };
+
+        apply_status_filters(&mut statuses, &args);
+        assert_eq!(statuses[0].tool, Tool::Codex);
+        assert_eq!(statuses[1].tool, Tool::Claude);
     }
 }

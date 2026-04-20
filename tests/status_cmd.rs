@@ -4,6 +4,7 @@ mod common;
 use std::os::unix::fs::PermissionsExt;
 
 use common::TestEnv;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -322,4 +323,30 @@ fn status_no_active_profile_shows_dash() {
         .stdout(contains("Active"))
         .stdout(contains("none"))
         .stdout(contains("profiles stored, but none is active"));
+}
+
+#[test]
+fn status_supports_tool_search_and_active_only_filters() {
+    let env = TestEnv::new();
+    add_and_activate_claude(&env, "work");
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd()
+        .args(["add", "codex", "main", "--api-key", VALID_CODEX_KEY])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args([
+            "status",
+            "--tool",
+            "claude",
+            "--search",
+            "work",
+            "--active-only",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Claude Code"))
+        .stdout(contains("work"))
+        .stdout(predicates::str::contains("Codex CLI").not());
 }

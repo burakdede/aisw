@@ -161,6 +161,22 @@ pub struct ListArgs {
     /// Filter output to a specific tool
     pub tool: Option<Tool>,
 
+    /// Filter output to a specific tool
+    #[arg(long = "tool", conflicts_with = "tool")]
+    pub tool_filter: Option<Tool>,
+
+    /// Filter by profile name or label
+    #[arg(long)]
+    pub search: Option<String>,
+
+    /// Sort output rows
+    #[arg(long, value_enum)]
+    pub sort: Option<SortBy>,
+
+    /// Show only active profiles
+    #[arg(long)]
+    pub active_only: bool,
+
     /// Output as JSON
     #[arg(long)]
     pub json: bool,
@@ -197,6 +213,22 @@ pub struct RenameArgs {
 
 #[derive(Args, Debug)]
 pub struct StatusArgs {
+    /// Filter output to a specific tool
+    #[arg(long = "tool")]
+    pub tool: Option<Tool>,
+
+    /// Filter by tool/profile/auth/backend text
+    #[arg(long)]
+    pub search: Option<String>,
+
+    /// Sort output rows
+    #[arg(long, value_enum)]
+    pub sort: Option<SortBy>,
+
+    /// Show only tools with an active profile
+    #[arg(long)]
+    pub active_only: bool,
+
     /// Output as JSON
     #[arg(long)]
     pub json: bool,
@@ -245,9 +277,31 @@ pub struct BackupArgs {
 
 #[derive(Args, Debug)]
 pub struct BackupListArgs {
+    /// Filter output to a specific tool
+    #[arg(long = "tool")]
+    pub tool: Option<Tool>,
+
+    /// Filter by backup id, tool, or profile text
+    #[arg(long)]
+    pub search: Option<String>,
+
+    /// Sort output rows
+    #[arg(long, value_enum)]
+    pub sort: Option<SortBy>,
+
+    /// Show only backups of currently active profiles
+    #[arg(long)]
+    pub active_only: bool,
+
     /// Output as JSON
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortBy {
+    Name,
+    Recent,
 }
 
 #[derive(Subcommand, Debug)]
@@ -364,6 +418,10 @@ mod tests {
             panic!("wrong command")
         };
         assert!(args.tool.is_none());
+        assert!(args.tool_filter.is_none());
+        assert!(args.search.is_none());
+        assert!(args.sort.is_none());
+        assert!(!args.active_only);
         assert!(!args.json);
     }
 
@@ -374,7 +432,30 @@ mod tests {
             panic!("wrong command")
         };
         assert_eq!(args.tool, Some(Tool::Codex));
+        assert!(args.tool_filter.is_none());
         assert!(args.json);
+    }
+
+    #[test]
+    fn list_filter_flags_parse() {
+        let cli = parse(&[
+            "list",
+            "--tool",
+            "claude",
+            "--search",
+            "work",
+            "--sort",
+            "recent",
+            "--active-only",
+        ])
+        .unwrap();
+        let Command::List(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert_eq!(args.tool_filter, Some(Tool::Claude));
+        assert_eq!(args.search.as_deref(), Some("work"));
+        assert_eq!(args.sort, Some(SortBy::Recent));
+        assert!(args.active_only);
     }
 
     #[test]
@@ -390,10 +471,25 @@ mod tests {
 
     #[test]
     fn status_json() {
-        let cli = parse(&["status", "--json"]).unwrap();
+        let cli = parse(&[
+            "status",
+            "--tool",
+            "claude",
+            "--search",
+            "work",
+            "--sort",
+            "name",
+            "--active-only",
+            "--json",
+        ])
+        .unwrap();
         let Command::Status(args) = cli.command else {
             panic!("wrong command")
         };
+        assert_eq!(args.tool, Some(Tool::Claude));
+        assert_eq!(args.search.as_deref(), Some("work"));
+        assert_eq!(args.sort, Some(SortBy::Name));
+        assert!(args.active_only);
         assert!(args.json);
     }
 
@@ -458,6 +554,10 @@ mod tests {
         let BackupCommand::List(list_args) = args.command else {
             panic!("wrong subcommand")
         };
+        assert!(list_args.tool.is_none());
+        assert!(list_args.search.is_none());
+        assert!(list_args.sort.is_none());
+        assert!(!list_args.active_only);
         assert!(!list_args.json);
     }
 
@@ -471,6 +571,32 @@ mod tests {
             panic!("wrong subcommand")
         };
         assert!(list_args.json);
+    }
+
+    #[test]
+    fn backup_list_filter_flags_parse() {
+        let cli = parse(&[
+            "backup",
+            "list",
+            "--tool",
+            "codex",
+            "--search",
+            "main",
+            "--sort",
+            "name",
+            "--active-only",
+        ])
+        .unwrap();
+        let Command::Backup(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let BackupCommand::List(list_args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert_eq!(list_args.tool, Some(Tool::Codex));
+        assert_eq!(list_args.search.as_deref(), Some("main"));
+        assert_eq!(list_args.sort, Some(SortBy::Name));
+        assert!(list_args.active_only);
     }
 
     #[test]

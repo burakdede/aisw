@@ -1,6 +1,7 @@
 mod common;
 
 use common::TestEnv;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 fn strip_ansi(input: &str) -> String {
@@ -166,6 +167,49 @@ fn backup_list_json_output_is_valid_json_array() {
     assert_eq!(arr[0]["tool"], "claude");
     assert_eq!(arr[0]["profile"], "work");
     assert!(arr[0]["backup_id"].as_str().is_some());
+}
+
+#[test]
+fn backup_list_supports_tool_search_and_active_only() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    env.add_fake_tool("codex", "codex 1.0.0");
+    let claude_key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let codex_key = "sk-codex-test-key-12345";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", claude_key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    env.cmd()
+        .args(["add", "codex", "main", "--api-key", codex_key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "codex", "main"]).assert().success();
+
+    // Re-activate claude so only claude/work is active at query time.
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    env.cmd()
+        .args([
+            "backup",
+            "list",
+            "--tool",
+            "claude",
+            "--search",
+            "work",
+            "--active-only",
+            "--sort",
+            "name",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("claude"))
+        .stdout(contains("work"))
+        .stdout(predicates::str::contains("codex").not())
+        .stdout(predicates::str::contains("main").not());
 }
 
 // ── backup restore ────────────────────────────────────────────────────────────

@@ -19,7 +19,8 @@ pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
 fn run_list(args: BackupListArgs, home: &Path) -> Result<()> {
     const PROFILE_WIDTH: usize = 40;
 
-    let entries = BackupManager::new(home).list()?;
+    let mut entries = BackupManager::new(home).list()?;
+    apply_backup_filters(&mut entries, home, &args)?;
     if args.json {
         return print_json(&entries);
     }
@@ -42,6 +43,50 @@ fn run_list(args: BackupListArgs, home: &Path) -> Result<()> {
             (profile.as_str(), 0),
         ]);
     }
+    Ok(())
+}
+
+fn apply_backup_filters(
+    entries: &mut Vec<crate::backup::BackupEntry>,
+    home: &Path,
+    args: &BackupListArgs,
+) -> Result<()> {
+    if let Some(tool) = args.tool {
+        entries.retain(|e| e.tool == tool);
+    }
+
+    if args.active_only {
+        let config = ConfigStore::new(home).load()?;
+        entries.retain(|e| config.active_for(e.tool) == Some(e.profile.as_str()));
+    }
+
+    if let Some(search) = args.search.as_deref() {
+        let needle = search.trim().to_ascii_lowercase();
+        if !needle.is_empty() {
+            entries.retain(|e| {
+                e.backup_id.to_ascii_lowercase().contains(&needle)
+                    || e.tool.binary_name().to_ascii_lowercase().contains(&needle)
+                    || e.profile.to_ascii_lowercase().contains(&needle)
+            });
+        }
+    }
+
+    match args.sort {
+        Some(crate::cli::SortBy::Name) => {
+            entries.sort_by(|a, b| {
+                a.tool
+                    .binary_name()
+                    .cmp(b.tool.binary_name())
+                    .then_with(|| a.profile.cmp(&b.profile))
+                    .then_with(|| b.backup_id.cmp(&a.backup_id))
+            });
+        }
+        Some(crate::cli::SortBy::Recent) => {
+            entries.sort_by(|a, b| b.backup_id.cmp(&a.backup_id));
+        }
+        None => {}
+    }
+
     Ok(())
 }
 
@@ -182,7 +227,17 @@ mod tests {
         let dir = tempdir().unwrap();
         // No error, no backups — run_list should succeed with no output (we can't
         // easily capture stdout in unit tests, but we verify it doesn't error).
-        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
+        run_list(
+            BackupListArgs {
+                tool: None,
+                search: None,
+                sort: None,
+                active_only: false,
+                json: false,
+            },
+            dir.path(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -190,7 +245,17 @@ mod tests {
         let dir = tempdir().unwrap();
         make_profile(dir.path(), Tool::Claude, "work");
         snapshot(dir.path(), Tool::Claude, "work");
-        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
+        run_list(
+            BackupListArgs {
+                tool: None,
+                search: None,
+                sort: None,
+                active_only: false,
+                json: false,
+            },
+            dir.path(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -228,6 +293,73 @@ mod tests {
     fn run_list_empty_dir_exits_ok() {
         let dir = tempdir().unwrap();
         // backups dir does not even exist yet
-        run_list(BackupListArgs { json: false }, dir.path()).unwrap();
+        run_list(
+            BackupListArgs {
+                tool: None,
+                search: None,
+                sort: None,
+                active_only: false,
+                json: false,
+            },
+            dir.path(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn apply_backup_filters_active_only_keeps_only_active_profile_backups() {
+        let dir = tempdir().unwrap();
+        make_profile(dir.path(), Tool::Claude, "work");
+        make_profile(dir.path(), Tool::Codex, "main");
+        let ts1 = snapshot(dir.path(), Tool::Claude, "work");
+        let _ts2 = snapshot(dir.path(), Tool::Codex, "main");
+
+        let cs = ConfigStore::new(dir.path());
+        cs.set_active(Tool::Claude, "work").unwrap();
+
+        let mut entries = BackupManager::new(dir.path()).list().unwrap();
+        apply_backup_filters(
+            &mut entries,
+            dir.path(),
+            &BackupListArgs {
+                tool: None,
+                search: None,
+                sort: None,
+                active_only: true,
+                json: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].tool, Tool::Claude);
+        assert_eq!(entries[0].profile, "work");
+        assert_eq!(entries[0].backup_id, ts1);
+    }
+
+    #[test]
+    fn apply_backup_filters_sort_name_orders_tool_then_profile() {
+        let dir = tempdir().unwrap();
+        make_profile(dir.path(), Tool::Claude, "zzz");
+        make_profile(dir.path(), Tool::Claude, "aaa");
+        snapshot(dir.path(), Tool::Claude, "zzz");
+        snapshot(dir.path(), Tool::Claude, "aaa");
+
+        let mut entries = BackupManager::new(dir.path()).list().unwrap();
+        apply_backup_filters(
+            &mut entries,
+            dir.path(),
+            &BackupListArgs {
+                tool: Some(Tool::Claude),
+                search: None,
+                sort: Some(crate::cli::SortBy::Name),
+                active_only: false,
+                json: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(entries[0].profile, "aaa");
+        assert_eq!(entries[1].profile, "zzz");
     }
 }
