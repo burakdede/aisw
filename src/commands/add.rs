@@ -1054,6 +1054,7 @@ mod tests {
     #[test]
     fn claude_oauth_add_without_set_active_restores_live_state() {
         with_env_lock(|| {
+            let _runtime = RuntimeGuard::set(false, false);
             let tmp = tempdir().unwrap();
             let aisw_home = tmp.path().join("aisw-home");
             let user_home = tmp.path().join("user-home");

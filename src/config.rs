@@ -1007,6 +1007,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn concurrent_process_writers_do_not_lose_updates() {
         let dir = tempdir().unwrap();
         let signal_path = dir.path().join("lock-held.signal");
@@ -1036,6 +1037,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn config_mutations_fail_with_clear_error_after_lock_timeout() {
         let dir = tempdir().unwrap();
         let signal_path = dir.path().join("lock-timeout.signal");

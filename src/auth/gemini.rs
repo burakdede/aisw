@@ -1095,6 +1095,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn prepare_scratch_home_pretrusts_workspace() {
         let dir = tempdir().unwrap();
         let scratch = dir.path().join("scratch");

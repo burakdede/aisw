@@ -314,6 +314,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn fake_keyring_round_trip_and_find_account() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();

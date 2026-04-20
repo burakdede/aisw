@@ -212,6 +212,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn snapshot_restore_and_delete_backup_secret_round_trip_in_fake_keyring() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();

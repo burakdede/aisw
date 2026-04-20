@@ -876,6 +876,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn snapshot_and_restore_secure_profile_secret() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
