@@ -109,6 +109,7 @@ impl TestEnv {
             let local = self.fake_home.join("AppData").join("Local");
             fs::create_dir_all(&roaming).expect("failed to create fake AppData/Roaming");
             fs::create_dir_all(&local).expect("failed to create fake AppData/Local");
+            cmd.env_remove("HOMEDRIVE").env_remove("HOMEPATH");
             cmd.env("USERPROFILE", &self.fake_home)
                 .env("APPDATA", roaming)
                 .env("LOCALAPPDATA", local);
