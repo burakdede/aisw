@@ -320,6 +320,31 @@ fn import_credentials(
     Ok(())
 }
 
+fn print_import_outcome(tool: Tool, profile_name: &str, marked_active: bool) {
+    output::print_kv("Import", format!("profile '{}'", profile_name));
+    output::print_kv(
+        "Activation",
+        if marked_active { "active" } else { "stored" },
+    );
+    output::print_blank_line();
+    output::print_effects_header();
+    if marked_active {
+        output::print_effect(format!(
+            "Imported {} credentials as profile '{}' and marked it active.",
+            tool.display_name(),
+            profile_name
+        ));
+        output::print_effect("Active profile updated.");
+    } else {
+        output::print_effect(format!(
+            "Imported {} credentials as profile '{}'.",
+            tool.display_name(),
+            profile_name
+        ));
+    }
+    output::print_blank_line();
+}
+
 fn print_already_managed_live_match(
     tool: Tool,
     config_store: &ConfigStore,
@@ -579,21 +604,10 @@ fn import_claude(
     )?;
     if mark_active {
         activate_imported_profile(Tool::Claude, &config_store, &profile_name)?;
-        output::print_success(format!(
-            "Imported Claude Code credentials as profile '{}' and marked it active.",
-            profile_name
-        ));
-        output::print_kv("Import", format!("profile '{}'", profile_name));
-        output::print_kv("Activation", "active");
+        print_import_outcome(Tool::Claude, &profile_name, true);
     } else {
-        output::print_success(format!(
-            "Imported Claude Code credentials as profile '{}'.",
-            profile_name
-        ));
-        output::print_kv("Import", format!("profile '{}'", profile_name));
-        output::print_kv("Activation", "stored");
+        print_import_outcome(Tool::Claude, &profile_name, false);
     }
-    output::print_blank_line();
     Ok(())
 }
 
@@ -770,21 +784,10 @@ fn import_codex(
     )?;
     if mark_active {
         activate_imported_profile(Tool::Codex, &config_store, &profile_name)?;
-        output::print_success(format!(
-            "Imported Codex CLI credentials as profile '{}' and marked it active.",
-            profile_name
-        ));
-        output::print_kv("Import", format!("profile '{}'", profile_name));
-        output::print_kv("Activation", "active");
+        print_import_outcome(Tool::Codex, &profile_name, true);
     } else {
-        output::print_success(format!(
-            "Imported Codex CLI credentials as profile '{}'.",
-            profile_name
-        ));
-        output::print_kv("Import", format!("profile '{}'", profile_name));
-        output::print_kv("Activation", "stored");
+        print_import_outcome(Tool::Codex, &profile_name, false);
     }
-    output::print_blank_line();
     Ok(())
 }
 
@@ -906,21 +909,10 @@ fn import_gemini(
     )?;
     if mark_active {
         activate_imported_profile(Tool::Gemini, &config_store, &profile_name)?;
-        output::print_success(format!(
-            "Imported Gemini CLI credentials as profile '{}' and marked it active.",
-            profile_name
-        ));
-        output::print_kv("Import", format!("profile '{}'", profile_name));
-        output::print_kv("Activation", "active");
+        print_import_outcome(Tool::Gemini, &profile_name, true);
     } else {
-        output::print_success(format!(
-            "Imported Gemini CLI credentials as profile '{}'.",
-            profile_name
-        ));
-        output::print_kv("Import", format!("profile '{}'", profile_name));
-        output::print_kv("Activation", "stored");
+        print_import_outcome(Tool::Gemini, &profile_name, false);
     }
-    output::print_blank_line();
     Ok(())
 }
 
