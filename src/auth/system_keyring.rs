@@ -151,7 +151,22 @@ fn resolve_account(service: &str, account: Option<&str>) -> Result<Option<String
 }
 
 fn fake_root() -> Option<PathBuf> {
-    test_overrides::string("AISW_KEYRING_TEST_DIR").map(PathBuf::from)
+    if let Some(path) = test_overrides::string("AISW_KEYRING_TEST_DIR") {
+        return Some(PathBuf::from(path));
+    }
+
+    // Safety default for unit-test binaries: never touch the developer's real
+    // credential store unless explicitly opted in for canary validation.
+    #[cfg(test)]
+    {
+        if std::env::var("AISW_ENABLE_REAL_CREDENTIAL_STORE_CANARY").as_deref() != Ok("1") {
+            return Some(
+                std::env::temp_dir().join(format!("aisw-test-keyring-{}", std::process::id())),
+            );
+        }
+    }
+
+    None
 }
 
 fn fake_item_component(account: &str) -> String {
