@@ -713,7 +713,7 @@ mod tests {
 
     fn with_env_lock<T>(f: impl FnOnce() -> T) -> T {
         let _spawn_lock = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _lock = env_lock().lock().unwrap();
+        let _lock = env_lock().lock().unwrap_or_else(|p| p.into_inner());
         f()
     }
 

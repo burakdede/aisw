@@ -503,6 +503,7 @@ mod tests {
              exit 1\n",
         )
         .unwrap();
+        #[cfg(unix)]
         fs::set_permissions(bin, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
