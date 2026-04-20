@@ -1304,6 +1304,35 @@ mod tests {
     }
 
     #[test]
+    fn preferred_live_oauth_file_prefers_oauth_creds_when_settings_missing() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+        std::fs::write(gemini_dir.join("a.json"), "{}").unwrap();
+        std::fs::write(gemini_dir.join("oauth_creds.json"), "{}").unwrap();
+
+        let files = live_oauth_files_for_import(&user_home).unwrap();
+        let preferred = preferred_live_oauth_file(&files).expect("preferred file");
+        assert_eq!(preferred.file_name, "oauth_creds.json");
+    }
+
+    #[test]
+    fn preferred_live_oauth_file_falls_back_to_first_file() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+        std::fs::write(gemini_dir.join("b.json"), "{}").unwrap();
+        std::fs::write(gemini_dir.join("a.json"), "{}").unwrap();
+
+        let files = live_oauth_files_for_import(&user_home).unwrap();
+        let preferred = preferred_live_oauth_file(&files).expect("preferred file");
+        // live_oauth_files_for_import sorts filenames ascending.
+        assert_eq!(preferred.file_name, "a.json");
+    }
+
+    #[test]
     fn detect_live_import_selection_prefers_env_when_both_sources_exist() {
         let dir = tempdir().unwrap();
         let user_home = dir.path().join("home");
@@ -1318,6 +1347,29 @@ mod tests {
         assert_eq!(selection.method, AuthMethod::ApiKey);
         assert!(selection.has_both_sources);
         assert_eq!(selection.oauth_files.len(), 1);
+    }
+
+    #[test]
+    fn detect_live_import_selection_uses_oauth_when_env_absent() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+        std::fs::write(gemini_dir.join("oauth_creds.json"), "{}").unwrap();
+        std::fs::write(gemini_dir.join("z.json"), "{}").unwrap();
+
+        let selection = detect_live_import_selection(&user_home)
+            .unwrap()
+            .expect("selection should be present");
+        assert_eq!(selection.method, AuthMethod::OAuth);
+        assert!(!selection.has_both_sources);
+        assert_eq!(selection.oauth_files.len(), 2);
+        assert!(
+            selection.source_description.contains("oauth_creds.json")
+                && selection.source_description.contains("(+1 more files)"),
+            "unexpected source description: {}",
+            selection.source_description
+        );
     }
 
     #[test]
@@ -1357,6 +1409,60 @@ mod tests {
         std::fs::write(dest_dir.join(ENV_FILE), b"GEMINI_API_KEY=stale\n").unwrap();
 
         assert!(!live_token_cache_matches(&ps, "default", &dest_dir).unwrap());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn live_token_cache_matches_after_apply_token_cache() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true, false);
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let dest_dir = dir.path().join("fake_gemini_home");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        apply_token_cache(&ps, "default", &dest_dir).unwrap();
+
+        assert!(live_token_cache_matches(&ps, "default", &dest_dir).unwrap());
+    }
+
+    #[test]
+    fn read_api_key_errors_when_env_missing_expected_key_var() {
+        let dir = tempdir().unwrap();
+        let ps = ProfileStore::new(dir.path());
+        ps.create(Tool::Gemini, "default").unwrap();
+        ps.write_file(Tool::Gemini, "default", ENV_FILE, b"OTHER_VAR=value\n")
+            .unwrap();
+
+        let err = read_api_key(&ps, "default").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("missing the 'GEMINI_API_KEY' entry")
+                && msg.contains("aisw remove gemini default")
+                && msg.contains("aisw add gemini default"),
+            "unexpected error message: {msg}"
+        );
+    }
+
+    #[test]
+    fn live_import_source_description_formats_single_and_multiple() {
+        let single = live_import_source_description(Path::new("/tmp/oauth_creds.json"), 1);
+        let multiple = live_import_source_description(Path::new("/tmp/oauth_creds.json"), 3);
+        assert_eq!(single, "found /tmp/oauth_creds.json");
+        assert_eq!(multiple, "found /tmp/oauth_creds.json (+2 more files)");
     }
 
     // ---- extract_captured_identity tests ----
