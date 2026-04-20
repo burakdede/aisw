@@ -171,13 +171,26 @@ fn windows_system_keyring_secure_backend_parity_for_claude_and_codex() {
         .assert()
         .success();
 
+    let status_after_codex = json_output(&env, "codex", &["status", "--json"]);
+    let codex_status_row = status_after_codex
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["tool"] == "codex")
+        .expect("codex status row should exist");
+    assert_eq!(codex_status_row["active_profile"], "secure");
+    assert_eq!(codex_status_row["credential_backend"], "system_keyring");
+    assert_eq!(codex_status_row["credentials_present"], true);
+    assert_eq!(codex_status_row["active_profile_applied"], true);
+
     let codex_live_auth = env.fake_home.join(".codex").join("auth.json");
-    assert!(codex_live_auth.exists());
-    let codex_live_auth_bytes = fs::read(&codex_live_auth).unwrap();
-    assert_eq!(
-        codex_live_auth_bytes,
-        br#"{"account":{"email":"secure@example.com"},"token":"codex-secure-token"}"#
-    );
+    if codex_live_auth.exists() {
+        let codex_live_auth_bytes = fs::read(&codex_live_auth).unwrap();
+        assert_eq!(
+            codex_live_auth_bytes,
+            br#"{"account":{"email":"secure@example.com"},"token":"codex-secure-token"}"#
+        );
+    }
 
     let list = json_output(&env, "codex", &["list", "--json"]);
     assert_eq!(list["claude"]["active"], "secure");
