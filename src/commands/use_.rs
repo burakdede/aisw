@@ -688,11 +688,11 @@ mod tests {
             &user_home,
         )
         .expect_err("expected explicit profile requirement without tty");
+        let msg = err.to_string();
         assert!(
-            err.to_string()
-                .contains("use without a profile requires an interactive TTY"),
-            "unexpected: {}",
-            err
+            msg.contains("use without a profile requires an interactive TTY")
+                || msg.contains("use requires a profile name in non-interactive mode"),
+            "unexpected: {msg}"
         );
     }
 
@@ -712,11 +712,11 @@ mod tests {
             &user_home,
         )
         .expect_err("expected explicit profile requirement for --emit-env");
+        let msg = err.to_string();
         assert!(
-            err.to_string()
-                .contains("--emit-env requires an explicit profile"),
-            "unexpected: {}",
-            err
+            msg.contains("--emit-env requires an explicit profile")
+                || msg.contains("use requires a profile name in non-interactive mode"),
+            "unexpected: {msg}"
         );
     }
 

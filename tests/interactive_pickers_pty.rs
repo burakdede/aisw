@@ -86,6 +86,26 @@ mod unix {
             "credentials should be restored from backup"
         );
     }
+
+    #[test]
+    fn use_without_profile_uses_tty_picker() {
+        let env = TestEnv::new();
+        add_claude(&env, "default", VALID_CLAUDE_KEY);
+        add_claude(&env, "work", VALID_CLAUDE_KEY_ALT);
+        env.cmd().args(["use", "claude", "work"]).assert().success();
+
+        // Active profile is pre-selected in picker; Enter selects "work".
+        let result = env.run_in_pty(&["use", "claude"], "\n");
+        assert_eq!(
+            result.exit_code, 0,
+            "use picker should succeed, output:\n{}",
+            result.output
+        );
+
+        let config: serde_json::Value =
+            serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+        assert_eq!(config["active"]["claude"], "work");
+    }
 }
 
 #[cfg(not(unix))]
