@@ -131,6 +131,32 @@ fn use_nonexistent_profile_fails() {
 }
 
 #[test]
+fn use_without_profile_in_non_interactive_mode_fails_clearly() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+
+    env.cmd()
+        .args(["--non-interactive", "use", "claude"])
+        .assert()
+        .failure()
+        .stderr(contains("requires a profile name in non-interactive mode"))
+        .stderr(contains("aisw use claude <profile>"));
+}
+
+#[test]
+fn use_without_profile_in_non_tty_fails_clearly() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+
+    env.cmd()
+        .args(["use", "claude"])
+        .assert()
+        .failure()
+        .stderr(contains("requires an interactive TTY"))
+        .stderr(contains("aisw use claude <profile>"));
+}
+
+#[test]
 fn use_updates_active_profile_in_config() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");

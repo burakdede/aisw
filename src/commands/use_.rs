@@ -1,6 +1,8 @@
+use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use dialoguer::{theme::ColorfulTheme, Input, Select};
 
 use crate::auth;
 use crate::backup::BackupManager;
@@ -20,13 +22,12 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
         }
         run_all_in(profile_name, home, &user_home)
     } else {
-        let tool = args.tool.expect("tool required when --all is not set");
-        let profile_name = args
-            .profile_name
-            .expect("profile_name required when tool is set");
+        let tool = args
+            .tool
+            .context("use requires <tool> unless --all is provided")?;
         run_for_tool(
             tool,
-            &profile_name,
+            args.profile_name.as_deref(),
             args.state_mode,
             args.emit_env,
             home,
@@ -50,7 +51,7 @@ pub(crate) fn run_all_in(profile_name: &str, home: &Path, user_home: &Path) -> R
             ));
             continue;
         }
-        match run_for_tool(tool, profile_name, None, false, home, user_home) {
+        match run_for_tool(tool, Some(profile_name), None, false, home, user_home) {
             Ok(()) => switched += 1,
             Err(e) => errors.push(format!("{}: {}", tool, e)),
         }
@@ -67,11 +68,12 @@ pub(crate) fn run_all_in(profile_name: &str, home: &Path, user_home: &Path) -> R
 
 #[cfg(test)]
 pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()> {
-    let tool = args.tool.expect("tool is required in run_in");
-    let profile_name = args.profile_name.expect("profile_name required in run_in");
+    let tool = args
+        .tool
+        .context("run_in requires tool when --all is not set")?;
     run_for_tool(
         tool,
-        &profile_name,
+        args.profile_name.as_deref(),
         args.state_mode,
         args.emit_env,
         home,
@@ -81,7 +83,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
 
 fn run_for_tool(
     tool: Tool,
-    profile_name: &str,
+    requested_profile_name: Option<&str>,
     state_mode_override: Option<StateMode>,
     emit_env: bool,
     home: &Path,
@@ -109,16 +111,23 @@ fn run_for_tool(
     };
 
     let profiles = config.profiles_for(tool);
+    let profile_name = resolve_profile_name(
+        tool,
+        requested_profile_name,
+        profiles,
+        config.active_for(tool),
+        emit_env,
+    )?;
 
-    let profile_meta = match profiles.get(profile_name) {
+    let profile_meta = match profiles.get(&profile_name) {
         Some(m) => m,
         None => {
             let profile_names: Vec<&str> = profiles.keys().map(String::as_str).collect();
             let suggestion =
-                crate::util::edit_distance::closest_match(profile_name, &profile_names, 2);
+                crate::util::edit_distance::closest_match(&profile_name, &profile_names, 2);
             let err = AiswError::ProfileNotFound {
                 tool,
-                name: profile_name.to_owned(),
+                name: profile_name.clone(),
             };
             if let Some(hint) = suggestion {
                 anyhow::bail!("{}\n  Did you mean '{}'?", err, hint);
@@ -131,15 +140,15 @@ fn run_for_tool(
 
     if config.settings.backup_on_switch {
         let backup_manager = BackupManager::new(home);
-        let profile_dir = profile_store.profile_dir(tool, profile_name);
-        backup_manager.snapshot(tool, profile_name, &profile_dir, profile_meta)?;
+        let profile_dir = profile_store.profile_dir(tool, &profile_name);
+        backup_manager.snapshot(tool, &profile_name, &profile_dir, profile_meta)?;
     }
 
     match tool {
         Tool::Claude => match profile_meta.auth_method {
             AuthMethod::OAuth => {
                 if emit_env {
-                    auth::claude::emit_shell_env(profile_name, &profile_store, state_mode);
+                    auth::claude::emit_shell_env(&profile_name, &profile_store, state_mode);
                 } else {
                     if cfg!(target_os = "macos") {
                         output::print_info(
@@ -149,7 +158,7 @@ fn run_for_tool(
                     }
                     auth::claude::apply_live_credentials(
                         &profile_store,
-                        profile_name,
+                        &profile_name,
                         profile_meta.credential_backend,
                         user_home,
                     )?;
@@ -157,7 +166,7 @@ fn run_for_tool(
             }
             AuthMethod::ApiKey => {
                 if emit_env {
-                    auth::claude::emit_shell_env(profile_name, &profile_store, state_mode);
+                    auth::claude::emit_shell_env(&profile_name, &profile_store, state_mode);
                 } else {
                     if cfg!(target_os = "macos") {
                         output::print_info(
@@ -167,7 +176,7 @@ fn run_for_tool(
                     }
                     auth::claude::apply_live_credentials(
                         &profile_store,
-                        profile_name,
+                        &profile_name,
                         profile_meta.credential_backend,
                         user_home,
                     )?;
@@ -177,11 +186,11 @@ fn run_for_tool(
         Tool::Codex => match profile_meta.auth_method {
             AuthMethod::OAuth => {
                 if emit_env {
-                    auth::codex::emit_shell_env(profile_name, &profile_store, state_mode);
+                    auth::codex::emit_shell_env(&profile_name, &profile_store, state_mode);
                 } else {
                     auth::codex::apply_live_credentials(
                         &profile_store,
-                        profile_name,
+                        &profile_name,
                         profile_meta.credential_backend,
                         user_home,
                     )?;
@@ -191,7 +200,7 @@ fn run_for_tool(
                 if emit_env {
                     match state_mode {
                         StateMode::Isolated => {
-                            auth::codex::emit_shell_env(profile_name, &profile_store, state_mode)
+                            auth::codex::emit_shell_env(&profile_name, &profile_store, state_mode)
                         }
                         StateMode::Shared => {
                             crate::auth::files::emit_unset("CODEX_HOME");
@@ -200,7 +209,7 @@ fn run_for_tool(
                 } else {
                     auth::codex::apply_live_credentials(
                         &profile_store,
-                        profile_name,
+                        &profile_name,
                         profile_meta.credential_backend,
                         user_home,
                     )?;
@@ -214,12 +223,12 @@ fn run_for_tool(
             match profile_meta.auth_method {
                 AuthMethod::ApiKey => {
                     if emit_env {
-                        let key = auth::gemini::read_api_key(&profile_store, profile_name)?;
+                        let key = auth::gemini::read_api_key(&profile_store, &profile_name)?;
                         crate::auth::files::emit_export("GEMINI_API_KEY", &key);
                     } else {
                         auth::gemini::apply_env_file(
                             &profile_store,
-                            profile_name,
+                            &profile_name,
                             &gemini_dir.join(".env"),
                         )?;
                     }
@@ -228,7 +237,11 @@ fn run_for_tool(
                     if emit_env {
                         crate::auth::files::emit_unset("GEMINI_API_KEY");
                     } else {
-                        auth::gemini::apply_token_cache(&profile_store, profile_name, &gemini_dir)?;
+                        auth::gemini::apply_token_cache(
+                            &profile_store,
+                            &profile_name,
+                            &gemini_dir,
+                        )?;
                     }
                 }
             }
@@ -237,16 +250,16 @@ fn run_for_tool(
 
     config_store.activate_profile(
         tool,
-        profile_name,
+        &profile_name,
         tool.supports_state_mode().then_some(state_mode),
     )?;
 
     if !emit_env {
-        let title = format!("{} \u{2192} {}", tool.display_name(), profile_name);
+        let title = format!("{} \u{2192} {}", tool.display_name(), &profile_name);
         output::print_title(&title);
         output::print_kv("Auth", auth_label(profile_meta.auth_method));
         output::print_kv("Backend", profile_meta.credential_backend.display_name());
-        if let Some(identity) = extract_switch_identity(&profile_store, tool, profile_name) {
+        if let Some(identity) = extract_switch_identity(&profile_store, tool, &profile_name) {
             output::print_kv("Account", &identity);
         }
         if tool.supports_state_mode() {
@@ -281,6 +294,150 @@ fn run_for_tool(
     }
 
     Ok(())
+}
+
+fn resolve_profile_name(
+    tool: Tool,
+    requested: Option<&str>,
+    profiles: &std::collections::HashMap<String, crate::config::ProfileMeta>,
+    active: Option<&str>,
+    emit_env: bool,
+) -> Result<String> {
+    if let Some(name) = requested {
+        return Ok(name.to_owned());
+    }
+
+    if profiles.is_empty() {
+        anyhow::bail!(
+            "no profiles stored for {}.\n  Add one first with: aisw add {} <profile> --api-key <key>",
+            tool.display_name(),
+            tool
+        );
+    }
+
+    if crate::runtime::is_non_interactive() {
+        anyhow::bail!(
+            "use requires a profile name in non-interactive mode.\n  Re-run as: aisw use {} <profile>",
+            tool
+        );
+    }
+
+    if emit_env {
+        anyhow::bail!(
+            "--emit-env requires an explicit profile name.\n  Re-run as: aisw use {} <profile> --emit-env",
+            tool
+        );
+    }
+
+    if !stdin_stdout_are_tty() {
+        anyhow::bail!(
+            "use without a profile requires an interactive TTY.\n  Re-run as: aisw use {} <profile>",
+            tool
+        );
+    }
+
+    select_profile_interactively(tool, profiles, active)
+}
+
+fn stdin_stdout_are_tty() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+fn select_profile_interactively(
+    tool: Tool,
+    profiles: &std::collections::HashMap<String, crate::config::ProfileMeta>,
+    active: Option<&str>,
+) -> Result<String> {
+    let mut current_filter = String::new();
+    let theme = ColorfulTheme::default();
+
+    loop {
+        let candidates = filtered_profiles(profiles, active, &current_filter);
+        let mut items = Vec::with_capacity(candidates.len() + 1);
+        let filter_label = if current_filter.is_empty() {
+            "Set filter".to_owned()
+        } else {
+            format!("Set filter (current: {})", current_filter)
+        };
+        items.push(filter_label);
+        items.extend(candidates.iter().map(|c| c.display.clone()));
+
+        let default_index = candidates
+            .iter()
+            .position(|c| c.is_active)
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+
+        let selection = Select::with_theme(&theme)
+            .with_prompt(format!(
+                "Choose {} profile (Enter to select, Esc/Ctrl-C to cancel)",
+                tool.display_name()
+            ))
+            .items(&items)
+            .default(default_index)
+            .interact()?;
+
+        if selection == 0 {
+            current_filter = Input::with_theme(&theme)
+                .with_prompt("Filter profiles by name/label (blank shows all)")
+                .allow_empty(true)
+                .interact_text()?;
+            continue;
+        }
+
+        return Ok(candidates[selection - 1].name.clone());
+    }
+}
+
+#[derive(Clone)]
+struct SelectableProfile {
+    name: String,
+    display: String,
+    is_active: bool,
+}
+
+fn filtered_profiles(
+    profiles: &std::collections::HashMap<String, crate::config::ProfileMeta>,
+    active: Option<&str>,
+    filter: &str,
+) -> Vec<SelectableProfile> {
+    let filter = filter.trim().to_ascii_lowercase();
+    let mut rows: Vec<_> = profiles
+        .iter()
+        .filter_map(|(name, meta)| {
+            let label = meta.label.clone().unwrap_or_default();
+            if !filter.is_empty()
+                && !name.to_ascii_lowercase().contains(&filter)
+                && !label.to_ascii_lowercase().contains(&filter)
+            {
+                return None;
+            }
+
+            let is_active = active == Some(name.as_str());
+            let marker = if is_active { "*" } else { " " };
+            let label_suffix = if label.is_empty() {
+                String::new()
+            } else {
+                format!("  ({})", label)
+            };
+            let display = format!(
+                "{} {} [{}{}]",
+                marker,
+                name,
+                auth_label(meta.auth_method),
+                label_suffix
+            );
+
+            Some(SelectableProfile {
+                name: name.clone(),
+                display,
+                is_active,
+            })
+        })
+        .collect();
+
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows
 }
 
 fn auth_label(method: AuthMethod) -> &'static str {
@@ -421,6 +578,28 @@ mod tests {
         previous: Option<OsString>,
     }
 
+    struct RuntimeModeGuard {
+        non_interactive: bool,
+        quiet: bool,
+    }
+
+    impl RuntimeModeGuard {
+        fn set(non_interactive: bool, quiet: bool) -> Self {
+            let guard = Self {
+                non_interactive: crate::runtime::is_non_interactive(),
+                quiet: crate::runtime::is_quiet(),
+            };
+            crate::runtime::configure(non_interactive, quiet);
+            guard
+        }
+    }
+
+    impl Drop for RuntimeModeGuard {
+        fn drop(&mut self) {
+            crate::runtime::configure(self.non_interactive, self.quiet);
+        }
+    }
+
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let previous = std::env::var_os(key);
@@ -471,6 +650,17 @@ mod tests {
         }
     }
 
+    fn use_args_without_profile(tool: Tool, emit_env: bool) -> UseArgs {
+        UseArgs {
+            tool: Some(tool),
+            profile_name: None,
+            state_mode: None,
+            emit_env,
+            all: false,
+            all_profile: None,
+        }
+    }
+
     #[test]
     fn nonexistent_profile_errors() {
         let tmp = tempdir().unwrap();
@@ -480,6 +670,54 @@ mod tests {
 
         let err = run_in(use_args(Tool::Claude, "ghost", false), &home, &user_home).unwrap_err();
         assert!(err.to_string().contains("not found"), "unexpected: {}", err);
+    }
+
+    #[test]
+    fn missing_profile_without_tty_fails_clearly() {
+        let _runtime = RuntimeModeGuard::set(false, false);
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        fs::create_dir_all(&home).unwrap();
+        setup_claude_api_key_profile(&home, "work");
+
+        let err = run_in(
+            use_args_without_profile(Tool::Claude, false),
+            &home,
+            &user_home,
+        )
+        .expect_err("expected explicit profile requirement without tty");
+        assert!(
+            err.to_string()
+                .contains("use without a profile requires an interactive TTY"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn missing_profile_with_emit_env_requires_explicit_name() {
+        let _runtime = RuntimeModeGuard::set(false, false);
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        fs::create_dir_all(&home).unwrap();
+        setup_claude_api_key_profile(&home, "work");
+
+        let err = run_in(
+            use_args_without_profile(Tool::Claude, true),
+            &home,
+            &user_home,
+        )
+        .expect_err("expected explicit profile requirement for --emit-env");
+        assert!(
+            err.to_string()
+                .contains("--emit-env requires an explicit profile"),
+            "unexpected: {}",
+            err
+        );
     }
 
     #[test]
@@ -668,6 +906,31 @@ mod tests {
         let fake_jwt = format!("eyJhbGciOiJIUzI1NiJ9.{b64}.signature");
         let email = decode_jwt_email(&fake_jwt);
         assert_eq!(email.as_deref(), Some("user@example.com"));
+    }
+
+    #[test]
+    fn filtered_profiles_matches_name_or_label_and_marks_active() {
+        let dir = tempdir().unwrap();
+        let home = dir.path();
+        let ps = ProfileStore::new(home);
+        let cs = ConfigStore::new(home);
+        auth::claude::add_api_key(&ps, &cs, "work", claude_key(), Some("billing".to_owned()))
+            .unwrap();
+        auth::claude::add_api_key(
+            &ps,
+            &cs,
+            "personal",
+            "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            None,
+        )
+        .unwrap();
+
+        let config = cs.load().unwrap();
+        let rows = filtered_profiles(config.profiles_for(Tool::Claude), Some("work"), "bill");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "work");
+        assert!(rows[0].is_active);
+        assert!(rows[0].display.contains("(billing)"));
     }
 
     fn base64_encode(input: &[u8]) -> String {
