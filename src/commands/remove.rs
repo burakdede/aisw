@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use dialoguer::{theme::ColorfulTheme, Select};
+use std::io::IsTerminal;
 
 use crate::auth;
 use crate::backup::BackupManager;
@@ -12,6 +14,12 @@ use crate::runtime;
 use crate::types::Tool;
 
 pub fn run(args: RemoveArgs, home: &Path) -> Result<()> {
+    let profile_name = resolve_profile_name(&args, home)?;
+    let args = RemoveArgs {
+        profile_name: Some(profile_name),
+        ..args
+    };
+
     if !args.yes {
         if runtime::is_non_interactive() {
             bail!(
@@ -21,9 +29,13 @@ pub fn run(args: RemoveArgs, home: &Path) -> Result<()> {
         }
         // Validate before prompting — better UX to fail fast on invalid ops.
         precheck(&args, home)?;
+        let profile_name = args
+            .profile_name
+            .as_deref()
+            .context("remove requires a profile name")?;
         eprint!(
             "Remove {} profile '{}'? This cannot be undone. [y/N] ",
-            args.tool, args.profile_name
+            args.tool, profile_name
         );
         let mut line = String::new();
         std::io::stdin()
@@ -38,23 +50,26 @@ pub fn run(args: RemoveArgs, home: &Path) -> Result<()> {
 
 /// Entry point for non-interactive use (tests and `--yes` flag).
 pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Result<()> {
+    let profile_name = args
+        .profile_name
+        .as_deref()
+        .context("remove requires a profile name")?;
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
 
-    if !profile_store.exists(args.tool, &args.profile_name) {
+    if !profile_store.exists(args.tool, profile_name) {
         let profile_names: Vec<&str> = config
             .profiles_for(args.tool)
             .keys()
             .map(String::as_str)
             .collect();
-        let suggestion =
-            crate::util::edit_distance::closest_match(&args.profile_name, &profile_names, 2);
+        let suggestion = crate::util::edit_distance::closest_match(profile_name, &profile_names, 2);
         if let Some(hint) = suggestion {
             bail!(
                 "profile '{}' not found for {}.\n  Did you mean '{}'?\n  \
                  Run 'aisw list {}' to see available profiles.",
-                args.profile_name,
+                profile_name,
                 args.tool,
                 hint,
                 args.tool
@@ -63,19 +78,19 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
             bail!(
                 "profile '{}' not found for {}.\n  \
                  Run 'aisw list {}' to see available profiles.",
-                args.profile_name,
+                profile_name,
                 args.tool,
                 args.tool
             );
         }
     }
 
-    let is_active = active_for(&config, args.tool) == Some(args.profile_name.as_str());
+    let is_active = active_for(&config, args.tool) == Some(profile_name);
     if is_active && !args.force {
         bail!(
             "profile '{}' is currently active. \
              Switch to another profile first, or use --force.",
-            args.profile_name
+            profile_name
         );
     }
 
@@ -84,26 +99,26 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     }
 
     // Final backup before deleting.
-    let profile_dir = profile_store.profile_dir(args.tool, &args.profile_name);
+    let profile_dir = profile_store.profile_dir(args.tool, profile_name);
     let profile_meta = config
         .profiles_for(args.tool)
-        .get(&args.profile_name)
+        .get(profile_name)
         .with_context(|| {
             format!(
                 "profile '{}' exists on disk for {} but is missing from config",
-                args.profile_name, args.tool
+                profile_name, args.tool
             )
         })?;
     profile_meta
         .credential_backend
         .validate_for_tool(args.tool)?;
-    BackupManager::new(home).snapshot(args.tool, &args.profile_name, &profile_dir, profile_meta)?;
+    BackupManager::new(home).snapshot(args.tool, profile_name, &profile_dir, profile_meta)?;
 
     if profile_meta.credential_backend == crate::config::CredentialBackend::SystemKeyring {
-        auth::secure_store::delete_profile_secret(args.tool, &args.profile_name)?;
+        auth::secure_store::delete_profile_secret(args.tool, profile_name)?;
     }
-    profile_store.delete(args.tool, &args.profile_name)?;
-    config_store.remove_profile(args.tool, &args.profile_name)?;
+    profile_store.delete(args.tool, profile_name)?;
+    config_store.remove_profile(args.tool, profile_name)?;
 
     if is_active {
         config_store.clear_active(args.tool)?;
@@ -111,7 +126,7 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
 
     output::print_title("Removed profile");
     output::print_kv("Tool", args.tool.display_name());
-    output::print_kv("Profile", &args.profile_name);
+    output::print_kv("Profile", profile_name);
     output::print_kv("Was active", if is_active { "yes" } else { "no" });
     output::print_blank_line();
     output::print_effects_header();
@@ -126,26 +141,78 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
 }
 
 fn precheck(args: &RemoveArgs, home: &Path) -> Result<()> {
+    let profile_name = args
+        .profile_name
+        .as_deref()
+        .context("remove requires a profile name")?;
     let profile_store = ProfileStore::new(home);
-    if !profile_store.exists(args.tool, &args.profile_name) {
+    if !profile_store.exists(args.tool, profile_name) {
         bail!(
             "profile '{}' not found for {}.\n  \
              Run 'aisw list {}' to see available profiles.",
-            args.profile_name,
+            profile_name,
             args.tool,
             args.tool
         );
     }
     let config = ConfigStore::new(home).load()?;
-    let is_active = active_for(&config, args.tool) == Some(args.profile_name.as_str());
+    let is_active = active_for(&config, args.tool) == Some(profile_name);
     if is_active && !args.force {
         bail!(
             "profile '{}' is currently active. \
              Switch to another profile first, or use --force.",
-            args.profile_name
+            profile_name
         );
     }
     Ok(())
+}
+
+fn resolve_profile_name(args: &RemoveArgs, home: &Path) -> Result<String> {
+    if let Some(name) = args.profile_name.as_deref() {
+        return Ok(name.to_owned());
+    }
+
+    let config = ConfigStore::new(home).load()?;
+    let profiles = config.profiles_for(args.tool);
+    if profiles.is_empty() {
+        bail!(
+            "no profiles stored for {}.\n  Add one first with: aisw add {} <profile> --api-key <key>",
+            args.tool.display_name(),
+            args.tool
+        );
+    }
+
+    if runtime::is_non_interactive() {
+        bail!(
+            "remove requires a profile name in non-interactive mode.\n  Re-run as: aisw remove {} <profile>",
+            args.tool
+        );
+    }
+
+    if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
+        bail!(
+            "remove without a profile requires an interactive TTY.\n  Re-run as: aisw remove {} <profile>",
+            args.tool
+        );
+    }
+
+    let mut names: Vec<&str> = profiles.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    let default_index = config
+        .active_for(args.tool)
+        .and_then(|active| names.iter().position(|n| *n == active))
+        .unwrap_or(0);
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt(format!(
+            "Choose {} profile to remove (Esc/Ctrl-C to cancel)",
+            args.tool.display_name()
+        ))
+        .items(&names)
+        .default(default_index)
+        .interact()?;
+
+    Ok(names[selection].to_owned())
 }
 
 fn active_for(config: &Config, tool: Tool) -> Option<&str> {
@@ -272,7 +339,7 @@ mod tests {
     fn remove_args(tool: Tool, name: &str, yes: bool, force: bool) -> RemoveArgs {
         RemoveArgs {
             tool,
-            profile_name: name.to_owned(),
+            profile_name: Some(name.to_owned()),
             yes,
             force,
         }

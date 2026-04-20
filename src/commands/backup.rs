@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use dialoguer::{theme::ColorfulTheme, Select};
+use std::io::IsTerminal;
 
 use crate::backup::BackupManager;
 use crate::cli::{BackupCommand, BackupListArgs};
@@ -12,7 +14,7 @@ use crate::runtime;
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
     match command {
         BackupCommand::List(args) => run_list(args, home),
-        BackupCommand::Restore { backup_id, yes } => run_restore(&backup_id, yes, home),
+        BackupCommand::Restore { backup_id, yes } => run_restore(backup_id, yes, home),
     }
 }
 
@@ -105,12 +107,13 @@ fn print_json(entries: &[crate::backup::BackupEntry]) -> Result<()> {
     Ok(())
 }
 
-fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
+fn run_restore(backup_id: Option<String>, yes: bool, home: &Path) -> Result<()> {
+    let backup_id = resolve_backup_id(backup_id, home)?;
     let manager = BackupManager::new(home);
     let entries = manager.list()?;
     let matching: Vec<_> = entries
         .iter()
-        .filter(|e| e.backup_id == backup_id)
+        .filter(|e| e.backup_id == backup_id.as_str())
         .collect();
     if matching.is_empty() {
         bail!(
@@ -145,7 +148,55 @@ fn run_restore(backup_id: &str, yes: bool, home: &Path) -> Result<()> {
         }
     }
 
-    run_restore_inner(backup_id, home)
+    run_restore_inner(&backup_id, home)
+}
+
+fn resolve_backup_id(backup_id: Option<String>, home: &Path) -> Result<String> {
+    if let Some(id) = backup_id {
+        return Ok(id);
+    }
+
+    let entries = BackupManager::new(home).list()?;
+    if entries.is_empty() {
+        bail!(
+            "no backups found.\n  Run 'aisw use <tool> <profile>' first to create one, then 'aisw backup list'."
+        );
+    }
+
+    if runtime::is_non_interactive() {
+        bail!(
+            "backup restore requires a backup id in non-interactive mode.\n  Re-run as: aisw backup restore <backup_id>"
+        );
+    }
+
+    if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
+        bail!(
+            "backup restore without a backup id requires an interactive TTY.\n  Re-run as: aisw backup restore <backup_id>"
+        );
+    }
+
+    let mut unique_ids: Vec<String> = Vec::new();
+    let mut displays: Vec<String> = Vec::new();
+    for entry in entries {
+        if unique_ids.iter().any(|id| id == &entry.backup_id) {
+            continue;
+        }
+        unique_ids.push(entry.backup_id.clone());
+        displays.push(format!(
+            "{}  ({}/{})",
+            entry.backup_id,
+            entry.tool.binary_name(),
+            entry.profile
+        ));
+    }
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Choose backup to restore (Esc/Ctrl-C to cancel)")
+        .items(&displays)
+        .default(0)
+        .interact()?;
+
+    Ok(unique_ids[selection].clone())
 }
 
 pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {

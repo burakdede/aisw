@@ -187,8 +187,8 @@ pub struct RemoveArgs {
     /// Tool the profile belongs to
     pub tool: Tool,
 
-    /// Profile to remove
-    pub profile_name: String,
+    /// Profile to remove (omit to choose interactively in TTY mode)
+    pub profile_name: Option<String>,
 
     /// Skip the confirmation prompt
     #[arg(long)]
@@ -204,11 +204,11 @@ pub struct RenameArgs {
     /// Tool the profile belongs to
     pub tool: Tool,
 
-    /// Existing profile name
-    pub old_name: String,
+    /// Existing profile name (omit to choose interactively in TTY mode)
+    pub old_name: Option<String>,
 
-    /// New profile name
-    pub new_name: String,
+    /// New profile name. When old name is omitted, pass only this value.
+    pub new_name: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -311,8 +311,8 @@ pub enum BackupCommand {
 
     /// Restore a backup by id
     Restore {
-        /// Backup id to restore (from 'aisw backup list')
-        backup_id: String,
+        /// Backup id to restore (from 'aisw backup list'; omit to choose interactively in TTY mode)
+        backup_id: Option<String>,
 
         /// Skip the confirmation prompt
         #[arg(long)]
@@ -465,6 +465,7 @@ mod tests {
             panic!("wrong command")
         };
         assert_eq!(args.tool, Tool::Claude);
+        assert_eq!(args.profile_name.as_deref(), Some("work"));
         assert!(args.yes);
         assert!(args.force);
     }
@@ -500,8 +501,8 @@ mod tests {
             panic!("wrong command")
         };
         assert_eq!(args.tool, Tool::Codex);
-        assert_eq!(args.old_name, "default");
-        assert_eq!(args.new_name, "work");
+        assert_eq!(args.old_name.as_deref(), Some("default"));
+        assert_eq!(args.new_name.as_deref(), Some("work"));
     }
 
     #[test]
@@ -608,7 +609,7 @@ mod tests {
         let BackupCommand::Restore { backup_id, .. } = args.command else {
             panic!("wrong subcommand")
         };
-        assert_eq!(backup_id, "2026-03-25T10-00-00.123Z-0001");
+        assert_eq!(backup_id.as_deref(), Some("2026-03-25T10-00-00.123Z-0001"));
     }
 
     #[test]

@@ -75,3 +75,16 @@ fn rename_duplicate_target_fails() {
         .failure()
         .stderr(contains("already exists"));
 }
+
+#[test]
+fn rename_without_old_name_in_non_tty_fails_clearly() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "default", VALID_CLAUDE_KEY);
+
+    env.cmd()
+        .args(["rename", "claude", "work"])
+        .assert()
+        .failure()
+        .stderr(contains("requires an interactive TTY"))
+        .stderr(contains("aisw rename claude <old> <new>"));
+}

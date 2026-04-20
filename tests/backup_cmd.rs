@@ -68,11 +68,26 @@ fn backup_list_help_exits_zero() {
 
 #[test]
 fn backup_restore_requires_id_arg() {
-    TestEnv::new()
-        .cmd()
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    env.cmd()
         .args(["backup", "restore"])
         .assert()
-        .failure();
+        .failure()
+        .stderr(contains("requires an interactive TTY"))
+        .stderr(contains("aisw backup restore <backup_id>"));
 }
 
 // ── backup list ───────────────────────────────────────────────────────────────
@@ -323,6 +338,26 @@ fn backup_restore_non_interactive_without_yes_fails_clearly() {
         .failure()
         .stderr(contains("requires confirmation"))
         .stderr(contains("--yes"));
+}
+
+#[test]
+fn backup_restore_without_id_in_non_interactive_fails_clearly() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    let key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", key])
+        .assert()
+        .success();
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    env.cmd()
+        .args(["--non-interactive", "backup", "restore"])
+        .assert()
+        .failure()
+        .stderr(contains("requires a backup id in non-interactive mode"))
+        .stderr(contains("aisw backup restore <backup_id>"));
 }
 
 #[test]

@@ -139,3 +139,16 @@ fn remove_decline_prompt_exits_nonzero() {
         .failure()
         .stderr(contains("operation cancelled by user"));
 }
+
+#[test]
+fn remove_without_profile_in_non_tty_fails_clearly() {
+    let env = TestEnv::new();
+    add_claude(&env, "work");
+
+    env.cmd()
+        .args(["remove", "claude", "--yes"])
+        .assert()
+        .failure()
+        .stderr(contains("requires an interactive TTY"))
+        .stderr(contains("aisw remove claude <profile>"));
+}
