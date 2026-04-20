@@ -152,7 +152,7 @@ fn active_for(config: &Config, tool: Tool) -> Option<&str> {
     config.active_for(tool)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
     use std::fs;

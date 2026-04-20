@@ -269,6 +269,7 @@ pub enum BackupCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once("aisw").chain(args.iter().copied()))
@@ -540,5 +541,33 @@ mod tests {
             panic!("wrong command")
         };
         assert!(args.json);
+    }
+
+    #[test]
+    fn preparse_no_color_detects_flag() {
+        let args = vec![
+            OsString::from("aisw"),
+            OsString::from("--no-color"),
+            OsString::from("status"),
+        ];
+        assert!(preparse_no_color(&args));
+    }
+
+    #[test]
+    fn preparse_no_color_returns_false_when_absent() {
+        let args = vec![OsString::from("aisw"), OsString::from("status")];
+        assert!(!preparse_no_color(&args));
+    }
+
+    #[test]
+    fn parse_from_accepts_no_color_toggle() {
+        let parsed = parse_from(["aisw", "status"], true).unwrap();
+        assert!(matches!(parsed.command, Command::Status(_)));
+    }
+
+    #[test]
+    fn parse_from_reports_errors_for_invalid_input() {
+        let err = parse_from(["aisw", "add", "unknown", "work"], false).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
     }
 }

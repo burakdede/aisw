@@ -213,7 +213,7 @@ fn parse_attribute_value(text: &str, key: &str) -> Option<String> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::ffi::OsString;
@@ -266,6 +266,13 @@ mod tests {
             std::env::set_var(key, value);
             Self { key, old }
         }
+
+        #[cfg(not(target_os = "macos"))]
+        fn unset(key: &'static str) -> Self {
+            let old = std::env::var_os(key);
+            std::env::remove_var(key);
+            Self { key, old }
+        }
     }
 
     impl Drop for EnvVarGuard {
@@ -276,6 +283,29 @@ mod tests {
                 std::env::remove_var(self.key);
             }
         }
+    }
+
+    fn write_mock_security(bin: &std::path::Path, script: &str) {
+        fs::write(bin, script).unwrap();
+        fs::set_permissions(bin, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn is_available_is_true_with_security_override() {
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(&bin, "#!/bin/sh\nexit 0\n");
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        assert!(is_available());
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn ensure_available_paths_error_without_overrides() {
+        let _security = EnvVarGuard::unset("AISW_SECURITY_BIN");
+        let _keychain = EnvVarGuard::unset("AISW_SECURITY_KEYCHAIN");
+        let err = read_generic_password("aisw", None).unwrap_err();
+        assert!(err.to_string().contains("only available on macOS"));
     }
 
     #[test]
@@ -325,6 +355,90 @@ mod tests {
             fs::read_to_string(marker).unwrap(),
             "find-generic-password -s Claude Code-credentials -a tester -w "
         );
+    }
+
+    #[test]
+    fn read_generic_password_returns_none_on_not_found() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\n\
+             echo 'security: item could not be found in the keychain' >&2\n\
+             exit 44\n",
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let result = read_generic_password("Claude Code-credentials", Some("missing")).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn read_generic_password_surfaces_canceled_error() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\n\
+             echo 'User canceled.' >&2\n\
+             exit 128\n",
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let err = read_generic_password("Claude Code-credentials", Some("tester")).unwrap_err();
+        assert!(err.to_string().contains("Keychain access was denied"));
+    }
+
+    #[test]
+    fn read_generic_password_surfaces_generic_error() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\n\
+             echo 'unexpected failure' >&2\n\
+             exit 1\n",
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let err = read_generic_password("Claude Code-credentials", Some("tester")).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("could not read macOS Keychain generic password"));
+    }
+
+    #[test]
+    fn find_generic_password_account_returns_none_on_not_found() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\n\
+             echo 'security: item could not be found in the keychain' >&2\n\
+             exit 44\n",
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let account = find_generic_password_account("aisw").unwrap();
+        assert!(account.is_none());
+    }
+
+    #[test]
+    fn find_generic_password_account_surfaces_generic_error() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\n\
+             echo 'parse blew up' >&2\n\
+             exit 1\n",
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let err = find_generic_password_account("aisw").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("could not inspect macOS Keychain generic password"));
     }
 
     #[test]
@@ -409,5 +523,41 @@ mod tests {
             fs::read_to_string(stdin_capture).unwrap(),
             "{\"claudeAiOauth\":{\"accessToken\":\"tok\"}}\n"
         );
+    }
+
+    #[test]
+    fn upsert_generic_password_surfaces_canceled_error() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             echo 'User canceled.' >&2\n\
+             exit 128\n",
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let err = upsert_generic_password("aisw", "acct", b"secret", &[]).unwrap_err();
+        assert!(err.to_string().contains("Keychain access was denied"));
+    }
+
+    #[test]
+    fn upsert_generic_password_surfaces_generic_error() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\n\
+             cat >/dev/null\n\
+             echo 'boom' >&2\n\
+             exit 1\n",
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let err = upsert_generic_password("aisw", "acct", b"secret", &[]).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("could not update macOS Keychain generic password"));
     }
 }

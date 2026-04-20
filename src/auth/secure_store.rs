@@ -109,7 +109,9 @@ fn backup_account(tool: Tool, profile_name: &str, backup_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::tempdir;
 
     struct CanaryCleanup {
         accounts: Vec<String>,
@@ -146,6 +148,103 @@ mod tests {
             .expect("clock should be after UNIX_EPOCH")
             .as_millis();
         format!("canary-{}-{}", std::process::id(), millis)
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe { std::env::set_var(self.key, value) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
+    }
+
+    #[test]
+    fn profile_and_backup_account_formats_are_stable() {
+        assert_eq!(profile_account(Tool::Claude, "work"), "profile:claude:work");
+        assert_eq!(
+            backup_account(Tool::Codex, "main", "bkp-1"),
+            "backup:bkp-1:codex:main"
+        );
+    }
+
+    #[test]
+    fn rename_profile_secret_errors_when_source_secret_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path());
+
+        let err = rename_profile_secret(Tool::Codex, "missing", "new-name").unwrap_err();
+        assert!(err.to_string().contains("missing from the system keyring"));
+    }
+
+    #[test]
+    fn snapshot_profile_secret_errors_when_source_secret_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path());
+
+        let err = snapshot_profile_secret(Tool::Claude, "missing", "bkp").unwrap_err();
+        assert!(err.to_string().contains("missing from the system keyring"));
+    }
+
+    #[test]
+    fn restore_profile_secret_errors_when_backup_secret_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path());
+
+        let err = restore_profile_secret(Tool::Gemini, "work", "bkp").unwrap_err();
+        assert!(err.to_string().contains("is missing secure credentials"));
+    }
+
+    #[test]
+    fn snapshot_restore_and_delete_backup_secret_round_trip_in_fake_keyring() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path());
+
+        let tool = Tool::Codex;
+        let profile = "work";
+        let backup_id = "backup-123";
+        let original = br#"{"token":"tok-original"}"#;
+        let replacement = br#"{"token":"tok-replacement"}"#;
+
+        write_profile_secret(tool, profile, original).unwrap();
+        snapshot_profile_secret(tool, profile, backup_id).unwrap();
+        write_profile_secret(tool, profile, replacement).unwrap();
+
+        assert_eq!(
+            read_profile_secret(tool, profile).unwrap().as_deref(),
+            Some(replacement.as_slice())
+        );
+
+        restore_profile_secret(tool, profile, backup_id).unwrap();
+        assert_eq!(
+            read_profile_secret(tool, profile).unwrap().as_deref(),
+            Some(original.as_slice())
+        );
+
+        delete_backup_secret(tool, profile, backup_id).unwrap();
+        let backup_account = backup_account(tool, profile, backup_id);
+        assert!(
+            secure_backend::read_generic_password(BACKEND, SERVICE, Some(&backup_account))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

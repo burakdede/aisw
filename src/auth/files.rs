@@ -120,8 +120,6 @@ pub(crate) fn emit_unset(key: &str) {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::symlink;
-
     use tempfile::tempdir;
 
     use super::*;
@@ -138,8 +136,11 @@ mod tests {
         assert!(!profile_store.exists(Tool::Claude, "work"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn list_regular_files_skips_directories_and_symlinks() {
+        use std::os::unix::fs::symlink;
+
         let dir = tempdir().unwrap();
         let file = dir.path().join("real.txt");
         let nested = dir.path().join("nested");

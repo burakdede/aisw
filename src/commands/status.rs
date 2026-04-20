@@ -330,7 +330,7 @@ fn print_json(statuses: &[ToolStatus]) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
     use std::fs;

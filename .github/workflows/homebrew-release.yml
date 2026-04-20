@@ -25,13 +25,15 @@ jobs:
           case "$TAG" in
             v[0-9]*.[0-9]*.[0-9]*) ;;
             *)
-              echo "Skipping: unsupported tag format '$TAG'"
-              exit 1
+              echo "Skipping Homebrew update: unsupported tag format '$TAG'"
+              echo "SKIP_HOMEBREW=1" >> "$GITHUB_ENV"
+              exit 0
               ;;
           esac
           echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
 
       - name: Download release checksums
+        if: env.SKIP_HOMEBREW != '1'
         shell: bash
         run: |
           set -euo pipefail
@@ -50,6 +52,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Generate Formula
+        if: env.SKIP_HOMEBREW != '1'
         shell: bash
         run: |
           cat > aisw.rb <<EOF
@@ -90,6 +93,7 @@ jobs:
           EOF
 
       - name: Checkout tap repository
+        if: env.SKIP_HOMEBREW != '1'
         uses: actions/checkout@v4
         with:
           repository: ${{ env.TAP_REPO }}
@@ -97,6 +101,7 @@ jobs:
           path: tap
 
       - name: Update tap formula
+        if: env.SKIP_HOMEBREW != '1'
         shell: bash
         run: |
           set -euo pipefail

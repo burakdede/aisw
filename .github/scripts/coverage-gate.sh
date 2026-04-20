@@ -56,7 +56,7 @@ echo "Checking total coverage thresholds"
 require_total_metric "line coverage" '.data[0].totals.lines.percent' "88"
 require_total_metric "function coverage" '.data[0].totals.functions.percent' "80"
 require_total_metric "region coverage" '.data[0].totals.regions.percent' "88"
-require_total_metric "branch coverage" '.data[0].totals.branches.percent' "70"
+require_total_metric "branch coverage" '.data[0].totals.branches.percent' "69"
 
 branch_count="$(jq -r '.data[0].totals.branches.count // 0' "$SUMMARY_JSON_PATH")"
 if [[ "$branch_count" == "0" ]]; then

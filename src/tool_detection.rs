@@ -131,7 +131,7 @@ fn parse_version_output(stdout: Vec<u8>, stderr: Vec<u8>) -> Option<String> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
     use std::fs;

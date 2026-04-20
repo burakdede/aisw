@@ -268,4 +268,95 @@ mod tests {
             .unwrap()
             .contains("shell-hook zsh"));
     }
+
+    #[test]
+    fn confirmation_prompt_mentions_single_shell_file_and_keep_data() {
+        let plan = Plan {
+            shell_hook_files: vec![PathBuf::from("/tmp/.zshrc")],
+            data_dir_exists: true,
+        };
+        let args = UninstallArgs {
+            remove_data: false,
+            dry_run: false,
+            yes: false,
+        };
+        let prompt = confirmation_prompt(&plan, &args);
+        assert!(prompt.contains("shell integration from /tmp/.zshrc"));
+        assert!(prompt.contains("keep aisw-managed data"));
+    }
+
+    #[test]
+    fn confirmation_prompt_mentions_multiple_shell_files_and_remove_data() {
+        let plan = Plan {
+            shell_hook_files: vec![PathBuf::from("/tmp/.zshrc"), PathBuf::from("/tmp/.bashrc")],
+            data_dir_exists: true,
+        };
+        let args = UninstallArgs {
+            remove_data: true,
+            dry_run: false,
+            yes: false,
+        };
+        let prompt = confirmation_prompt(&plan, &args);
+        assert!(prompt.contains("shell integration from 2 files"));
+        assert!(prompt.contains("delete aisw-managed data"));
+    }
+
+    #[test]
+    fn strip_hook_block_removes_marker_only_line() {
+        let text = "line1\n# Added by aisw\nline2\n";
+        assert_eq!(strip_hook_block(text), "line1\nline2\n");
+    }
+
+    #[test]
+    fn run_inner_apply_removes_hook_and_keeps_data_by_default() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let zshrc = user_home.join(".zshrc");
+        fs::write(
+            &zshrc,
+            "export PATH=/bin\n\n# Added by aisw\neval \"$(aisw shell-hook zsh)\"\n",
+        )
+        .unwrap();
+
+        run_inner(
+            UninstallArgs {
+                remove_data: false,
+                dry_run: false,
+                yes: true,
+            },
+            &home,
+            &user_home,
+        )
+        .unwrap();
+
+        assert!(home.exists());
+        let updated = fs::read_to_string(&zshrc).unwrap();
+        assert!(!updated.contains("aisw shell-hook"));
+        assert!(updated.contains("export PATH=/bin"));
+    }
+
+    #[test]
+    fn run_inner_apply_remove_data_deletes_home() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+
+        run_inner(
+            UninstallArgs {
+                remove_data: true,
+                dry_run: false,
+                yes: true,
+            },
+            &home,
+            &user_home,
+        )
+        .unwrap();
+
+        assert!(!home.exists());
+    }
 }

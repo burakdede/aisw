@@ -150,7 +150,7 @@ pub(super) fn read_stored_credentials(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;

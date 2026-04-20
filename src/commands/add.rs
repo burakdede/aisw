@@ -681,7 +681,7 @@ fn gemini_api_key_from_env(bytes: &[u8]) -> Option<String> {
         .find_map(|line| line.strip_prefix("GEMINI_API_KEY=").map(ToOwned::to_owned))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
     use std::fs;
@@ -699,6 +699,11 @@ mod tests {
     struct EnvVarGuard {
         key: &'static str,
         previous: Option<OsString>,
+    }
+
+    struct RuntimeGuard {
+        non_interactive: bool,
+        quiet: bool,
     }
 
     fn env_lock() -> &'static Mutex<()> {
@@ -732,6 +737,23 @@ mod tests {
                 Some(v) => unsafe { std::env::set_var(self.key, v) },
                 None => unsafe { std::env::remove_var(self.key) },
             }
+        }
+    }
+
+    impl RuntimeGuard {
+        fn set(non_interactive: bool, quiet: bool) -> Self {
+            let previous = Self {
+                non_interactive: crate::runtime::is_non_interactive(),
+                quiet: crate::runtime::is_quiet(),
+            };
+            crate::runtime::configure(non_interactive, quiet);
+            previous
+        }
+    }
+
+    impl Drop for RuntimeGuard {
+        fn drop(&mut self) {
+            crate::runtime::configure(self.non_interactive, self.quiet);
         }
     }
 
@@ -1381,6 +1403,91 @@ mod tests {
             .profile_dir(Tool::Gemini, "work")
             .join("oauth_creds.json")
             .exists());
+    }
+
+    #[test]
+    fn confirm_overwrite_accepts_yes_without_prompt() {
+        let _guard = RuntimeGuard::set(true, false);
+        confirm_overwrite(Tool::Claude, "work", true).unwrap();
+    }
+
+    #[test]
+    fn confirm_overwrite_errors_in_non_interactive_mode_without_yes() {
+        let _guard = RuntimeGuard::set(true, false);
+        let err = confirm_overwrite(Tool::Claude, "work", false).unwrap_err();
+        assert!(err.to_string().contains("Re-run with --yes to overwrite"));
+    }
+
+    #[test]
+    fn prepare_from_live_target_creates_new_profile_when_absent() {
+        let _guard = RuntimeGuard::set(true, false);
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let overwriting = prepare_from_live_target(&ps, Tool::Codex, "work", false).unwrap();
+        assert!(!overwriting);
+        assert!(ps.exists(Tool::Codex, "work"));
+    }
+
+    #[test]
+    fn from_live_codex_duplicate_api_key_alias_is_rejected() {
+        let _guard = RuntimeGuard::set(true, false);
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let codex_dir = user_home.join(".codex");
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(
+            codex_dir.join("auth.json"),
+            r#"{"token":"shared-token","kind":"api_key"}"#,
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        let cs = ConfigStore::new(&aisw_home);
+        auth::codex::add_api_key(&ps, &cs, "existing", "shared-token", None).unwrap();
+
+        let err = run_in(
+            from_live_args(Tool::Codex, "alias"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("already exists as 'existing'"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn from_live_gemini_duplicate_api_key_alias_is_rejected() {
+        let _guard = RuntimeGuard::set(true, false);
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        write_gemini_env(&user_home, "AIzaShared123");
+
+        let ps = ProfileStore::new(&aisw_home);
+        let cs = ConfigStore::new(&aisw_home);
+        auth::gemini::add_api_key(&ps, &cs, "existing", "AIzaShared123", None).unwrap();
+
+        let err = run_in(
+            from_live_args(Tool::Gemini, "alias"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("already exists as 'existing'"),
+            "unexpected: {err}"
+        );
     }
 
     #[test]

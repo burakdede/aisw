@@ -380,6 +380,7 @@ fn set_permissions_600(_path: &Path) -> Result<()> {
 mod tests {
     use std::ffi::OsString;
     use std::fs;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     use tempfile::tempdir;

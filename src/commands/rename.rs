@@ -92,7 +92,7 @@ pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
     use std::fs;
