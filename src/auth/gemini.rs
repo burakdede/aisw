@@ -18,10 +18,10 @@ const ENV_FILE: &str = ".env";
 const KEY_VAR: &str = "GEMINI_API_KEY";
 
 // Gemini CLI stores its OAuth token cache under $HOME/.gemini/.
-// There is no documented GEMINI_HOME env var (as of 2026-03). The strategy:
-// override HOME to a scratch dir so Gemini writes its cache there, then
-// copy everything into the aisw profile dir. On switch, copy back to
-// $HOME/.gemini/ (see auth::gemini::apply_token_cache).
+// GEMINI_CLI_HOME overrides the home directory used for config storage
+// (Gemini creates .gemini/ inside it). We set GEMINI_CLI_HOME to a scratch
+// dir so Gemini writes its cache there, then copy everything into the aisw
+// profile dir. On switch, copy back to $HOME/.gemini/ (see apply_token_cache).
 const GEMINI_CACHE_DIR: &str = ".gemini";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const OAUTH_PRIMARY_FILES: &[&str] = &["oauth_creds.json"];
@@ -236,9 +236,10 @@ pub fn live_env_matches(profile_store: &ProfileStore, name: &str, dest: &Path) -
 
 /// Start the Gemini OAuth flow using the installed `gemini` binary.
 ///
-/// Overrides `HOME` so Gemini writes its token cache to a scratch directory
-/// we control. After the process exits (or times out), copies all files from
-/// `<scratch>/.gemini/` into the aisw profile dir with 0600 permissions.
+/// Sets `GEMINI_CLI_HOME` so Gemini writes its token cache to a scratch
+/// directory we control, without touching the real HOME. After the process
+/// exits (or times out), copies all files from `<scratch>/.gemini/` into the
+/// aisw profile dir with 0600 permissions.
 pub fn add_oauth(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
@@ -451,7 +452,7 @@ fn spawn_oauth_child(
             .arg("-q")
             .arg("/dev/null")
             .arg(gemini_bin)
-            .env("HOME", scratch)
+            .env("GEMINI_CLI_HOME", scratch)
             .current_dir(scratch_workdir)
             // Create a dedicated process group so we can terminate the entire
             // OAuth process tree (script + gemini child) reliably.
@@ -467,7 +468,8 @@ fn spawn_oauth_child(
         use std::os::unix::process::CommandExt;
 
         let mut cmd = Command::new(gemini_bin);
-        cmd.env("HOME", scratch).current_dir(scratch_workdir);
+        cmd.env("GEMINI_CLI_HOME", scratch)
+            .current_dir(scratch_workdir);
         #[cfg(unix)]
         cmd.process_group(0);
         let child = cmd
@@ -855,12 +857,12 @@ mod tests {
         let body = match (write_creds, long_running) {
             (true, _) => {
                 if long_running {
-                    "mkdir -p \"$HOME/.gemini\"\n\
-                     echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                    "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+                     echo '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
                      sleep 5\n"
                 } else {
-                    "mkdir -p \"$HOME/.gemini\"\n\
-                     echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                    "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+                     echo '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
                      exit 0\n"
                 }
             }
@@ -1005,8 +1007,8 @@ mod tests {
             format!(
                 "#!/bin/sh\n\
                  trap 'echo stopped > '{}' ; exit 0' INT TERM\n\
-                 mkdir -p \"$HOME/.gemini\"\n\
-                 echo '{{\"token\":\"tok\"}}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                 mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+                 echo '{{\"token\":\"tok\"}}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
                  while :; do sleep 1; done\n",
                 signal_file_escaped
             ),
@@ -1054,8 +1056,8 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             mkdir -p \"$HOME/.gemini\"\n\
-             echo '{\"theme\":\"dark\"}' > \"$HOME/.gemini/settings.json\"\n\
+             mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+             echo '{\"theme\":\"dark\"}' > \"$GEMINI_CLI_HOME/.gemini/settings.json\"\n\
              sleep 0.5\n",
         )
         .unwrap();
@@ -1092,8 +1094,8 @@ mod tests {
             &bin,
             "#!/bin/sh\n\
              [ \"$(basename \"$PWD\")\" = \"workspace\" ] || exit 7\n\
-             mkdir -p \"$HOME/.gemini\"\n\
-             echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n",
+             mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+             echo '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();

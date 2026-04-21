@@ -99,7 +99,7 @@ fn malformed_oauth_creds_json_does_not_panic() {
     let bin = make_mock_binary(
         &bin_dir,
         "gemini",
-        "mkdir -p \"$HOME/.gemini\"\nprintf '{NOT VALID JSON' > \"$HOME/.gemini/oauth_creds.json\"\nexit 0\n",
+        "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\nprintf '{NOT VALID JSON' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\nexit 0\n",
     );
 
     let ps = ProfileStore::new(tmp.path());
@@ -138,7 +138,7 @@ fn oauth_creds_missing_id_token() {
     let bin = make_mock_binary(
         &bin_dir,
         "gemini",
-        "mkdir -p \"$HOME/.gemini\"\nprintf '{\"email\":\"none\"}' > \"$HOME/.gemini/oauth_creds.json\"\nexit 0\n",
+        "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\nprintf '{\"email\":\"none\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\nexit 0\n",
     );
 
     let ps = ProfileStore::new(tmp.path());
@@ -176,7 +176,7 @@ fn valid_fixture_jwt_identity_extracted() {
     let jwt = make_fixture_jwt("test@example.com");
     // Write a script that writes the oauth_creds.json with the JWT
     let script = format!(
-        "mkdir -p \"$HOME/.gemini\"\nprintf '{{\"id_token\":\"{}\"}}' > \"$HOME/.gemini/oauth_creds.json\"\nexit 0\n",
+        "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\nprintf '{{\"id_token\":\"{}\"}}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\nexit 0\n",
         jwt
     );
     let bin = make_mock_binary(&bin_dir, "gemini", &script);
@@ -203,11 +203,11 @@ fn valid_fixture_jwt_identity_extracted() {
     );
 }
 
-/// Mock binary prints $HOME to a file, plus writes oauth_creds.json.
-/// The $HOME value in the spawned process should NOT be the real home dir.
+/// Mock binary prints $GEMINI_CLI_HOME to a file, plus writes oauth_creds.json.
+/// GEMINI_CLI_HOME in the spawned process should be a scratch dir, not the real home.
 #[test]
 #[cfg(unix)]
-fn home_env_set_in_spawned_process() {
+fn gemini_cli_home_set_in_spawned_process() {
     let _g = SPAWN_LOCK
         .lock()
         .unwrap_or_else(|p: std::sync::PoisonError<_>| p.into_inner());
@@ -215,10 +215,10 @@ fn home_env_set_in_spawned_process() {
     let bin_dir = tmp.path().join("bin");
     std::fs::create_dir_all(&bin_dir).unwrap();
 
-    // Script writes $HOME to a sentinel file, then writes credentials
-    let script = "mkdir -p \"$HOME/.gemini\"\n\
-        printf '%s' \"$HOME\" > \"$HOME/.gemini/captured_home\"\n\
-        printf '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+    // Script captures GEMINI_CLI_HOME, then writes credentials there
+    let script = "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+        printf '%s' \"$GEMINI_CLI_HOME\" > \"$GEMINI_CLI_HOME/.gemini/captured_home\"\n\
+        printf '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
         exit 0\n";
     let bin = make_mock_binary(&bin_dir, "gemini", script);
 
@@ -245,10 +245,10 @@ fn home_env_set_in_spawned_process() {
     assert_ne!(
         captured_home,
         real_home.to_str().unwrap(),
-        "spawned process should NOT use the real home dir"
+        "GEMINI_CLI_HOME should be a scratch dir, not the real home"
     );
     assert!(
         !captured_home.is_empty(),
-        "captured HOME should not be empty"
+        "GEMINI_CLI_HOME should not be empty"
     );
 }

@@ -473,9 +473,9 @@ fn add_gemini_oauth_succeeds_with_mocked_binary() {
            echo 'gemini 0.9.0'\n\
            exit 0\n\
          fi\n\
-         /bin/mkdir -p \"$HOME/.gemini\"\n\
-         printf '%s' '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
-         printf '%s' '{\"account\":\"work\"}' > \"$HOME/.gemini/settings.json\"\n",
+         /bin/mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+         printf '%s' '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
+         printf '%s' '{\"account\":\"work\"}' > \"$GEMINI_CLI_HOME/.gemini/settings.json\"\n",
     );
 
     env.cmd()
