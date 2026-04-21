@@ -1,6 +1,9 @@
-# Command Reference
+---
+title: Command reference
+description: Complete syntax and flag reference for all aisw commands — add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
+---
 
-Exact syntax and practical examples.
+# Command reference
 
 ## Global flags
 
@@ -8,19 +11,19 @@ Exact syntax and practical examples.
 aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 ```
 
-| Flag | Purpose |
+| Flag | Effect |
 |---|---|
-| `--no-color` | Disable colored output |
-| `--non-interactive` | Fail instead of prompting |
-| `--quiet` | Suppress human-oriented presentation output |
+| `--no-color` | Disable ANSI color output |
+| `--non-interactive` | Fail instead of prompting; safe for CI |
+| `--quiet` | Suppress human-readable presentation output; does not suppress errors, JSON output, `--emit-env`, or `shell-hook` |
 
 ## At a glance
 
 ```text
 aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active] [--yes]
 aisw use <tool> <profile> [--state-mode isolated|shared]
-aisw use --all --profile <profile>
+aisw use --all --profile <profile> [--state-mode isolated|shared]
 aisw list [tool] [--json]
 aisw status [--json]
 aisw remove <tool> <profile> [--yes] [--force]
@@ -32,7 +35,9 @@ aisw shell-hook <bash|zsh|fish>
 aisw doctor [--json]
 ```
 
-`tool` is one of: `claude`, `codex`, `gemini`.
+`<tool>` is one of: `claude`, `codex`, `gemini`.
+
+---
 
 ## `aisw init`
 
@@ -40,83 +45,90 @@ aisw doctor [--json]
 aisw init [--yes]
 ```
 
-Bootstrap command:
-- creates `~/.aisw/`
-- offers shell hook setup
-- offers importing existing live credentials
+Bootstrap command. Run once after install.
+
+- Creates `~/.aisw/` with `0700` permissions.
+- Offers shell hook installation for bash, zsh, or fish.
+- Detects currently logged-in accounts for each tool and offers to import them as named profiles.
+- Reports current live state per tool, including whether it matches any existing `aisw` profile.
+
+| Flag | Effect |
+|---|---|
+| `--yes` | Accept all prompts without confirmation |
 
 Notes:
-- For Gemini, when both `.env` and OAuth cache files are present under `~/.gemini/`, import precedence is `.env` first.
-- `aisw init` reports current live upstream state, not a full inventory of every stored `~/.aisw` profile.
-- If a tool's live account was changed outside `aisw`, `init` reports that current live account and whether it matches the profile `aisw` records as active.
-- For Claude Code, `init` distinguishes local Claude state from importable auth and reports when local state exists without importable credentials.
-- When imported credentials are OAuth-based and aisw can resolve the authenticated account identity, it blocks importing a duplicate alias for an already stored account.
-
-Examples:
+- `init` is safe to re-run. If `~/.aisw/` already exists, it skips creation and proceeds to detection.
+- For Gemini, when both `~/.gemini/.env` and OAuth cache files are present, import uses the `.env` file first.
+- For Claude Code on macOS, `init` checks the Keychain before checking the credentials file.
+- `init` will not import a duplicate if the OAuth identity matches an already-stored profile.
 
 ```sh
 aisw init
 aisw init --yes
 ```
 
-## Automation and scripting
-
-For prompt behavior, JSON interfaces, stdout/stderr expectations, and automation-safe usage patterns, see [Automation and Scripting](automation.md).
+---
 
 ## `aisw add`
 
 ```text
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active] [--yes]
 ```
 
-| Flag | Purpose |
-|---|---|
-| `--api-key KEY` | Add with explicit API key |
-| `--from-env` | Read key from tool env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) |
-| `--from-live` | Import the tool's current live credentials into aisw without launching login |
-| `--label TEXT` | Add human-readable label |
-| `--set-active` | Activate immediately after add |
-| `--yes` | Overwrite existing profile name when used with `--from-live` |
-Notes:
-- Without `--api-key`, `--from-env`, or `--from-live`, add uses interactive auth flow.
-- In `--non-interactive` mode, interactive add fails by design.
-- `--from-live` reads the current native tool credentials and stores them as an aisw-managed profile.
-- `--from-live` always activates the captured profile because those credentials are already live.
-- With `--from-live --yes`, overwrite updates the existing profile in place; aisw does not delete the profile entry before capture succeeds.
-Live credential sources:
-- Claude: `~/.claude/.credentials.json`, or the system keyring on macOS
-- Codex: `~/.codex/auth.json`
-- Gemini: `~/.gemini/.env` or OAuth files in `~/.gemini/`
-- When both Gemini `.env` and OAuth cache files are present, `aisw` uses `.env` first by design.
+Create a named profile.
 
-Examples:
+| Flag | Effect |
+|---|---|
+| `--api-key KEY` | Store the given API key |
+| `--from-env` | Read the key from the tool's env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) |
+| `--from-live` | Capture the tool's current live credentials without launching login |
+| `--label TEXT` | Human-readable description, shown in `list` and `status` |
+| `--set-active` | Activate the profile immediately after adding |
+| `--yes` | Overwrite an existing profile when used with `--from-live` |
+
+Notes:
+- Without `--api-key`, `--from-env`, or `--from-live`, `add` runs the interactive OAuth flow for the tool.
+- In `--non-interactive` mode, interactive OAuth is not available and the command fails.
+- `--from-live` captures what the tool is currently using; it does not launch a browser or auth flow.
+- `--from-live` always activates the profile because those credentials are already live.
+- `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
+- When OAuth identity can be resolved, `add` blocks creating a duplicate profile for an already-stored account.
+
+Live credential locations by tool:
+- Claude: `~/.claude/.credentials.json` or the macOS Keychain
+- Codex: `~/.codex/auth.json` or the OS keyring
+- Gemini: `~/.gemini/.env` (API key) or OAuth files in `~/.gemini/`
 
 ```sh
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
 aisw add codex ci --from-env
-aisw add gemini personal --label "Personal" --set-active
+aisw add gemini personal --label "Personal account" --set-active
 aisw add claude work --from-live
 aisw add codex work --from-live --yes
 ```
+
+---
 
 ## `aisw use`
 
 ```text
 aisw use <tool> <profile> [--state-mode isolated|shared]
-aisw use --all --profile <profile>
+aisw use --all --profile <profile> [--state-mode isolated|shared]
 ```
 
-| Flag | Purpose |
+Activate a stored profile as the live account.
+
+| Flag | Effect |
 |---|---|
-| `--state-mode` | Claude/Codex only; `isolated` or `shared` |
-| `--all` | Switch all tools in one command |
-| `--profile` | Profile name used with `--all` |
+| `--state-mode isolated` | Set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to the profile directory (default) |
+| `--state-mode shared` | Unset `CLAUDE_CONFIG_DIR` or `CODEX_HOME`; tool reads its standard config dir |
+| `--all` | Switch every tool that has a matching profile name |
+| `--profile NAME` | Profile name; required with `--all` |
 
 Notes:
-- `--state-mode` is not supported for Gemini.
-- `--emit-env` exists but is internal/hidden and intended for shell-hook integration.
-
-Examples:
+- `--state-mode` applies to Claude Code and Codex CLI only. Gemini does not support it.
+- Switching is atomic: the previous live state is snapshotted before any write. A failed write triggers a full rollback.
+- With shell hook active, `aisw use` also emits the environment variable exports into the current shell session.
 
 ```sh
 aisw use claude work
@@ -124,19 +136,23 @@ aisw use codex work --state-mode shared
 aisw use --all --profile personal
 ```
 
+---
+
 ## `aisw list`
 
 ```text
 aisw list [tool] [--json]
 ```
 
-Examples:
+Show all stored profiles.
 
 ```sh
 aisw list
-aisw list codex
+aisw list claude
 aisw list --json
 ```
+
+---
 
 ## `aisw status`
 
@@ -144,18 +160,18 @@ aisw list --json
 aisw status [--json]
 ```
 
-Shows per tool:
-- installed binary detection
-- active profile
-- credential/backend state
-- whether live config matches active profile
+Show per-tool state: installed binary, active profile, credential backend, live-match status, and token expiry warnings.
 
-Examples:
+Notes:
+- "Live match" indicates whether the tool's current live credentials match the `aisw`-recorded active profile.
+- Token expiry warnings appear when an OAuth token is expired or expires within 24 hours.
 
 ```sh
 aisw status
 aisw status --json
 ```
+
+---
 
 ## `aisw remove`
 
@@ -163,20 +179,19 @@ aisw status --json
 aisw remove <tool> <profile> [--yes] [--force]
 ```
 
-| Flag | Purpose |
+Delete a stored profile. A backup is created before deletion.
+
+| Flag | Effect |
 |---|---|
-| `--yes` | Skip confirmation |
-| `--force` | Allow removing currently active profile |
-
-Notes:
-- A backup is created before deletion.
-
-Examples:
+| `--yes` | Skip confirmation prompt |
+| `--force` | Allow removing the currently active profile |
 
 ```sh
 aisw remove codex old --yes
 aisw remove claude work --force --yes
 ```
+
+---
 
 ## `aisw rename`
 
@@ -184,47 +199,47 @@ aisw remove claude work --force --yes
 aisw rename <tool> <old> <new>
 ```
 
-Examples:
+Rename a profile. The profile directory and all config references are updated atomically.
 
 ```sh
 aisw rename claude default work
 ```
 
-## `aisw backup`
+---
 
-### `aisw backup list`
+## `aisw backup list`
 
 ```text
 aisw backup list [--json]
 ```
 
-Examples:
+List available backups with timestamps and associated profile names.
 
 ```sh
 aisw backup list
 aisw backup list --json
 ```
 
-### `aisw backup restore`
+---
+
+## `aisw backup restore`
 
 ```text
 aisw backup restore <backup_id> [--yes]
 ```
 
-| Flag | Purpose |
+Restore profile files from a backup. Does not activate the profile; run `aisw use` after restore.
+
+| Flag | Effect |
 |---|---|
-| `--yes` | Skip confirmation |
-
-Notes:
-- Restore writes files back into stored profile dir.
-- Restore does not switch active profile; run `aisw use` after restore.
-
-Example:
+| `--yes` | Skip confirmation prompt |
 
 ```sh
 aisw backup restore 20260325T114502Z-claude-work --yes
 aisw use claude work
 ```
+
+---
 
 ## `aisw uninstall`
 
@@ -232,18 +247,18 @@ aisw use claude work
 aisw uninstall [--dry-run] [--remove-data] [--yes]
 ```
 
-| Flag | Purpose |
+Remove `aisw`-managed shell hook blocks from shell config files.
+
+| Flag | Effect |
 |---|---|
-| `--dry-run` | Preview changes |
-| `--remove-data` | Remove `~/.aisw` after hook cleanup |
-| `--yes` | Skip confirmation |
+| `--dry-run` | Preview what would be changed without making any changes |
+| `--remove-data` | Also remove `~/.aisw/` after hook cleanup |
+| `--yes` | Skip confirmation prompt |
 
 Notes:
-- Removes only `aisw`-managed shell hook blocks.
-- Does not remove tool configs (`~/.claude`, `~/.codex`, `~/.gemini`).
-- Does not remove binary itself.
-
-Examples:
+- Does not remove the `aisw` binary.
+- Does not remove tool config directories (`~/.claude/`, `~/.codex/`, `~/.gemini/`).
+- Only removes `# aisw` hook blocks that `aisw init` or `aisw shell-hook` added.
 
 ```sh
 aisw uninstall --dry-run
@@ -251,13 +266,15 @@ aisw uninstall --yes
 aisw uninstall --remove-data --yes
 ```
 
+---
+
 ## `aisw shell-hook`
 
 ```text
 aisw shell-hook <bash|zsh|fish>
 ```
 
-Examples:
+Print the shell hook code for the given shell. Redirect into your shell config file:
 
 ```sh
 aisw shell-hook zsh >> ~/.zshrc
@@ -265,23 +282,25 @@ aisw shell-hook bash >> ~/.bashrc
 aisw shell-hook fish >> ~/.config/fish/conf.d/aisw.fish
 ```
 
+See [Shell integration](shell-integration.md) for details and completion setup.
+
+---
+
 ## `aisw doctor`
 
 ```text
 aisw doctor [--json]
 ```
 
-Checks install and environment health.
-
-Examples:
+Check install and environment health: binary locations, `~/.aisw/` permissions, shell hook status, and keyring availability.
 
 ```sh
 aisw doctor
 aisw doctor --json
 ```
 
-## Script-focused references
+---
 
-- [Automation and Scripting](automation.md)
-- [Quickstart](quickstart.md)
-- [Troubleshooting](troubleshooting.md)
+## Automation reference
+
+For CI patterns, JSON output contracts, and non-interactive usage, see [Automation and scripting](automation.md).
