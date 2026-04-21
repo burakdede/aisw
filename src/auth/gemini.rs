@@ -352,59 +352,11 @@ pub fn extract_captured_identity(profile_store: &ProfileStore, name: &str) -> Op
 }
 
 fn decode_jwt_email_from_token(jwt: &str) -> Option<String> {
-    let payload = jwt.split('.').nth(1)?;
-    let padded = base64_url_to_padded(payload);
-    let bytes = base64_decode_simple(&padded)?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    v.get("email").and_then(|e| e.as_str()).map(String::from)
-}
-
-fn base64_url_to_padded(s: &str) -> String {
-    let mut out = s.replace('-', "+").replace('_', "/");
-    match out.len() % 4 {
-        2 => out.push_str("=="),
-        3 => out.push('='),
-        _ => {}
-    }
-    out
-}
-
-fn base64_decode_simple(s: &str) -> Option<Vec<u8>> {
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut table = [0u8; 256];
-    for (i, &c) in alphabet.iter().enumerate() {
-        table[c as usize] = i as u8;
-    }
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity((bytes.len() / 4) * 3);
-    let mut i = 0;
-    while i + 3 < bytes.len() {
-        if bytes[i] == b'=' {
-            break;
-        }
-        let a = table[bytes[i] as usize] as u32;
-        let b_val = table[bytes[i + 1] as usize] as u32;
-        let c_val = if bytes[i + 2] == b'=' {
-            0
-        } else {
-            table[bytes[i + 2] as usize] as u32
-        };
-        let d = if i + 3 >= bytes.len() || bytes[i + 3] == b'=' {
-            0
-        } else {
-            table[bytes[i + 3] as usize] as u32
-        };
-        let triple = (a << 18) | (b_val << 12) | (c_val << 6) | d;
-        out.push(((triple >> 16) & 0xFF) as u8);
-        if bytes[i + 2] != b'=' {
-            out.push(((triple >> 8) & 0xFF) as u8);
-        }
-        if i + 3 < bytes.len() && bytes[i + 3] != b'=' {
-            out.push((triple & 0xFF) as u8);
-        }
-        i += 4;
-    }
-    Some(out)
+    let payload = crate::util::jwt::decode_jwt_payload(jwt)?;
+    payload
+        .get("email")
+        .and_then(|e| e.as_str())
+        .map(String::from)
 }
 
 /// Spawn `gemini` with an overridden HOME, wait for it to exit, then copy
@@ -1469,27 +1421,8 @@ mod tests {
 
     fn make_fixture_jwt(email: &str) -> String {
         let payload_json = format!(r#"{{"email":"{}","exp":9999999999}}"#, email);
-        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut b64 = String::new();
-        for chunk in payload_json.as_bytes().chunks(3) {
-            let b0 = chunk[0] as u32;
-            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-            let triple = (b0 << 16) | (b1 << 8) | b2;
-            b64.push(alphabet[((triple >> 18) & 0x3F) as usize] as char);
-            b64.push(alphabet[((triple >> 12) & 0x3F) as usize] as char);
-            if chunk.len() > 1 {
-                b64.push(alphabet[((triple >> 6) & 0x3F) as usize] as char);
-            } else {
-                b64.push('=');
-            }
-            if chunk.len() > 2 {
-                b64.push(alphabet[(triple & 0x3F) as usize] as char);
-            } else {
-                b64.push('=');
-            }
-        }
-        format!("eyJhbGciOiJIUzI1NiJ9.{}.sig", b64)
+        let payload = crate::util::jwt::encode_jwt_payload_for_test(payload_json.as_bytes());
+        format!("eyJhbGciOiJIUzI1NiJ9.{}.sig", payload)
     }
 
     #[test]
