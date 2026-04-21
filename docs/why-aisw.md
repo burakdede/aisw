@@ -1,13 +1,13 @@
 ---
 title: Why aisw
-description: Why aisw exists — the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
+description: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
 ---
 
 # Why aisw
 
 ## The problem
 
-Claude Code, Codex CLI, and Gemini CLI each store credentials in different formats and different locations. When you need more than one account — work and personal, multiple clients, or team and individual licenses — you are left with manual options that all have the same failure mode: unclear state.
+Claude Code, Codex CLI, and Gemini CLI each store credentials in different formats and different locations. When you need more than one account  -  work and personal, multiple clients, or team and individual licenses  -  you are left with manual options that all have the same failure mode: unclear state.
 
 Editing `~/.claude/.credentials.json` directly is fragile. Copying and swapping files is fragile. Managing multiple `ANTHROPIC_API_KEY` exports in shell profiles for different terminals is fragile. None of these approaches tell you what is currently active, and none of them recover cleanly when something goes wrong mid-switch.
 
@@ -17,15 +17,15 @@ The problem compounds across tools. If you maintain accounts for all three CLIs,
 
 `aisw` treats account switching as a named, stored, repeatable operation.
 
-**Named profiles** — each account is given a name when added. `aisw add claude work --api-key "$ANTHROPIC_API_KEY"` captures a credential snapshot under the name `work`. Switching to it later is `aisw use claude work`.
+**Named profiles**  -  each account is given a name when added. `aisw add claude work --api-key "$ANTHROPIC_API_KEY"` captures a credential snapshot under the name `work`. Switching to it later is `aisw use claude work`.
 
-**Atomic application** — switching takes a snapshot of the current live state before writing. If anything fails, the snapshot is restored. You do not end up mid-switch.
+**Atomic application**  -  switching takes a snapshot of the current live state before writing. If anything fails, the snapshot is restored. You do not end up mid-switch.
 
-**Single status view** — `aisw status` shows every tool, its active profile, whether live credentials match the recorded active profile, and any expiry warnings — in one command.
+**Single status view**  -  `aisw status` shows every tool, its active profile, whether live credentials match the recorded active profile, and any expiry warnings  -  in one command.
 
-**Cross-tool operations** — `aisw use --all --profile work` switches all three tools to the same profile name in a single command. `aisw list` and `aisw status --json` give a unified view across tools that works in scripts.
+**Cross-tool operations**  -  `aisw use --all --profile work` switches all three tools to the same profile name in a single command. `aisw list` and `aisw status --json` give a unified view across tools that works in scripts.
 
-**Automatic backups** — `aisw remove` and `aisw rename` create backups before changing state. Backups are timestamped and restorable.
+**Automatic backups**  -  `aisw remove` and `aisw rename` create backups before changing state. Backups are timestamped and restorable.
 
 ## What aisw does not do
 

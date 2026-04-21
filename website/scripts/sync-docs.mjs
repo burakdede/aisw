@@ -53,7 +53,7 @@ const DOCS = [
     source: 'commands.md',
     output: 'commands.md',
     title: 'Commands',
-    description: 'Complete syntax and flag reference for all aisw commands — add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.',
+    description: 'Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.',
     section: 'reference',
     queries: [
       'aisw command reference',
@@ -65,7 +65,7 @@ const DOCS = [
     source: 'automation.md',
     output: 'automation.md',
     title: 'Automation and Scripting',
-    description: 'Using aisw in CI pipelines, shell scripts, and non-interactive environments — flags, JSON output, exit codes, and common patterns.',
+    description: 'Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.',
     section: 'reference',
     queries: [
       'aisw automation',
@@ -106,7 +106,7 @@ const DOCS = [
     source: 'supported-tools.md',
     output: 'supported-tools.md',
     title: 'Supported Tools',
-    description: 'Claude Code, Codex CLI, and Gemini CLI support matrix — auth methods, credential locations, OS keyring support, and state mode behavior per platform.',
+    description: 'Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.',
     section: 'reference',
     queries: [
       'does aisw support Claude Code',
@@ -145,7 +145,7 @@ const DOCS = [
     source: 'security.md',
     output: 'security.md',
     title: 'Security',
-    description: 'How aisw stores and protects credentials — local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.',
+    description: 'How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.',
     section: 'reference',
     queries: [
       'aisw credential security',
@@ -159,7 +159,7 @@ const DOCS = [
     source: 'why-aisw.md',
     output: 'why-aisw.md',
     title: 'Why aisw?',
-    description: 'Why aisw exists — the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.',
+    description: 'Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.',
     section: 'overview',
     queries: [
       'why use aisw',
@@ -174,7 +174,7 @@ const DOCS = [
     source: 'troubleshooting.md',
     output: 'troubleshooting.md',
     title: 'Troubleshooting',
-    description: 'Diagnosing and fixing common aisw failures — missing tools, hook problems, keyring issues, permission errors, and OAuth failures.',
+    description: 'Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.',
     section: 'reference',
     queries: [
       'aisw troubleshooting',

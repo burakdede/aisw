@@ -101,4 +101,4 @@ This prevents accidentally storing duplicate entries for the same account and ha
 
 - [Quickstart](quickstart.md)
 - [Commands](commands.md)
-- [Supported tools](supported-tools.md) — credential locations and backend details per tool
+- [Supported tools](supported-tools.md)  -  credential locations and backend details per tool

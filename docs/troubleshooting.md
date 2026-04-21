@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Diagnosing and fixing common aisw failures — missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
+description: Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
 ---
 
 # Troubleshooting
@@ -108,10 +108,10 @@ aisw add claude current --from-live --set-active
 - Run `aisw doctor` to check for known detection issues.
 - File a GitHub issue with the tool version and platform.
 
-*For Gemini — scratch directory error:*
+*For Gemini  -  scratch directory error:*
 - This should not occur in normal usage. If it does, check that `/tmp` is writable.
 
-*For Claude — credentials captured but profile creation fails:*
+*For Claude  -  credentials captured but profile creation fails:*
 - Check available disk space under `~/.aisw/`.
 - Check permissions on `~/.aisw/profiles/`.
 

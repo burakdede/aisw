@@ -98,7 +98,7 @@ aisw use claude work --state-mode isolated
 aisw use claude work --state-mode shared
 ```
 
-The default is `isolated`. Use `shared` when you want the tool to behave as if it was never redirected — useful for quick one-off usage or when you rely on existing settings or CLAUDE.md files.
+The default is `isolated`. Use `shared` when you want the tool to behave as if it was never redirected  -  useful for quick one-off usage or when you rely on existing settings or CLAUDE.md files.
 
 ## 5. Inspect state
 
@@ -151,6 +151,6 @@ echo 'aisw shell-hook fish | source' >> ~/.config/fish/config.fish
 
 ## Next steps
 
-- [Commands](commands.md) — full syntax for every command
-- [Automation and scripting](automation.md) — CI and non-interactive patterns
-- [How it works](how-it-works.md) — credential storage, platform details, design decisions
+- [Commands](commands.md)  -  full syntax for every command
+- [Automation and scripting](automation.md)  -  CI and non-interactive patterns
+- [How it works](how-it-works.md)  -  credential storage, platform details, design decisions

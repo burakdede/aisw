@@ -1,6 +1,6 @@
 ---
 title: Security
-description: How aisw stores and protects credentials — local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.
+description: How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/security.md
 head:
   - tag: meta
@@ -19,14 +19,14 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Security","headline":"Security","description":"How aisw stores and protects credentials — local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.","url":"https://burakdede.github.io/aisw/security/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, security, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Security","item":"https://burakdede.github.io/aisw/security/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Security","headline":"Security","description":"How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.","url":"https://burakdede.github.io/aisw/security/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, security, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Security","item":"https://burakdede.github.io/aisw/security/"}]}]}
 ---
 
 `aisw` manages authentication credentials for Claude Code, Codex CLI, and Gemini CLI. This page documents the security model, storage design, and the boundaries of what `aisw` does and does not do with those credentials.
 
 ## Summary
 
-- Credentials are stored locally only — no remote service, no telemetry, no sync.
+- Credentials are stored locally only  -  no remote service, no telemetry, no sync.
 - Sensitive files are written with `0600` permissions (owner read/write only).
 - OS keyring integration uses the platform-native API (macOS Keychain, Linux Secret Service, Windows Credential Manager).
 - Switching is transactional: a failed write rolls back to the previous state.
@@ -56,7 +56,7 @@ Directories under `~/.aisw/` are created with `0700`.
 | Platform | Backend |
 |---|---|
 | macOS | macOS Keychain via `security-framework`, with app-path ACL limiting access to the `claude` binary |
-| Linux | Secret Service protocol (GNOME Keyring, KWallet) with vendored libdbus — no system dbus development package required |
+| Linux | Secret Service protocol (GNOME Keyring, KWallet) with vendored libdbus  -  no system dbus development package required |
 | Windows | Windows Credential Manager via WinCred API |
 
 On macOS, when writing Claude Code credentials to the Keychain, `aisw` sets a trusted-application ACL so the entry is bound to the `claude` binary path. This prevents other applications from reading the credential without a Keychain access prompt.
@@ -111,7 +111,7 @@ For Claude Code, `aisw` intentionally does not set `CLAUDE_CONFIG_DIR` during OA
 
 1. Files under `~/.aisw/` (profiles, backups, config).
 2. The tool's live credential locations (`~/.claude/`, `~/.codex/`, `~/.gemini/`, and their respective keychain entries).
-3. Shell config files (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`) — only when you explicitly run `aisw shell-hook` and redirect its output there yourself, or when `aisw uninstall` removes managed hook blocks you previously added.
+3. Shell config files (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`)  -  only when you explicitly run `aisw shell-hook` and redirect its output there yourself, or when `aisw uninstall` removes managed hook blocks you previously added.
 
 It does not access any other files or system resources.
 

@@ -1,11 +1,11 @@
 ---
-title: aisw — AI coding agent account manager
+title: aisw  -  AI coding agent account manager
 description: aisw manages named profiles for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts with one command on macOS, Linux, and Windows.
 ---
 
 # aisw
 
-Named profile manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch between multiple accounts in one command across all three AI coding agents — on macOS, Linux, and Windows.
+Named profile manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch between multiple accounts in one command across all three AI coding agents  -  on macOS, Linux, and Windows.
 
 ## Install
 
@@ -51,12 +51,12 @@ aisw list
 
 ## Start here
 
-1. [Quickstart](quickstart.md) — install, first profile, first switch
-2. [Commands](commands.md) — complete syntax and flag reference
-3. [How it works](how-it-works.md) — design decisions, credential storage, platform behavior
-4. [Security](security.md) — local-only storage, keyring integration, file permissions
-5. [Automation and scripting](automation.md) — CI patterns, JSON output, non-interactive mode
-6. [Troubleshooting](troubleshooting.md) — common failures and diagnostics
+1. [Quickstart](quickstart.md)  -  install, first profile, first switch
+2. [Commands](commands.md)  -  complete syntax and flag reference
+3. [How it works](how-it-works.md)  -  design decisions, credential storage, platform behavior
+4. [Security](security.md)  -  local-only storage, keyring integration, file permissions
+5. [Automation and scripting](automation.md)  -  CI patterns, JSON output, non-interactive mode
+6. [Troubleshooting](troubleshooting.md)  -  common failures and diagnostics
 
 ## Additional reference
 

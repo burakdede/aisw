@@ -4,10 +4,10 @@
 
 Releases follow [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.PATCH`.
 
-- `v1.0.0` — first stable release
-- `v1.0.1` — patch (bug fixes only)
-- `v1.1.0` — minor (new features, backwards-compatible)
-- `v2.0.0` — major (breaking changes)
+- `v1.0.0`  -  first stable release
+- `v1.0.1`  -  patch (bug fixes only)
+- `v1.1.0`  -  minor (new features, backwards-compatible)
+- `v2.0.0`  -  major (breaking changes)
 
 Pre-release suffixes are not supported by the release workflow; use a separate test tag
 (see below) when you need to validate the pipeline without publishing.
@@ -104,7 +104,7 @@ This matches the names expected by `install.sh`.
 ## Testing the workflow without publishing
 
 Use `workflow_dispatch` from the Actions tab (no tag required). This runs all
-five build jobs but skips the `release` job — the release job only runs when
+five build jobs but skips the `release` job  -  the release job only runs when
 the workflow is triggered by a tag push.
 
 To test the full pipeline including release creation, push a real semver tag

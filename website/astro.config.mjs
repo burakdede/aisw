@@ -16,7 +16,7 @@ const siteSchema = {
 	'@graph': [
 		{
 			'@type': 'WebSite',
-			name: 'aisw — AI coding agent account manager',
+			name: 'aisw  -  AI coding agent account manager',
 			url: siteUrl,
 			description: 'aisw is a named profile manager for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts in one command on macOS, Linux, and Windows.',
 			image: `${siteOrigin}${logoPath}`,
@@ -35,7 +35,7 @@ const siteSchema = {
 			applicationCategory: 'DeveloperApplication',
 			operatingSystem: 'macOS, Linux, Windows',
 			softwareVersion: currentVersion,
-			description: 'Named profile manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch multiple accounts — work, personal, client — in one command. Supports OAuth, API keys, OS keychain, and CI automation.',
+			description: 'Named profile manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch multiple accounts  -  work, personal, client  -  in one command. Supports OAuth, API keys, OS keychain, and CI automation.',
 			url: 'https://github.com/burakdede/aisw',
 			image: `${siteOrigin}${logoPath}`,
 			featureList: [
@@ -65,11 +65,11 @@ export default defineConfig({
 			title: 'aisw',
 			description: 'CLI docs for install, setup, commands, automation, and troubleshooting.',
 			logo: {
-				light: './public/aisw-mark-light.svg',
-				dark: './public/aisw-mark-dark.svg',
+				light: './public/aisw-logo.png',
+				dark: './public/aisw-logo.png',
 				alt: 'aisw logo',
 			},
-			favicon: '/favicon.ico',
+			favicon: '/favicon-32.png',
 			head: [
 				{
 					tag: 'meta',
@@ -96,8 +96,9 @@ export default defineConfig({
 						tag: 'link',
 						attrs: {
 							rel: 'icon',
-							href: `${siteBasePath}/favicon.ico`,
-							sizes: 'any',
+							type: 'image/png',
+							href: `${siteBasePath}/favicon-32.png`,
+							sizes: '32x32',
 						},
 					},
 					{

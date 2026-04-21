@@ -26,7 +26,7 @@ This page explains the design decisions behind `aisw`, how credentials are store
 
 ## Profile model
 
-`aisw` stores named profiles under `~/.aisw/profiles/<tool>/<name>/`. A profile is a captured snapshot of a tool's credential and auth state. The profile directory contains the credential files specific to that tool — nothing else.
+`aisw` stores named profiles under `~/.aisw/profiles/<tool>/<name>/`. A profile is a captured snapshot of a tool's credential and auth state. The profile directory contains the credential files specific to that tool  -  nothing else.
 
 The central registry is `~/.aisw/config.json`, which records which profiles exist, which is active per tool, and profile metadata such as the auth method and credential backend. Credentials are never stored in `config.json`.
 
@@ -53,9 +53,9 @@ This matters most when a tool stores state across multiple files (e.g. Claude Co
 
 `aisw` supports two credential backends per profile:
 
-**File** — credentials are stored as `0600` files under `~/.aisw/profiles/<tool>/<name>/`. This works on all platforms and requires no external dependencies.
+**File**  -  credentials are stored as `0600` files under `~/.aisw/profiles/<tool>/<name>/`. This works on all platforms and requires no external dependencies.
 
-**System keyring** — credentials are stored in the OS native secure store. The file entry under `~/.aisw/profiles/` still exists but contains only a reference; the sensitive bytes live in the keyring.
+**System keyring**  -  credentials are stored in the OS native secure store. The file entry under `~/.aisw/profiles/` still exists but contains only a reference; the sensitive bytes live in the keyring.
 
 Backend selection is automatic based on what the upstream tool is using and what is available on the current machine. On macOS, profiles are typically stored as files in `~/.aisw/` even when the live tool uses the Keychain, because the Keychain entry is written directly during `aisw use`.
 

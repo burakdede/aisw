@@ -118,4 +118,4 @@ This prevents accidentally storing duplicate entries for the same account and ha
 
 - [Quickstart](/aisw/quickstart/)
 - [Commands](/aisw/commands/)
-- [Supported tools](/aisw/supported-tools/) — credential locations and backend details per tool
+- [Supported tools](/aisw/supported-tools/)  -  credential locations and backend details per tool

@@ -1,6 +1,6 @@
 ---
 title: Automation and scripting
-description: Using aisw in CI pipelines, shell scripts, and non-interactive environments — flags, JSON output, exit codes, and common patterns.
+description: Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.
 ---
 
 # Automation and scripting
@@ -15,7 +15,7 @@ aisw --non-interactive --quiet <command>
 
 | Flag | Effect |
 |---|---|
-| `--non-interactive` | Fail instead of prompting. Safe for CI — commands that require user input will exit non-zero with a clear error. |
+| `--non-interactive` | Fail instead of prompting. Safe for CI  -  commands that require user input will exit non-zero with a clear error. |
 | `--quiet` | Suppress human-readable presentation output (tables, status lines). Does not suppress errors, JSON output, `--emit-env`, or `shell-hook` output. |
 | `--yes` | Skip confirmation prompts on commands that ask before proceeding (remove, restore, uninstall). |
 
@@ -140,6 +140,6 @@ aisw --non-interactive remove codex ci --yes
 
 ## Related
 
-- [Commands](commands.md) — full flag reference
-- [Shell integration](shell-integration.md) — hook installation and env var behavior
-- [Quickstart](quickstart.md) — interactive usage reference
+- [Commands](commands.md)  -  full flag reference
+- [Shell integration](shell-integration.md)  -  hook installation and env var behavior
+- [Quickstart](quickstart.md)  -  interactive usage reference

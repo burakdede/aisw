@@ -1,6 +1,6 @@
 ---
 title: Automation and Scripting
-description: Using aisw in CI pipelines, shell scripts, and non-interactive environments — flags, JSON output, exit codes, and common patterns.
+description: Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/automation.md
 head:
   - tag: meta
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Using aisw in CI pipelines, shell scripts, and non-interactive environments — flags, JSON output, exit codes, and common patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
 ---
 
 `aisw` is designed to be used safely in CI pipelines, shell scripts, and non-interactive environments.
@@ -32,7 +32,7 @@ aisw --non-interactive --quiet <command>
 
 | Flag | Effect |
 |---|---|
-| `--non-interactive` | Fail instead of prompting. Safe for CI — commands that require user input will exit non-zero with a clear error. |
+| `--non-interactive` | Fail instead of prompting. Safe for CI  -  commands that require user input will exit non-zero with a clear error. |
 | `--quiet` | Suppress human-readable presentation output (tables, status lines). Does not suppress errors, JSON output, `--emit-env`, or `shell-hook` output. |
 | `--yes` | Skip confirmation prompts on commands that ask before proceeding (remove, restore, uninstall). |
 
@@ -157,6 +157,6 @@ aisw --non-interactive remove codex ci --yes
 
 ## Related
 
-- [Commands](/aisw/commands/) — full flag reference
-- [Shell integration](/aisw/shell-integration/) — hook installation and env var behavior
-- [Quickstart](/aisw/quickstart/) — interactive usage reference
+- [Commands](/aisw/commands/)  -  full flag reference
+- [Shell integration](/aisw/shell-integration/)  -  hook installation and env var behavior
+- [Quickstart](/aisw/quickstart/)  -  interactive usage reference

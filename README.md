@@ -2,14 +2,14 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-mark-dark.svg">
-    <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-mark-light.svg" alt="aisw" width="160" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-logo.png">
+    <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-logo.png" alt="aisw" width="160" />
   </picture>
 </p>
 
 <p align="center"><strong>Named profile manager for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
 
-<p align="center">Switch between work, personal, and client accounts in one command — across all three AI coding agents.</p>
+<p align="center">Switch between work, personal, and client accounts in one command - across all three AI coding agents.</p>
 
 <p align="center">
   <a href="https://crates.io/crates/aisw">
@@ -30,7 +30,7 @@
 
 ## The problem
 
-Claude Code, Codex CLI, and Gemini CLI each store credentials in different locations — files, OS keychains, and tool-specific directories. If you maintain separate work and personal accounts, or manage credentials for multiple clients, switching means editing hidden files, copying tokens, and hoping nothing breaks.
+Claude Code, Codex CLI, and Gemini CLI each store credentials in different locations - files, OS keychains, and tool-specific directories. If you maintain separate work and personal accounts, or manage credentials for multiple clients, switching means editing hidden files, copying tokens, and hoping nothing breaks.
 
 `aisw` solves this with named profiles. Each profile is a captured snapshot of a tool's auth state. Switching is a single command that atomically replaces the live credentials and produces a clean rollback on failure.
 

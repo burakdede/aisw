@@ -1,6 +1,6 @@
 ---
 title: Security
-description: aisw security posture — local-only credential storage, OS keyring integration, file permissions, no remote transmission, and safe switching design.
+description: aisw security posture  -  local-only credential storage, OS keyring integration, file permissions, no remote transmission, and safe switching design.
 ---
 
 # Security
@@ -9,7 +9,7 @@ description: aisw security posture — local-only credential storage, OS keyring
 
 ## Summary
 
-- Credentials are stored locally only — no remote service, no telemetry, no sync.
+- Credentials are stored locally only  -  no remote service, no telemetry, no sync.
 - Sensitive files are written with `0600` permissions (owner read/write only).
 - OS keyring integration uses the platform-native API (macOS Keychain, Linux Secret Service, Windows Credential Manager).
 - Switching is transactional: a failed write rolls back to the previous state.
@@ -39,7 +39,7 @@ Directories under `~/.aisw/` are created with `0700`.
 | Platform | Backend |
 |---|---|
 | macOS | macOS Keychain via `security-framework`, with app-path ACL limiting access to the `claude` binary |
-| Linux | Secret Service protocol (GNOME Keyring, KWallet) with vendored libdbus — no system dbus development package required |
+| Linux | Secret Service protocol (GNOME Keyring, KWallet) with vendored libdbus  -  no system dbus development package required |
 | Windows | Windows Credential Manager via WinCred API |
 
 On macOS, when writing Claude Code credentials to the Keychain, `aisw` sets a trusted-application ACL so the entry is bound to the `claude` binary path. This prevents other applications from reading the credential without a Keychain access prompt.
@@ -94,7 +94,7 @@ For Claude Code, `aisw` intentionally does not set `CLAUDE_CONFIG_DIR` during OA
 
 1. Files under `~/.aisw/` (profiles, backups, config).
 2. The tool's live credential locations (`~/.claude/`, `~/.codex/`, `~/.gemini/`, and their respective keychain entries).
-3. Shell config files (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`) — only when you explicitly run `aisw shell-hook` and redirect its output there yourself, or when `aisw uninstall` removes managed hook blocks you previously added.
+3. Shell config files (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`)  -  only when you explicitly run `aisw shell-hook` and redirect its output there yourself, or when `aisw uninstall` removes managed hook blocks you previously added.
 
 It does not access any other files or system resources.
 

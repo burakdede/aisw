@@ -1,6 +1,6 @@
 ---
 title: Supported tools
-description: Claude Code, Codex CLI, and Gemini CLI support matrix — auth methods, credential locations, OS keyring support, and state mode behavior per platform.
+description: Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
 ---
 
 # Supported tools
@@ -35,7 +35,7 @@ Gemini does not support `shared` mode because its auth state and broader local s
 
 | Platform | Live credential location | Keyring |
 |---|---|---|
-| macOS | `~/.claude/.credentials.json` or macOS Keychain | Supported — preferred for OAuth-based accounts |
+| macOS | `~/.claude/.credentials.json` or macOS Keychain | Supported  -  preferred for OAuth-based accounts |
 | Linux | `~/.claude/.credentials.json` | Supported via Secret Service |
 | Windows | `~/.claude/.credentials.json` | Supported via Windows Credential Manager |
 
@@ -85,6 +85,6 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 
 ## References
 
-- [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md) — detailed research on credential file locations and storage models per tool and platform
-- [How it works](how-it-works.md) — implementation details and design decisions
-- [Security](security.md) — keyring integration, file permissions, and storage safety
+- [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md)  -  detailed research on credential file locations and storage models per tool and platform
+- [How it works](how-it-works.md)  -  implementation details and design decisions
+- [Security](security.md)  -  keyring integration, file permissions, and storage safety

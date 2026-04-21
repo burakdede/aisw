@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Diagnosing and fixing common aisw failures — missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
+description: Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/troubleshooting.md
 head:
   - tag: meta
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Diagnosing and fixing common aisw failures — missing tools, hook problems, keyring issues, permission errors, and OAuth failures.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, troubleshooting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, troubleshooting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
 ---
 
 ## Quick diagnostics
@@ -125,10 +125,10 @@ aisw add claude current --from-live --set-active
 - Run `aisw doctor` to check for known detection issues.
 - File a GitHub issue with the tool version and platform.
 
-*For Gemini — scratch directory error:*
+*For Gemini  -  scratch directory error:*
 - This should not occur in normal usage. If it does, check that `/tmp` is writable.
 
-*For Claude — credentials captured but profile creation fails:*
+*For Claude  -  credentials captured but profile creation fails:*
 - Check available disk space under `~/.aisw/`.
 - Check permissions on `~/.aisw/profiles/`.
 

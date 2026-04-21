@@ -1,6 +1,6 @@
 ---
 title: Command reference
-description: Complete syntax and flag reference for all aisw commands — add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
+description: Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 ---
 
 # Command reference

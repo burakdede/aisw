@@ -1,6 +1,6 @@
 ---
 title: Supported Tools
-description: Claude Code, Codex CLI, and Gemini CLI support matrix — auth methods, credential locations, OS keyring support, and state mode behavior per platform.
+description: Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/supported-tools.md
 head:
   - tag: meta
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"Claude Code, Codex CLI, and Gemini CLI support matrix — auth methods, credential locations, OS keyring support, and state mode behavior per platform.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, supported tools, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, supported tools, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
 ---
 
 `aisw` supports three AI coding agent CLIs:
@@ -52,7 +52,7 @@ Gemini does not support `shared` mode because its auth state and broader local s
 
 | Platform | Live credential location | Keyring |
 |---|---|---|
-| macOS | `~/.claude/.credentials.json` or macOS Keychain | Supported — preferred for OAuth-based accounts |
+| macOS | `~/.claude/.credentials.json` or macOS Keychain | Supported  -  preferred for OAuth-based accounts |
 | Linux | `~/.claude/.credentials.json` | Supported via Secret Service |
 | Windows | `~/.claude/.credentials.json` | Supported via Windows Credential Manager |
 
@@ -102,6 +102,6 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 
 ## References
 
-- [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md) — detailed research on credential file locations and storage models per tool and platform
-- [How it works](/aisw/how-it-works/) — implementation details and design decisions
-- [Security](/aisw/security/) — keyring integration, file permissions, and storage safety
+- [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md)  -  detailed research on credential file locations and storage models per tool and platform
+- [How it works](/aisw/how-it-works/)  -  implementation details and design decisions
+- [Security](/aisw/security/)  -  keyring integration, file permissions, and storage safety
