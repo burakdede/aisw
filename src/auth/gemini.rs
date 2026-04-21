@@ -432,9 +432,9 @@ fn run_oauth_flow(
         }
     }
 
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(&scratch);
-    }
+    // Always clean up the scratch HOME regardless of outcome. On success the
+    // credential files have already been copied into the profile directory.
+    let _ = std::fs::remove_dir_all(&scratch);
     result
 }
 
@@ -905,6 +905,58 @@ mod tests {
             .profile_dir(Tool::Gemini, "default")
             .join("oauth_creds.json")
             .exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_scratch_dir_cleaned_up_on_success() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true, false);
+
+        let tmp_before: std::collections::HashSet<_> = std::fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("aisw-gemini-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let tmp_after: std::collections::HashSet<_> = std::fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("aisw-gemini-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        let leaked: Vec<_> = tmp_after.difference(&tmp_before).collect();
+        assert!(
+            leaked.is_empty(),
+            "scratch dirs leaked after successful OAuth: {leaked:?}"
+        );
     }
 
     #[test]
