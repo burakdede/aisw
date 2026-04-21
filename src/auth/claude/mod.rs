@@ -78,9 +78,7 @@ pub fn apply_live_credentials(
                 stored,
             )])
         }
-        ClaudeAuthStorage::Keychain => {
-            keychain::write_keychain_credentials(&keychain::live_keychain_payload(&stored))
-        }
+        ClaudeAuthStorage::Keychain => keychain::write_keychain_credentials(&stored),
     }?;
 
     oauth::apply_live_oauth_account_metadata(profile_store, name, user_home)
@@ -119,13 +117,11 @@ pub fn live_credentials_match(
             let Some(live) = keychain::read_keychain_credentials()? else {
                 return Ok(false);
             };
-            // The Keychain only stores the claudeAiOauth subset (written by
-            // live_keychain_payload). Compare as parsed JSON values to handle
-            // the trailing newline added by the security CLI and key ordering.
+            // Compare as parsed JSON values to handle the trailing newline
+            // added by the security CLI and any key-ordering differences.
             let live_value = serde_json::from_slice::<serde_json::Value>(&live)
                 .context("could not parse live Keychain credentials")?;
-            let stored_payload = keychain::live_keychain_payload(&stored);
-            let stored_value = serde_json::from_slice::<serde_json::Value>(&stored_payload)
+            let stored_value = serde_json::from_slice::<serde_json::Value>(&stored)
                 .context("could not parse stored credential payload")?;
             Ok(live_value == stored_value)
         }
@@ -991,9 +987,8 @@ mod tests {
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&live_keychain).unwrap(),
             serde_json::json!({
-                "claudeAiOauth": {
-                    "accessToken": "tok"
-                }
+                "claudeAiOauth": { "accessToken": "tok" },
+                "mcpOAuth": { "x": { "clientId": "abc" } }
             })
         );
 
@@ -1033,6 +1028,38 @@ mod tests {
         secure_store::write_profile_secret(Tool::Claude, "work", br#"{"token":"tok"}"#).unwrap();
 
         apply_live_credentials(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
+
+        assert!(
+            live_credentials_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn keychain_apply_preserves_mcp_oauth_tokens() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        secure_store::write_profile_secret(
+            Tool::Claude,
+            "work",
+            br#"{"claudeAiOauth":{"accessToken":"a"},"mcpOAuth":{"srv":{"clientId":"c"}}}"#,
+        )
+        .unwrap();
+
+        apply_live_credentials(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
+
+        let live = keychain::read_keychain_credentials().unwrap().unwrap();
+        let live_json: serde_json::Value = serde_json::from_slice(&live).unwrap();
+        assert_eq!(live_json["claudeAiOauth"]["accessToken"], "a");
+        assert_eq!(live_json["mcpOAuth"]["srv"]["clientId"], "c");
 
         assert!(
             live_credentials_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home)
