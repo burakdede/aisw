@@ -30,7 +30,6 @@ use paths::live_credentials_path;
 
 pub(super) const CREDENTIALS_FILE: &str = ".credentials.json";
 pub(super) const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
-pub(super) const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
 pub(super) const OAUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 pub(super) const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
 pub(super) const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";

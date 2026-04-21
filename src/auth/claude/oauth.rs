@@ -1,13 +1,13 @@
 //! OAuth capture flow and account-metadata persistence for Claude Code.
 //!
 //! Claude's OAuth flow varies by installation and platform:
-//!  - We always monitor Claude's live credential locations (and keychain when
-//!    available), because modern Claude builds may write outside capture-dir.
+//!  - We monitor Claude's live credential locations (file and keychain) for
+//!    changes after `claude auth login` completes.
 //!  - We avoid setting `CLAUDE_CONFIG_DIR` during login so Claude can run its
 //!    native auth flow without override-induced fallbacks.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -30,10 +30,6 @@ use super::paths::{
     live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
 };
 use super::{LiveCredentialSnapshot, LiveCredentialSource};
-
-fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {
-    profile_dir.join(super::OAUTH_CAPTURE_DIR)
-}
 
 fn persist_oauth_storage(
     profile_store: &ProfileStore,
@@ -283,8 +279,8 @@ pub(super) fn apply_live_oauth_account_metadata(
 
 /// Start the Claude OAuth flow using the installed `claude` binary.
 ///
-/// Spawns `claude auth login` and polls for new credentials in live locations,
-/// keychain, and capture-dir fallback paths.
+/// Spawns `claude auth login` and polls for credential changes in the live
+/// file path and the OS keychain (where available).
 pub fn add_oauth(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
@@ -312,18 +308,15 @@ pub(super) fn add_oauth_with(
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<()> {
-    let profile_dir = profile_store.create(Tool::Claude, name)?;
+    profile_store.create(Tool::Claude, name)?;
     let stored_backend = oauth_stored_backend();
-    let capture_dir = oauth_capture_dir(&profile_dir);
-    fs::create_dir_all(&capture_dir)
-        .with_context(|| format!("could not create {}", capture_dir.display()))?;
 
     if let Some(note) = storage_fallback_note(CredentialBackend::SystemKeyring) {
         output::print_warning(note);
     }
 
     let auth_bytes = files::cleanup_profile_on_error(
-        run_oauth_flow(claude_bin, &capture_dir, timeout, poll_interval),
+        run_oauth_flow(claude_bin, timeout, poll_interval),
         profile_store,
         Tool::Claude,
         name,
@@ -334,10 +327,7 @@ pub(super) fn add_oauth_with(
         profile_store,
         Tool::Claude,
         name,
-    )
-    .inspect_err(|_| {
-        let _ = fs::remove_dir_all(&capture_dir);
-    })?;
+    )?;
 
     if let Some(user_home) = dirs::home_dir() {
         files::cleanup_profile_on_error(
@@ -345,10 +335,7 @@ pub(super) fn add_oauth_with(
             profile_store,
             Tool::Claude,
             name,
-        )
-        .inspect_err(|_| {
-            let _ = fs::remove_dir_all(&capture_dir);
-        })?;
+        )?;
     }
 
     files::cleanup_profile_on_error(
@@ -387,14 +374,11 @@ pub(super) fn add_oauth_with(
             let _ = profile_store.delete(Tool::Claude, name);
         })?;
 
-    let _ = fs::remove_dir_all(&capture_dir);
-
     Ok(())
 }
 
 fn run_oauth_flow(
     claude_bin: &Path,
-    capture_dir: &Path,
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<Vec<u8>> {
@@ -421,10 +405,9 @@ If you need a different Claude account, fully sign out of claude.com first, then
 'aisw add claude <name>'.",
     );
 
-    // Avoid `CLAUDE_CONFIG_DIR` during OAuth login so Claude can choose its
-    // native auth flow. We still check capture-dir as a fallback in case some
-    // installations write there.
-    let use_capture_dir = false;
+    // CLAUDE_CONFIG_DIR is intentionally NOT set here so Claude can run its
+    // native auth flow. We detect completion by watching the live credential
+    // file and the OS keychain for changes.
     let live_credentials_path_before = dirs::home_dir().map(|home| live_credentials_path(&home));
     let file_before = live_credentials_path_before
         .as_ref()
@@ -444,19 +427,9 @@ If you need a different Claude account, fully sign out of claude.com first, then
         .spawn()
         .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
 
-    let credentials_path = capture_dir.join(super::CREDENTIALS_FILE);
     let deadline = Instant::now() + timeout;
 
     loop {
-        if use_capture_dir && credentials_path.exists() {
-            let _ = child.kill();
-            let _ = child.wait();
-            let bytes = fs::read(&credentials_path)
-                .with_context(|| format!("could not read {}", credentials_path.display()))?;
-            files::set_permissions_600(&credentials_path)?;
-            return Ok(bytes);
-        }
-
         if watch_keychain {
             if let Some(current) = read_keychain_credentials()? {
                 let changed = keychain_before.as_deref() != Some(current.as_slice());
@@ -485,13 +458,6 @@ If you need a different Claude account, fully sign out of claude.com first, then
             .try_wait()
             .with_context(|| format!("could not poll {}", claude_bin.display()))?
         {
-            if use_capture_dir && credentials_path.exists() {
-                let bytes = fs::read(&credentials_path)
-                    .with_context(|| format!("could not read {}", credentials_path.display()))?;
-                files::set_permissions_600(&credentials_path)?;
-                return Ok(bytes);
-            }
-
             if watch_keychain {
                 if let Some(current) = read_keychain_credentials()? {
                     if status.success() || keychain_before.is_none() {
@@ -514,7 +480,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
             };
             bail!(
                 "{} before aisw could capture credentials.\n  \
-                 Claude may be storing auth outside CLAUDE_CONFIG_DIR or in the system keyring.",
+                 Claude may be storing auth outside the live credential path or in the system keyring.",
                 exit_note
             );
         }
