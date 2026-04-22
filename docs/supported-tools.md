@@ -39,6 +39,16 @@ Gemini remains isolated-only because auth and broader CLI state are coupled unde
 | Codex CLI | system keyring (not discoverable) | partial | fail-closed | no fabricated keyring account |
 | Gemini CLI | file-backed `~/.gemini` state | yes | yes | no keyring mode in `aisw` |
 
+## Automatic Synchronization
+
+`aisw` can automatically keep your stored profiles in sync with the live tool configuration.
+
+| Tool | Trigger | Identity Protection |
+|---|---|---|
+| Claude Code | `status`, `use` | Matches email address before sync |
+
+For Claude, this ensures that if the tool refreshes your OAuth tokens while you are working, `aisw` captures those new tokens into your stored profile automatically. This prevents "stale session" errors when switching back to a profile later.
+
 ## References
 
 - [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md)
