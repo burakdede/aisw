@@ -1094,4 +1094,36 @@ mod tests {
         assert_eq!(live_json["oauthToken"], "tok");
         assert_eq!(live_json["account"]["email"], "work@example.com");
     }
+
+    #[test]
+    fn identity_extraction_supports_all_claude_json_shapes() {
+        // Format 1: account.email
+        let json1 = br#"{"account":{"email":"user1@example.com"}}"#;
+        assert_eq!(
+            oauth::identity_from_credentials_json(json1).unwrap(),
+            Some("user1@example.com".to_owned())
+        );
+
+        // Format 2: oauthAccount.emailAddress (metadata file)
+        let json2 = br#"{"oauthAccount":{"emailAddress":"user2@example.com"}}"#;
+        assert_eq!(
+            oauth::identity_from_credentials_json(json2).unwrap(),
+            Some("user2@example.com".to_owned())
+        );
+
+        // Format 3: top-level emailAddress
+        let json3 = br#"{"emailAddress":"user3@example.com"}"#;
+        assert_eq!(
+            oauth::identity_from_credentials_json(json3).unwrap(),
+            Some("user3@example.com".to_owned())
+        );
+
+        // Format 4: invalid/missing
+        let json4 = br#"{"something":"else"}"#;
+        assert_eq!(oauth::identity_from_credentials_json(json4).unwrap(), None);
+
+        // Format 5: malformed JSON
+        let json5 = br#"{"invalid": ...}"#;
+        assert_eq!(oauth::identity_from_credentials_json(json5).unwrap(), None);
+    }
 }
