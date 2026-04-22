@@ -145,7 +145,7 @@ fn run_for_tool(
     }
 
     // --- Sync logic start ---
-    maybe_sync_current_active_claude_profile(&config, &profile_store, tool, user_home)?;
+    let _ = maybe_sync_current_active_claude_profile(&config, &profile_store, tool, user_home);
     // --- Sync logic end ---
 
     match tool {

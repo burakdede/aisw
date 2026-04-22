@@ -143,14 +143,14 @@ pub(crate) fn collect_status(
                 check_profile_storage(&profile_dir, tool, name, profile_meta.credential_backend);
 
             // --- Sync logic start ---
-            maybe_sync_active_claude_profile(
+            let _ = maybe_sync_active_claude_profile(
                 &config,
                 &profile_store,
                 tool,
                 name,
                 profile_meta.credential_backend,
                 user_home,
-            )?;
+            );
             // --- Sync logic end ---
 
             let auth = profiles
