@@ -26,19 +26,21 @@ const DOCS = [
     source: 'index.md',
     output: 'index.md',
     title: 'aisw documentation',
-    description: 'Install and use aisw for account/profile management across Claude Code, Codex CLI, and Gemini CLI.',
+    description: 'aisw manages named profiles for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts with one command on macOS, Linux, and Windows.',
     section: 'overview',
     queries: [
       'aisw docs',
       'aisw install',
-      'aisw quickstart',
+      'claude code account manager',
+      'codex cli account switcher',
+      'gemini cli account switcher',
     ],
   },
   {
     source: 'quickstart.md',
     output: 'quickstart.md',
     title: 'Quickstart',
-    description: 'Install aisw, initialize, add profiles, and switch accounts.',
+    description: 'Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.',
     section: 'getting-started',
     queries: [
       'install aisw',
@@ -51,31 +53,33 @@ const DOCS = [
     source: 'commands.md',
     output: 'commands.md',
     title: 'Commands',
-    description: 'Command and flag reference for aisw.',
+    description: 'Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.',
     section: 'reference',
     queries: [
       'aisw command reference',
       'aisw add use list status',
+      'aisw flags',
     ],
   },
   {
     source: 'automation.md',
     output: 'automation.md',
     title: 'Automation and Scripting',
-    description: 'Non-interactive usage, JSON output, and scripting-safe patterns.',
+    description: 'Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.',
     section: 'reference',
     queries: [
       'aisw automation',
       'aisw json output',
       'aisw scripting',
-      'aisw stdout stderr',
+      'aisw CI non-interactive',
+      'aisw GitHub Actions',
     ],
   },
   {
     source: 'shell-integration.md',
     output: 'shell-integration.md',
     title: 'Shell Integration',
-    description: 'Shell hook and completion setup for bash, zsh, and fish.',
+    description: 'Install and configure the aisw shell hook for bash, zsh, and fish. Understand what the hook does and how shell completions work.',
     section: 'reference',
     queries: [
       'aisw shell hook',
@@ -88,63 +92,96 @@ const DOCS = [
     source: 'adding-profiles.md',
     output: 'adding-profiles.md',
     title: 'Adding Profiles',
-    description: 'Add profiles with API keys or interactive OAuth flows.',
+    description: 'How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.',
     section: 'reference',
     queries: [
       'add second Claude Code account',
       'add second Codex CLI account',
       'add second Gemini CLI account',
       'AI CLI OAuth profile manager',
+      'aisw add --from-live',
     ],
   },
   {
     source: 'supported-tools.md',
     output: 'supported-tools.md',
     title: 'Supported Tools',
-    description: 'Tool support matrix and auth/backend behavior.',
+    description: 'Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.',
     section: 'reference',
     queries: [
       'does aisw support Claude Code',
       'does aisw support Codex CLI',
       'does aisw support Gemini CLI',
+      'aisw macOS Linux Windows support',
     ],
   },
   {
     source: 'config.md',
     output: 'configuration.md',
     title: 'Configuration',
-    description: 'Config file structure and active-profile state.',
+    description: 'aisw configuration file location, schema, field reference, directory layout, and AISW_HOME override.',
     section: 'reference',
     queries: [
       'aisw config.json',
       'aisw configuration file',
+      'aisw AISW_HOME',
+    ],
+  },
+  {
+    source: 'how-it-works.md',
+    output: 'how-it-works.md',
+    title: 'How It Works',
+    description: 'Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.',
+    section: 'reference',
+    queries: [
+      'how does aisw switch accounts',
+      'aisw credential storage',
+      'aisw keyring integration',
+      'aisw atomic switching',
+      'aisw profile model',
+    ],
+  },
+  {
+    source: 'security.md',
+    output: 'security.md',
+    title: 'Security',
+    description: 'How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.',
+    section: 'reference',
+    queries: [
+      'aisw credential security',
+      'is aisw safe to use',
+      'aisw file permissions',
+      'aisw keychain security',
+      'aisw oauth safety',
     ],
   },
   {
     source: 'why-aisw.md',
     output: 'why-aisw.md',
     title: 'Why aisw?',
-    description: 'Problem statement and scope of aisw.',
+    description: 'Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.',
     section: 'overview',
     queries: [
       'why use aisw',
-      'AI agent quota management',
-      'Claude Code quota switcher',
-      'Codex CLI quota switcher',
-      'Gemini CLI quota switcher',
+      'AI CLI account switching problem',
+      'Claude Code account manager',
+      'Codex CLI account switcher',
+      'Gemini CLI account switcher',
+      'multiple AI coding agent accounts',
     ],
   },
   {
     source: 'troubleshooting.md',
     output: 'troubleshooting.md',
     title: 'Troubleshooting',
-    description: 'Common errors and direct fixes.',
+    description: 'Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.',
     section: 'reference',
     queries: [
       'aisw troubleshooting',
       'aisw shell hook not working',
       'aisw tool not found',
       'aisw gemini oauth fail',
+      'aisw keyring not available',
     ],
   },
 ];
@@ -170,7 +207,7 @@ async function main() {
     const raw = await fs.readFile(sourcePath, 'utf8');
     const body = injectVersionContext(
       doc,
-      rewriteRepoMarkdownLinks(stripLeadingTitle(raw).trim()),
+      rewriteRepoMarkdownLinks(stripLeadingTitle(stripFrontmatter(raw)).trim()),
       currentVersion
     );
     const editUrl = `https://github.com/burakdede/aisw/edit/main/docs/${doc.source}`;
@@ -208,6 +245,10 @@ async function clearOutputDirectory(dir) {
     }
     await fs.unlink(target);
   }
+}
+
+function stripFrontmatter(markdown) {
+  return markdown.replace(/^---\n[\s\S]*?\n---\n+/, '');
 }
 
 function stripLeadingTitle(markdown) {

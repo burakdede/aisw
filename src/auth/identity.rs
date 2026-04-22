@@ -1,6 +1,4 @@
 use anyhow::{bail, Result};
-use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
-use base64::Engine;
 use serde_json::Value;
 
 use super::{claude, codex, gemini, secure_store};
@@ -292,25 +290,7 @@ fn looks_like_jwt(value: &str) -> bool {
 }
 
 fn decode_jwt_payload(token: &str) -> Result<Option<Value>> {
-    let mut parts = token.split('.');
-    let _header = parts.next();
-    let Some(payload) = parts.next() else {
-        return Ok(None);
-    };
-
-    let decoded = decode_base64_url(payload)?;
-    let value: Value = match serde_json::from_slice(&decoded) {
-        Ok(value) => value,
-        Err(_) => return Ok(None),
-    };
-    Ok(Some(value))
-}
-
-fn decode_base64_url(input: &str) -> Result<Vec<u8>> {
-    URL_SAFE_NO_PAD
-        .decode(input)
-        .or_else(|_| URL_SAFE.decode(input))
-        .map_err(|_| anyhow::anyhow!("invalid base64url payload"))
+    Ok(crate::util::jwt::decode_jwt_payload(token))
 }
 
 #[cfg(test)]
@@ -355,6 +335,8 @@ mod tests {
 
     #[test]
     fn resolves_subject_from_padded_jwt_payload() {
+        use base64::engine::general_purpose::URL_SAFE;
+        use base64::Engine;
         let payload = URL_SAFE.encode(br#"{"sub":"USER-1234"}"#);
         assert!(
             payload.ends_with('='),

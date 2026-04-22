@@ -6,16 +6,18 @@ Current version: 0.3.2
 
 ## Docs
 
-- [aisw documentation](https://burakdede.github.io/aisw/): Install and use aisw for account/profile management across Claude Code, Codex CLI, and Gemini CLI.
-- [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, initialize, add profiles, and switch accounts.
-- [Commands](https://burakdede.github.io/aisw/commands/): Command and flag reference for aisw.
-- [Automation and Scripting](https://burakdede.github.io/aisw/automation/): Non-interactive usage, JSON output, and scripting-safe patterns.
-- [Shell Integration](https://burakdede.github.io/aisw/shell-integration/): Shell hook and completion setup for bash, zsh, and fish.
-- [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/): Add profiles with API keys or interactive OAuth flows.
-- [Supported Tools](https://burakdede.github.io/aisw/supported-tools/): Tool support matrix and auth/backend behavior.
-- [Configuration](https://burakdede.github.io/aisw/configuration/): Config file structure and active-profile state.
-- [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Problem statement and scope of aisw.
-- [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/): Common errors and direct fixes.
+- [aisw documentation](https://burakdede.github.io/aisw/): aisw manages named profiles for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts with one command on macOS, Linux, and Windows.
+- [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.
+- [Commands](https://burakdede.github.io/aisw/commands/): Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
+- [Automation and Scripting](https://burakdede.github.io/aisw/automation/): Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.
+- [Shell Integration](https://burakdede.github.io/aisw/shell-integration/): Install and configure the aisw shell hook for bash, zsh, and fish. Understand what the hook does and how shell completions work.
+- [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/): How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.
+- [Supported Tools](https://burakdede.github.io/aisw/supported-tools/): Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
+- [Configuration](https://burakdede.github.io/aisw/configuration/): aisw configuration file location, schema, field reference, directory layout, and AISW_HOME override.
+- [How It Works](https://burakdede.github.io/aisw/how-it-works/): Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
+- [Security](https://burakdede.github.io/aisw/security/): How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.
+- [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
+- [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/): Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
 
 ## Project
 

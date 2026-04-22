@@ -16,9 +16,9 @@ const siteSchema = {
 	'@graph': [
 		{
 			'@type': 'WebSite',
-			name: 'aisw documentation',
+			name: 'aisw  -  AI coding agent account manager',
 			url: siteUrl,
-			description: 'Documentation for aisw CLI: install, setup, commands, automation, and troubleshooting.',
+			description: 'aisw is a named profile manager for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts in one command on macOS, Linux, and Windows.',
 			image: `${siteOrigin}${logoPath}`,
 			publisher: {
 				'@type': 'Organization',
@@ -35,9 +35,22 @@ const siteSchema = {
 			applicationCategory: 'DeveloperApplication',
 			operatingSystem: 'macOS, Linux, Windows',
 			softwareVersion: currentVersion,
-			description: 'CLI for managing and switching accounts for Claude Code, Codex CLI, and Gemini CLI.',
+			description: 'Named profile manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch multiple accounts  -  work, personal, client  -  in one command. Supports OAuth, API keys, OS keychain, and CI automation.',
 			url: 'https://github.com/burakdede/aisw',
 			image: `${siteOrigin}${logoPath}`,
+			featureList: [
+				'Switch Claude Code accounts with one command',
+				'Switch Codex CLI accounts with one command',
+				'Switch Gemini CLI accounts with one command',
+				'macOS Keychain integration',
+				'Linux Secret Service integration',
+				'Windows Credential Manager integration',
+				'OAuth and API key support',
+				'Atomic profile switching with rollback',
+				'Automatic backups before destructive operations',
+				'CI-safe non-interactive mode',
+				'JSON output for scripting',
+			],
 		},
 	],
 };
@@ -52,11 +65,11 @@ export default defineConfig({
 			title: 'aisw',
 			description: 'CLI docs for install, setup, commands, automation, and troubleshooting.',
 			logo: {
-				light: './public/aisw-mark-light.svg',
-				dark: './public/aisw-mark-dark.svg',
+				light: './public/aisw-logo.png',
+				dark: './public/aisw-logo.png',
 				alt: 'aisw logo',
 			},
-			favicon: '/favicon.ico',
+			favicon: '/favicon-32.png',
 			head: [
 				{
 					tag: 'meta',
@@ -83,8 +96,9 @@ export default defineConfig({
 						tag: 'link',
 						attrs: {
 							rel: 'icon',
-							href: `${siteBasePath}/favicon.ico`,
-							sizes: 'any',
+							type: 'image/png',
+							href: `${siteBasePath}/favicon-32.png`,
+							sizes: '32x32',
 						},
 					},
 					{
@@ -148,11 +162,17 @@ export default defineConfig({
 						{ label: 'Adding Profiles', slug: 'adding-profiles' },
 						{ label: 'Supported Tools', slug: 'supported-tools' },
 						{ label: 'Configuration', slug: 'configuration' },
+						{ label: 'How It Works', slug: 'how-it-works' },
+						{ label: 'Security', slug: 'security' },
 					],
 				},
 				{
-					label: 'Automation',
-					items: [{ label: 'Automation and Scripting', slug: 'automation' }],
+					label: 'Guides',
+					items: [
+						{ label: 'Automation and Scripting', slug: 'automation' },
+						{ label: 'Troubleshooting', slug: 'troubleshooting' },
+						{ label: 'Why aisw', slug: 'why-aisw' },
+					],
 				},
 			],
 			editLink: {

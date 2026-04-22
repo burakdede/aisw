@@ -532,65 +532,11 @@ fn json_path(value: &serde_json::Value, path: &[&str]) -> Option<String> {
 
 /// Decode the payload segment of a JWT and extract the `email` claim, if present.
 fn decode_jwt_email(jwt: &str) -> Option<String> {
-    let payload_b64 = jwt.split('.').nth(1)?;
-    // JWT uses base64url without padding.
-    let padded = base64_url_to_padded(payload_b64);
-    let bytes = base64_decode(&padded)?;
-    let payload: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let payload = crate::util::jwt::decode_jwt_payload(jwt)?;
     payload
         .get("email")
         .and_then(|v| v.as_str())
         .map(|s| s.to_owned())
-}
-
-fn base64_url_to_padded(s: &str) -> String {
-    let mut out = s.replace('-', "+").replace('_', "/");
-    match out.len() % 4 {
-        2 => out.push_str("=="),
-        3 => out.push('='),
-        _ => {}
-    }
-    out
-}
-
-fn base64_decode(s: &str) -> Option<Vec<u8>> {
-    // Minimal inline base64 decoder for JWT payloads.
-    // We only need this for JWT payloads so a simple table-based decode is fine.
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut table = [0u8; 256];
-    for (i, &c) in alphabet.iter().enumerate() {
-        table[c as usize] = i as u8;
-    }
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity((bytes.len() / 4) * 3);
-    let mut i = 0;
-    while i + 3 < bytes.len() {
-        if bytes[i] == b'=' {
-            break;
-        }
-        let a = table[bytes[i] as usize] as u32;
-        let b = table[bytes[i + 1] as usize] as u32;
-        let c = if bytes[i + 2] == b'=' {
-            0
-        } else {
-            table[bytes[i + 2] as usize] as u32
-        };
-        let d = if i + 3 >= bytes.len() || bytes[i + 3] == b'=' {
-            0
-        } else {
-            table[bytes[i + 3] as usize] as u32
-        };
-        let triple = (a << 18) | (b << 12) | (c << 6) | d;
-        out.push(((triple >> 16) & 0xFF) as u8);
-        if bytes[i + 2] != b'=' {
-            out.push(((triple >> 8) & 0xFF) as u8);
-        }
-        if i + 3 < bytes.len() && bytes[i + 3] != b'=' {
-            out.push((triple & 0xFF) as u8);
-        }
-        i += 4;
-    }
-    Some(out)
 }
 
 #[cfg(test)]
@@ -1000,11 +946,8 @@ mod tests {
 
     #[test]
     fn decode_jwt_email_extracts_email_claim() {
-        // Craft a minimal JWT with a known payload: {"email":"user@example.com"}
-        // Header: {"alg":"HS256"} → eyJhbGciOiJIUzI1NiJ9
-        // Payload: {"email":"user@example.com"} → encode manually
         let payload = r#"{"email":"user@example.com"}"#;
-        let b64 = base64_encode(payload.as_bytes());
+        let b64 = crate::util::jwt::encode_jwt_payload_for_test(payload.as_bytes());
         let fake_jwt = format!("eyJhbGciOiJIUzI1NiJ9.{b64}.signature");
         let email = decode_jwt_email(&fake_jwt);
         assert_eq!(email.as_deref(), Some("user@example.com"));
@@ -1033,30 +976,6 @@ mod tests {
         assert_eq!(rows[0].name, "work");
         assert!(rows[0].is_active);
         assert!(rows[0].display.contains("(billing)"));
-    }
-
-    fn base64_encode(input: &[u8]) -> String {
-        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut out = String::new();
-        for chunk in input.chunks(3) {
-            let b0 = chunk[0] as u32;
-            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-            let triple = (b0 << 16) | (b1 << 8) | b2;
-            out.push(alphabet[((triple >> 18) & 0x3F) as usize] as char);
-            out.push(alphabet[((triple >> 12) & 0x3F) as usize] as char);
-            if chunk.len() > 1 {
-                out.push(alphabet[((triple >> 6) & 0x3F) as usize] as char);
-            } else {
-                out.push('=');
-            }
-            if chunk.len() > 2 {
-                out.push(alphabet[(triple & 0x3F) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-        out
     }
 
     fn setup_codex_api_key_profile(home: &Path, name: &str) {

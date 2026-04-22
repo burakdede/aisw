@@ -1,6 +1,6 @@
 ---
 title: Automation and Scripting
-description: Non-interactive usage, JSON output, and scripting-safe patterns.
+description: Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/automation.md
 head:
   - tag: meta
@@ -19,68 +19,144 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Non-interactive usage, JSON output, and scripting-safe patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.2","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
 ---
 
-Use this page for CI or script-safe `aisw` usage.
+`aisw` is designed to be used safely in CI pipelines, shell scripts, and non-interactive environments.
 
 ## Baseline flags
 
-```text
-aisw [--non-interactive] [--quiet] <command>
+```sh
+aisw --non-interactive --quiet <command>
 ```
 
-- `--non-interactive`: do not prompt; fail instead
-- `--quiet`: suppress presentation output (does not suppress errors, JSON, `--emit-env`, or `shell-hook`)
-- `--yes`: skip confirmation on commands that prompt
+| Flag | Effect |
+|---|---|
+| `--non-interactive` | Fail instead of prompting. Safe for CI  -  commands that require user input will exit non-zero with a clear error. |
+| `--quiet` | Suppress human-readable presentation output (tables, status lines). Does not suppress errors, JSON output, `--emit-env`, or `shell-hook` output. |
+| `--yes` | Skip confirmation prompts on commands that ask before proceeding (remove, restore, uninstall). |
 
 ## Non-interactive patterns
 
 ```sh
-# Add without OAuth/browser flow
-aisw --non-interactive add codex ci --api-key "$OPENAI_API_KEY"
+# Add an API key profile without any prompts
+aisw --non-interactive add claude ci --api-key "$ANTHROPIC_API_KEY"
 
-# Remove with no prompt
+# Add from an already-exported environment variable
+aisw --non-interactive add codex ci --from-env
+
+# Remove a profile with no confirmation
 aisw --non-interactive remove codex ci --yes
 
-# Restore backup with no prompt
-aisw --non-interactive backup restore <backup_id> --yes
+# Restore a backup with no confirmation
+aisw --non-interactive backup restore 20260325T114502Z-claude-ci --yes
 ```
+
+Interactive OAuth flows (`aisw add claude personal` without flags) are not available in `--non-interactive` mode. Use `--api-key` or `--from-env` for CI.
 
 ## Machine-readable output
 
-Use `--json` for scripts:
+All inventory and status commands support `--json`:
 
 ```sh
-aisw list --json
 aisw status --json
+aisw list --json
+aisw list claude --json
 aisw backup list --json
+aisw doctor --json
+```
+
+JSON output goes to stdout. Errors always go to stderr with a non-zero exit code.
+
+### Useful JSON patterns
+
+```sh
+# Get the active Claude profile name
+aisw status --json | jq -r '.tools.claude.active_profile'
+
+# Check whether the live credentials match the active profile
+aisw status --json | jq '.tools.claude.live_match'
+
+# List all stored Codex profile names
+aisw list codex --json | jq -r '.[].name'
+
+# Find profiles with expired tokens
+aisw status --json | jq '.tools[] | select(.token_warning != null) | {tool, warning: .token_warning}'
+
+# Get the most recent backup for a specific profile
+aisw backup list --json | jq '[.[] | select(.profile == "claude/work")] | sort_by(.created_at) | last'
 ```
 
 ## Output contract
 
-- human output: stdout
-- errors: stderr + non-zero exit code
-- prompts: shown only when allowed (no `--non-interactive` and no `--yes`)
-- `aisw use --emit-env`: prints shell exports on stdout
-- `aisw shell-hook`: prints shell hook code on stdout
+| Output | Destination | Notes |
+|---|---|---|
+| Human-readable tables and status | stdout | Suppressed by `--quiet` |
+| Errors | stderr + non-zero exit | Always present, never suppressed |
+| Prompts | stderr or tty | Only shown without `--non-interactive` and without `--yes` |
+| `aisw use --emit-env` | stdout | Shell variable exports; not affected by `--quiet` |
+| `aisw shell-hook` | stdout | Shell hook code; not affected by `--quiet` |
+| JSON output (`--json`) | stdout | Not affected by `--quiet` |
+
+Exit code `0` means success. Any non-zero exit code means failure; the error message is on stderr.
+
+## Applying profiles without the shell hook
+
+If the shell hook is not installed, `aisw use` still writes live credential files and updates the active profile in config. For commands that need the env vars emitted by `aisw use`:
+
+```sh
+# Apply profile and capture env exports into the current shell
+eval "$(aisw use codex work --emit-env)"
+
+# Or in a subshell
+(eval "$(aisw use claude work --emit-env)"; claude ...)
+```
+
+`--emit-env` prints `export VAR=value` lines for any environment variables the profile activation sets (e.g. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
 
 ## Concurrency
 
-Commands that mutate `~/.aisw/config.json` take an exclusive lock. If another mutating command is already running, the later command times out with a lock error instead of writing partial state.
+Commands that write `~/.aisw/config.json` take an exclusive file lock. If two `aisw` commands run concurrently, the second will wait briefly then fail with a lock error. This prevents partial writes in parallel CI matrix jobs. Design your CI steps so profile setup runs before parallel job steps that invoke the tools.
 
-## Common script snippets
+## Common CI patterns
+
+### Set up a named profile in CI
 
 ```sh
-# Apply profile then run tool command
-eval "$(aisw use codex work --emit-env)"
+# GitHub Actions or similar
+- name: Configure Codex profile
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  run: |
+    aisw --non-interactive add codex ci --from-env
+    aisw use codex ci
+```
 
-# Check whether expected profile is active
-aisw status --json | jq -r '.tools.codex.active_profile'
+### Switch profile before a tool invocation
+
+```sh
+aisw --non-interactive use claude work
+claude --print "summarize this file" < input.txt
+```
+
+### Verify active profile in a health check
+
+```sh
+active=$(aisw status --json | jq -r '.tools.claude.active_profile')
+if [ "$active" != "ci" ]; then
+  echo "Expected profile 'ci', got '${active}'" >&2
+  exit 1
+fi
+```
+
+### Clean up after CI
+
+```sh
+aisw --non-interactive remove codex ci --yes
 ```
 
 ## Related
 
-- [Commands](/aisw/commands/)
-- [Quickstart](/aisw/quickstart/)
-- [Shell Integration](/aisw/shell-integration/)
+- [Commands](/aisw/commands/)  -  full flag reference
+- [Shell integration](/aisw/shell-integration/)  -  hook installation and env var behavior
+- [Quickstart](/aisw/quickstart/)  -  interactive usage reference

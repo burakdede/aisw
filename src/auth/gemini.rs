@@ -18,10 +18,10 @@ const ENV_FILE: &str = ".env";
 const KEY_VAR: &str = "GEMINI_API_KEY";
 
 // Gemini CLI stores its OAuth token cache under $HOME/.gemini/.
-// There is no documented GEMINI_HOME env var (as of 2026-03). The strategy:
-// override HOME to a scratch dir so Gemini writes its cache there, then
-// copy everything into the aisw profile dir. On switch, copy back to
-// $HOME/.gemini/ (see auth::gemini::apply_token_cache).
+// GEMINI_CLI_HOME overrides the home directory used for config storage
+// (Gemini creates .gemini/ inside it). We set GEMINI_CLI_HOME to a scratch
+// dir so Gemini writes its cache there, then copy everything into the aisw
+// profile dir. On switch, copy back to $HOME/.gemini/ (see apply_token_cache).
 const GEMINI_CACHE_DIR: &str = ".gemini";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(120);
 const OAUTH_PRIMARY_FILES: &[&str] = &["oauth_creds.json"];
@@ -236,9 +236,10 @@ pub fn live_env_matches(profile_store: &ProfileStore, name: &str, dest: &Path) -
 
 /// Start the Gemini OAuth flow using the installed `gemini` binary.
 ///
-/// Overrides `HOME` so Gemini writes its token cache to a scratch directory
-/// we control. After the process exits (or times out), copies all files from
-/// `<scratch>/.gemini/` into the aisw profile dir with 0600 permissions.
+/// Sets `GEMINI_CLI_HOME` so Gemini writes its token cache to a scratch
+/// directory we control, without touching the real HOME. After the process
+/// exits (or times out), copies all files from `<scratch>/.gemini/` into the
+/// aisw profile dir with 0600 permissions.
 pub fn add_oauth(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
@@ -352,59 +353,11 @@ pub fn extract_captured_identity(profile_store: &ProfileStore, name: &str) -> Op
 }
 
 fn decode_jwt_email_from_token(jwt: &str) -> Option<String> {
-    let payload = jwt.split('.').nth(1)?;
-    let padded = base64_url_to_padded(payload);
-    let bytes = base64_decode_simple(&padded)?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    v.get("email").and_then(|e| e.as_str()).map(String::from)
-}
-
-fn base64_url_to_padded(s: &str) -> String {
-    let mut out = s.replace('-', "+").replace('_', "/");
-    match out.len() % 4 {
-        2 => out.push_str("=="),
-        3 => out.push('='),
-        _ => {}
-    }
-    out
-}
-
-fn base64_decode_simple(s: &str) -> Option<Vec<u8>> {
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut table = [0u8; 256];
-    for (i, &c) in alphabet.iter().enumerate() {
-        table[c as usize] = i as u8;
-    }
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity((bytes.len() / 4) * 3);
-    let mut i = 0;
-    while i + 3 < bytes.len() {
-        if bytes[i] == b'=' {
-            break;
-        }
-        let a = table[bytes[i] as usize] as u32;
-        let b_val = table[bytes[i + 1] as usize] as u32;
-        let c_val = if bytes[i + 2] == b'=' {
-            0
-        } else {
-            table[bytes[i + 2] as usize] as u32
-        };
-        let d = if i + 3 >= bytes.len() || bytes[i + 3] == b'=' {
-            0
-        } else {
-            table[bytes[i + 3] as usize] as u32
-        };
-        let triple = (a << 18) | (b_val << 12) | (c_val << 6) | d;
-        out.push(((triple >> 16) & 0xFF) as u8);
-        if bytes[i + 2] != b'=' {
-            out.push(((triple >> 8) & 0xFF) as u8);
-        }
-        if i + 3 < bytes.len() && bytes[i + 3] != b'=' {
-            out.push((triple & 0xFF) as u8);
-        }
-        i += 4;
-    }
-    Some(out)
+    let payload = crate::util::jwt::decode_jwt_payload(jwt)?;
+    payload
+        .get("email")
+        .and_then(|e| e.as_str())
+        .map(String::from)
 }
 
 /// Spawn `gemini` with an overridden HOME, wait for it to exit, then copy
@@ -480,9 +433,9 @@ fn run_oauth_flow(
         }
     }
 
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(&scratch);
-    }
+    // Always clean up the scratch HOME regardless of outcome. On success the
+    // credential files have already been copied into the profile directory.
+    let _ = std::fs::remove_dir_all(&scratch);
     result
 }
 
@@ -499,7 +452,7 @@ fn spawn_oauth_child(
             .arg("-q")
             .arg("/dev/null")
             .arg(gemini_bin)
-            .env("HOME", scratch)
+            .env("GEMINI_CLI_HOME", scratch)
             .current_dir(scratch_workdir)
             // Create a dedicated process group so we can terminate the entire
             // OAuth process tree (script + gemini child) reliably.
@@ -515,7 +468,8 @@ fn spawn_oauth_child(
         use std::os::unix::process::CommandExt;
 
         let mut cmd = Command::new(gemini_bin);
-        cmd.env("HOME", scratch).current_dir(scratch_workdir);
+        cmd.env("GEMINI_CLI_HOME", scratch)
+            .current_dir(scratch_workdir);
         #[cfg(unix)]
         cmd.process_group(0);
         let child = cmd
@@ -903,12 +857,12 @@ mod tests {
         let body = match (write_creds, long_running) {
             (true, _) => {
                 if long_running {
-                    "mkdir -p \"$HOME/.gemini\"\n\
-                     echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                    "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+                     echo '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
                      sleep 5\n"
                 } else {
-                    "mkdir -p \"$HOME/.gemini\"\n\
-                     echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                    "mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+                     echo '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
                      exit 0\n"
                 }
             }
@@ -957,6 +911,58 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
+    fn oauth_scratch_dir_cleaned_up_on_success() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true, false);
+
+        let tmp_before: std::collections::HashSet<_> = std::fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("aisw-gemini-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        let (ps, cs) = stores(dir.path());
+        add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let tmp_after: std::collections::HashSet<_> = std::fs::read_dir(std::env::temp_dir())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("aisw-gemini-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        let leaked: Vec<_> = tmp_after.difference(&tmp_before).collect();
+        assert!(
+            leaked.is_empty(),
+            "scratch dirs leaked after successful OAuth: {leaked:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn oauth_flow_captures_credentials_without_waiting_for_gemini_shell_exit() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
@@ -1001,8 +1007,8 @@ mod tests {
             format!(
                 "#!/bin/sh\n\
                  trap 'echo stopped > '{}' ; exit 0' INT TERM\n\
-                 mkdir -p \"$HOME/.gemini\"\n\
-                 echo '{{\"token\":\"tok\"}}' > \"$HOME/.gemini/oauth_creds.json\"\n\
+                 mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+                 echo '{{\"token\":\"tok\"}}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n\
                  while :; do sleep 1; done\n",
                 signal_file_escaped
             ),
@@ -1050,8 +1056,8 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             mkdir -p \"$HOME/.gemini\"\n\
-             echo '{\"theme\":\"dark\"}' > \"$HOME/.gemini/settings.json\"\n\
+             mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+             echo '{\"theme\":\"dark\"}' > \"$GEMINI_CLI_HOME/.gemini/settings.json\"\n\
              sleep 0.5\n",
         )
         .unwrap();
@@ -1088,8 +1094,8 @@ mod tests {
             &bin,
             "#!/bin/sh\n\
              [ \"$(basename \"$PWD\")\" = \"workspace\" ] || exit 7\n\
-             mkdir -p \"$HOME/.gemini\"\n\
-             echo '{\"token\":\"tok\"}' > \"$HOME/.gemini/oauth_creds.json\"\n",
+             mkdir -p \"$GEMINI_CLI_HOME/.gemini\"\n\
+             echo '{\"token\":\"tok\"}' > \"$GEMINI_CLI_HOME/.gemini/oauth_creds.json\"\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -1469,27 +1475,8 @@ mod tests {
 
     fn make_fixture_jwt(email: &str) -> String {
         let payload_json = format!(r#"{{"email":"{}","exp":9999999999}}"#, email);
-        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut b64 = String::new();
-        for chunk in payload_json.as_bytes().chunks(3) {
-            let b0 = chunk[0] as u32;
-            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-            let triple = (b0 << 16) | (b1 << 8) | b2;
-            b64.push(alphabet[((triple >> 18) & 0x3F) as usize] as char);
-            b64.push(alphabet[((triple >> 12) & 0x3F) as usize] as char);
-            if chunk.len() > 1 {
-                b64.push(alphabet[((triple >> 6) & 0x3F) as usize] as char);
-            } else {
-                b64.push('=');
-            }
-            if chunk.len() > 2 {
-                b64.push(alphabet[(triple & 0x3F) as usize] as char);
-            } else {
-                b64.push('=');
-            }
-        }
-        format!("eyJhbGciOiJIUzI1NiJ9.{}.sig", b64)
+        let payload = crate::util::jwt::encode_jwt_payload_for_test(payload_json.as_bytes());
+        format!("eyJhbGciOiJIUzI1NiJ9.{}.sig", payload)
     }
 
     #[test]

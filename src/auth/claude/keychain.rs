@@ -212,19 +212,6 @@ pub fn storage_fallback_note(requested_backend: CredentialBackend) -> Option<Str
     None
 }
 
-/// Strips a full `.credentials.json` payload down to the `claudeAiOauth` subset
-/// that the Keychain entry should hold.
-pub(super) fn live_keychain_payload(credentials: &[u8]) -> Vec<u8> {
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(credentials) else {
-        return credentials.to_vec();
-    };
-    let Some(claude_ai_oauth) = value.get("claudeAiOauth") else {
-        return credentials.to_vec();
-    };
-    serde_json::to_vec(&serde_json::json!({ "claudeAiOauth": claude_ai_oauth }))
-        .unwrap_or_else(|_| credentials.to_vec())
-}
-
 /// Returns the backend that a profile should use given its import source.
 pub fn imported_profile_backend(source: &LiveCredentialSource) -> CredentialBackend {
     preferred_import_backend(source)
