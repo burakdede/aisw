@@ -144,6 +144,10 @@ fn run_for_tool(
         backup_manager.snapshot(tool, &profile_name, &profile_dir, profile_meta)?;
     }
 
+    // --- Sync logic start ---
+    maybe_sync_current_active_claude_profile(&config, &profile_store, tool, user_home)?;
+    // --- Sync logic end ---
+
     match tool {
         Tool::Claude => match profile_meta.auth_method {
             AuthMethod::OAuth => {
@@ -293,6 +297,37 @@ fn run_for_tool(
         output::print_next_step(output::next_step_after_use());
     }
 
+    Ok(())
+}
+
+fn maybe_sync_current_active_claude_profile(
+    config: &crate::config::Config,
+    profile_store: &ProfileStore,
+    tool: Tool,
+    user_home: &Path,
+) -> Result<()> {
+    if tool != Tool::Claude
+        || config.state_mode_for(Tool::Claude) != crate::types::StateMode::Shared
+    {
+        return Ok(());
+    }
+
+    let Some(active_name) = config.active_for(Tool::Claude) else {
+        return Ok(());
+    };
+    let Some(active_profile) = config.profiles_for(Tool::Claude).get(active_name) else {
+        return Ok(());
+    };
+    if active_profile.auth_method != AuthMethod::OAuth {
+        return Ok(());
+    }
+
+    let _ = auth::claude::sync_profile_from_live_if_same_identity(
+        profile_store,
+        active_name,
+        active_profile.credential_backend,
+        user_home,
+    )?;
     Ok(())
 }
 
@@ -814,6 +849,73 @@ mod tests {
 
         let config = cs.load().unwrap();
         assert_eq!(config.active_for(Tool::Codex), Some("work"));
+    }
+
+    #[test]
+    fn use_syncs_current_active_claude_oauth_profile_before_switching() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let cs = ConfigStore::new(&home);
+
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            ".credentials.json",
+            br#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"old-refresh","expiresAt":1000}}"#,
+        )
+        .unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            "oauth-account.json",
+            br#"{"emailAddress":"work@example.com","organizationUuid":"org-123"}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Claude,
+            "work",
+            crate::config::ProfileMeta {
+                added_at: chrono::Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: crate::config::CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+        setup_claude_api_key_profile(&home, "personal");
+        cs.set_active(Tool::Claude, "work").unwrap();
+        cs.set_state_mode(Tool::Claude, crate::types::StateMode::Shared)
+            .unwrap();
+
+        fs::write(
+            user_home.join(".claude").join(".credentials.json"),
+            br#"{"claudeAiOauth":{"accessToken":"new","refreshToken":"new-refresh","expiresAt":2000}}"#,
+        )
+        .unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            br#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"org-123"}}"#,
+        )
+        .unwrap();
+
+        run_in(use_args(Tool::Claude, "personal", false), &home, &user_home).unwrap();
+
+        let stored = ps
+            .read_file(Tool::Claude, "work", ".credentials.json")
+            .unwrap();
+        let refreshed_live = br#"{"claudeAiOauth":{"accessToken":"new","refreshToken":"new-refresh","expiresAt":2000}}"#;
+        assert_eq!(stored, refreshed_live);
+
+        let config = cs.load().unwrap();
+        assert_eq!(config.active_for(Tool::Claude), Some("personal"));
     }
 
     // ---- extract_switch_identity tests ----
