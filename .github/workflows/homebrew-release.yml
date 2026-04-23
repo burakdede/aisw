@@ -3,6 +3,12 @@ name: Update Homebrew Tap
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish to Homebrew tap (e.g. v0.3.3)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REPO: ${{ github.repository }}
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
       TAP_REPO: burakdede/homebrew-tap
       GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
@@ -60,6 +66,36 @@ jobs:
             echo "SHA_LINUX_ARM=$(tr -d '[:space:]' < linux_arm.sha256)"
             echo "SHA_LINUX_AMD=$(tr -d '[:space:]' < linux_amd.sha256)"
           } >> "$GITHUB_ENV"
+
+      - name: Validate checksum mapping against release binaries
+        if: env.SKIP_HOMEBREW != '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          curl -fsSL "${BASE}/aisw-aarch64-apple-darwin" -o darwin_arm.bin
+          curl -fsSL "${BASE}/aisw-x86_64-apple-darwin" -o darwin_amd.bin
+          curl -fsSL "${BASE}/aisw-aarch64-unknown-linux-gnu" -o linux_arm.bin
+          curl -fsSL "${BASE}/aisw-x86_64-unknown-linux-gnu" -o linux_amd.bin
+
+          check() {
+            local file="$1"
+            local expected="$2"
+            local actual
+            actual="$(sha256sum "$file" | awk '{print $1}')"
+            if [ "$actual" != "$expected" ]; then
+              echo "Checksum mismatch for $file"
+              echo "Expected: $expected"
+              echo "Actual:   $actual"
+              exit 1
+            fi
+          }
+
+          check darwin_arm.bin "$SHA_DARWIN_ARM"
+          check darwin_amd.bin "$SHA_DARWIN_AMD"
+          check linux_arm.bin "$SHA_LINUX_ARM"
+          check linux_amd.bin "$SHA_LINUX_AMD"
 
       - name: Generate Formula
         if: env.SKIP_HOMEBREW != '1'
