@@ -367,6 +367,71 @@ fn use_claude_keychain_switches_between_profiles() {
     assert_ne!(after_personal, work_stored);
 }
 
+/// Regression test for #17:
+/// A SystemKeyring-backed Claude profile must still switch successfully when
+/// Claude's live auth storage is file-backed (`~/.claude/.credentials.json`).
+#[test]
+fn use_claude_system_keyring_profile_applies_to_file_live_storage() {
+    let env = TestEnv::new();
+    add_fake_security_tool(&env);
+    add_fake_tool_versions(&env);
+
+    // Store profile credentials only in the keyring (no profile .credentials.json).
+    seed_system_keyring_profile(&env, "work", r#"{"oauthToken":"work-token"}"#);
+
+    // Force Claude live storage detection to file mode to reproduce the
+    // Windows/Linux branch that writes ~/.claude/.credentials.json.
+    cmd_with_secure_env(&env)
+        .env("AISW_CLAUDE_AUTH_STORAGE", "file")
+        .args(["use", "claude", "work"])
+        .assert()
+        .success();
+
+    let live_file = env.fake_home.join(".claude").join(".credentials.json");
+    assert!(
+        live_file.exists(),
+        "live credentials file should be written in file storage mode"
+    );
+    assert_eq!(
+        fs::read(&live_file).unwrap(),
+        br#"{"oauthToken":"work-token"}"#,
+        "live credentials file should match stored keyring secret"
+    );
+}
+
+/// Cross-tool regression counterpart:
+/// A SystemKeyring-backed Codex profile must still switch successfully even
+/// though Codex live auth is always applied to file-backed `~/.codex/auth.json`.
+#[test]
+fn use_codex_system_keyring_profile_applies_to_file_live_storage() {
+    let env = TestEnv::new();
+    add_fake_security_tool(&env);
+    add_fake_tool_versions(&env);
+
+    // Store profile credentials only in the keyring (no profile auth.json).
+    seed_system_keyring_codex_profile(
+        &env,
+        "work",
+        r#"{"account":{"email":"dev@example.com"},"token":"oauth-token"}"#,
+    );
+
+    secure_cmd_for_tool(&env, "codex")
+        .args(["use", "codex", "work"])
+        .assert()
+        .success();
+
+    let live_auth = env.fake_home.join(".codex").join("auth.json");
+    assert!(
+        live_auth.exists(),
+        "live codex auth.json should be written in shared live state"
+    );
+    assert_eq!(
+        fs::read(&live_auth).unwrap(),
+        br#"{"account":{"email":"dev@example.com"},"token":"oauth-token"}"#,
+        "live codex auth.json should match stored keyring secret"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // `aisw status` with keychain backend
 // ---------------------------------------------------------------------------
