@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.3.3 - 2026-04-24
+
+### Added
+
+- Added `aisw add --from-live` to capture currently active live credentials into a named profile without re-authentication (`b4905f5`, PR #7, contributed by external contributor Julio de Alba, `@juliojair`).
+- Added `aisw doctor` diagnostic command for binary detection, keyring availability, shell-hook checks, and permissions health (`9a4af7e`).
+- Added `--all --profile <name>` switching so one command can activate same-named profiles across tools (`96e9634`).
+- Added TTY-only interactive pickers for missing profile/id arguments in `use`, `remove`, `rename`, and `backup restore` (`858bc83`, `469d7fe`).
+- Added filter/sort support for `list`, `status`, and `backup list` (with hardened JSON contracts for script-mode consumers) (`2d6f595`, `c8268e5`).
+- Added token-expiry warnings for OAuth-backed profiles in `status` and `use` (`f91df00`).
+- Added profile typo suggestions for mistyped names (`82f99c2`).
+
+### Changed
+
+- Gemini OAuth isolation now uses `GEMINI_CLI_HOME` instead of overriding `HOME`, reducing side effects and improving compatibility (`fa2109b`).
+- Post-switch output now includes clearer tool/profile/account identity context (`8456def`).
+- Claude auth module was split into focused submodules to reduce complexity and improve maintainability (`16aced0`).
+- Error handling now uses typed `AiswError` variants with explicit exit-code taxonomy (`d4c1653`).
+
+### Fixed
+
+- Fixed Claude OAuth behavior to preserve live state unless `--set-active`, tolerate capture-dir-ignore behavior, and avoid config-dir override regressions during login (`bb1df80`, `2802581`, `2118be9`).
+- Fixed `init` duplicate-import/idempotency issues for Claude OAuth and interactive import paths (`4231f97`, `04b3896`).
+- Fixed Gemini OAuth process lifecycle issues (TTY restoration, process-group termination, child cleanup, scratch-dir leak cleanup) (`b477501`, `063f68e`, `fec3a22`, `10b3729`).
+- Fixed Claude Keychain apply path to preserve `mcpOAuth` tokens and correctly apply keyring-backed profiles to file-based live auth targets (`d5d63eb`, `e542c00`).
+- Fixed Codex config merge to fail safely on malformed TOML (`dd9015b`).
+
+### CI and Quality
+
+- Added native Windows CI coverage (build/unit/integration smoke and secure-backend parity checks) (`6649041`, `c0c89b4`, `50a43b4`, `7f943df`).
+- Added coverage quality gates (including branch and critical-path thresholds) and supporting contract/matrix test suites (`22cc674`, `781952b`, `ccf088e`, `dcc1f58`).
+- Added Homebrew release automation with checksum mapping hardening on published releases (`fca15c1`, `63b2081`).
+
 ## 0.3.2 - 2026-04-01
 
 ### Fixed
