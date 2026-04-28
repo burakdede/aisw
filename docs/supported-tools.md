@@ -85,13 +85,17 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 
 ## Automatic Synchronization
 
-`aisw` can automatically keep your stored profiles in sync with the live tool configuration.
+`aisw` can automatically keep your stored profiles in sync with the live tool configuration. This prevents "stale session" errors when switching back to a profile later, as tools often refresh OAuth tokens in the background.
 
 | Tool | Trigger | Identity Protection |
 |---|---|---|
-| Claude Code | `status`, `use` | Matches email address before sync |
+| Claude Code | `use` | Canonical email/subject matching |
+| Codex CLI | `use` | Canonical email/subject matching |
+| Gemini CLI | `use` | Canonical email/subject matching |
 
-For Claude, this ensures that if the tool refreshes your OAuth tokens while you are working, `aisw` captures those new tokens into your stored profile automatically. This prevents "stale session" errors when switching back to a profile later.
+When you run `aisw use` to switch profiles, `aisw` first checks if the current live credentials on your system belong to the *outgoing* active profile. If the identities match (e.g., same email address), `aisw` automatically captures the latest tokens into that profile before switching to the new one.
+
+This synchronization uses the project's standard identity logic to safely match accounts across JWT payloads, email variants, and normalized identifiers. Observational commands like `aisw status` will report if a discrepancy is detected but will not mutate your stored profiles.
 
 ## References
 
