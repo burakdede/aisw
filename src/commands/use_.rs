@@ -145,7 +145,7 @@ fn run_for_tool(
     }
 
     // --- Sync logic start ---
-    let _ = maybe_sync_current_active_claude_profile(&config, &profile_store, tool, user_home);
+    let _ = maybe_sync_active_profile_before_switch(&config, &profile_store, tool, user_home);
     // --- Sync logic end ---
 
     match tool {
@@ -300,34 +300,51 @@ fn run_for_tool(
     Ok(())
 }
 
-fn maybe_sync_current_active_claude_profile(
+fn maybe_sync_active_profile_before_switch(
     config: &crate::config::Config,
     profile_store: &ProfileStore,
     tool: Tool,
     user_home: &Path,
 ) -> Result<()> {
-    if tool != Tool::Claude
-        || config.state_mode_for(Tool::Claude) != crate::types::StateMode::Shared
-    {
-        return Ok(());
-    }
-
-    let Some(active_name) = config.active_for(Tool::Claude) else {
+    let Some(active_name) = config.active_for(tool) else {
         return Ok(());
     };
-    let Some(active_profile) = config.profiles_for(Tool::Claude).get(active_name) else {
+    let Some(active_profile) = config.profiles_for(tool).get(active_name) else {
         return Ok(());
     };
     if active_profile.auth_method != AuthMethod::OAuth {
         return Ok(());
     }
 
-    let _ = auth::claude::sync_profile_from_live_if_same_identity(
-        profile_store,
-        active_name,
-        active_profile.credential_backend,
-        user_home,
-    )?;
+    match tool {
+        Tool::Claude => {
+            if config.state_mode_for(Tool::Claude) == StateMode::Shared {
+                let _ = auth::claude::sync_profile_from_live_if_same_identity(
+                    profile_store,
+                    active_name,
+                    active_profile.credential_backend,
+                    user_home,
+                )?;
+            }
+        }
+        Tool::Codex => {
+            if config.state_mode_for(Tool::Codex) == StateMode::Shared {
+                let _ = auth::codex::sync_profile_from_live_if_same_identity(
+                    profile_store,
+                    active_name,
+                    active_profile.credential_backend,
+                    user_home,
+                )?;
+            }
+        }
+        Tool::Gemini => {
+            let _ = auth::gemini::sync_profile_from_live_if_same_identity(
+                profile_store,
+                active_name,
+                user_home,
+            )?;
+        }
+    }
     Ok(())
 }
 

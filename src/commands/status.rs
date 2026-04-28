@@ -142,17 +142,6 @@ pub(crate) fn collect_status(
             let (creds, perms) =
                 check_profile_storage(&profile_dir, tool, name, profile_meta.credential_backend);
 
-            // --- Sync logic start ---
-            let _ = maybe_sync_active_claude_profile(
-                &config,
-                &profile_store,
-                tool,
-                name,
-                profile_meta.credential_backend,
-                user_home,
-            );
-            // --- Sync logic end ---
-
             let auth = profiles
                 .get(name)
                 .map(|m| auth_label(m.auth_method).to_owned());
@@ -216,29 +205,6 @@ pub(crate) fn collect_status(
         });
     }
     Ok(statuses)
-}
-
-fn maybe_sync_active_claude_profile(
-    config: &crate::config::Config,
-    profile_store: &ProfileStore,
-    tool: Tool,
-    profile_name: &str,
-    backend: CredentialBackend,
-    user_home: &Path,
-) -> Result<()> {
-    if tool != Tool::Claude
-        || config.state_mode_for(Tool::Claude) != crate::types::StateMode::Shared
-    {
-        return Ok(());
-    }
-
-    let _ = auth::claude::sync_profile_from_live_if_same_identity(
-        profile_store,
-        profile_name,
-        backend,
-        user_home,
-    )?;
-    Ok(())
 }
 
 fn apply_status_filters(statuses: &mut Vec<ToolStatus>, args: &StatusArgs) {
@@ -1032,7 +998,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_claude_oauth_status_refreshes_active_profile_from_live() {
+    fn shared_claude_oauth_status_is_observational_and_does_not_mutate() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
@@ -1045,13 +1011,9 @@ mod tests {
         let cs = ConfigStore::new(&home);
 
         ps.create(Tool::Claude, "work").unwrap();
-        ps.write_file(
-            Tool::Claude,
-            "work",
-            ".credentials.json",
-            br#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"old-refresh","expiresAt":1000}}"#,
-        )
-        .unwrap();
+        let old_creds = br#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"old-refresh","expiresAt":1000}}"#;
+        ps.write_file(Tool::Claude, "work", ".credentials.json", old_creds)
+            .unwrap();
         ps.write_file(
             Tool::Claude,
             "work",
@@ -1086,72 +1048,10 @@ mod tests {
         )
         .unwrap();
 
-        // Collect status - this should trigger the refresh
+        // Collect status - this should NOT trigger the refresh (observational)
         let statuses = collect_status(&home, &user_home, &OsString::new()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
         assert_eq!(claude.active_profile.as_deref(), Some("work"));
-
-        // Verify stored state is updated
-        let stored = ps
-            .read_file(Tool::Claude, "work", ".credentials.json")
-            .unwrap();
-        let refreshed_live = br#"{"claudeAiOauth":{"accessToken":"new","refreshToken":"new-refresh","expiresAt":2000}}"#;
-        assert_eq!(stored, refreshed_live);
-    }
-
-    #[test]
-    fn shared_claude_oauth_status_skips_refresh_when_identity_differs() {
-        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
-        let tmp = tempdir().unwrap();
-        let home = tmp.path().join("home");
-        let user_home = tmp.path().join("uhome");
-        fs::create_dir_all(&home).unwrap();
-        fs::create_dir_all(user_home.join(".claude")).unwrap();
-
-        let ps = ProfileStore::new(&home);
-        let cs = ConfigStore::new(&home);
-
-        ps.create(Tool::Claude, "work").unwrap();
-        let old_creds = br#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"old-refresh","expiresAt":1000}}"#;
-        ps.write_file(Tool::Claude, "work", ".credentials.json", old_creds)
-            .unwrap();
-        ps.write_file(
-            Tool::Claude,
-            "work",
-            "oauth-account.json",
-            br#"{"emailAddress":"work@example.com"}"#,
-        )
-        .unwrap();
-        cs.add_profile(
-            Tool::Claude,
-            "work",
-            crate::config::ProfileMeta {
-                added_at: chrono::Utc::now(),
-                auth_method: AuthMethod::OAuth,
-                credential_backend: crate::config::CredentialBackend::File,
-                label: None,
-            },
-        )
-        .unwrap();
-        cs.set_active(Tool::Claude, "work").unwrap();
-        cs.set_state_mode(Tool::Claude, crate::types::StateMode::Shared)
-            .unwrap();
-
-        // Prepare live state with NEWER token but DIFFERENT identity (personal@example.com)
-        fs::write(
-            user_home.join(".claude").join(".credentials.json"),
-            br#"{"claudeAiOauth":{"accessToken":"new","refreshToken":"new-refresh","expiresAt":2000}}"#,
-        )
-        .unwrap();
-        fs::write(
-            user_home.join(".claude.json"),
-            br#"{"oauthAccount":{"emailAddress":"personal@example.com"}}"#,
-        )
-        .unwrap();
-
-        // Collect status - this SHOULD NOT trigger the refresh
-        let _ = collect_status(&home, &user_home, &OsString::new()).unwrap();
 
         // Verify stored state is NOT updated
         let stored = ps

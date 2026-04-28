@@ -112,7 +112,11 @@ pub fn live_credentials_match(
             }
             let live = std::fs::read(&live_path)
                 .with_context(|| format!("could not read {}", live_path.display()))?;
-            Ok(live == stored)
+            let live_value = serde_json::from_slice::<serde_json::Value>(&live)
+                .context("could not parse live credentials file")?;
+            let stored_value = serde_json::from_slice::<serde_json::Value>(&stored)
+                .context("could not parse stored credentials")?;
+            Ok(live_value == stored_value)
         }
         ClaudeAuthStorage::Keychain => {
             let Some(live) = keychain::read_keychain_credentials()? else {
@@ -148,6 +152,7 @@ pub(super) fn read_stored_credentials(
 
 #[cfg(all(test, unix))]
 mod tests {
+    use crate::auth::identity;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
@@ -1100,30 +1105,36 @@ mod tests {
         // Format 1: account.email
         let json1 = br#"{"account":{"email":"user1@example.com"}}"#;
         assert_eq!(
-            oauth::identity_from_credentials_json(json1).unwrap(),
+            identity::resolve_identity_from_json_bytes(json1).unwrap(),
             Some("user1@example.com".to_owned())
         );
 
         // Format 2: oauthAccount.emailAddress (metadata file)
         let json2 = br#"{"oauthAccount":{"emailAddress":"user2@example.com"}}"#;
         assert_eq!(
-            oauth::identity_from_credentials_json(json2).unwrap(),
+            identity::resolve_identity_from_json_bytes(json2).unwrap(),
             Some("user2@example.com".to_owned())
         );
 
         // Format 3: top-level emailAddress
         let json3 = br#"{"emailAddress":"user3@example.com"}"#;
         assert_eq!(
-            oauth::identity_from_credentials_json(json3).unwrap(),
+            identity::resolve_identity_from_json_bytes(json3).unwrap(),
             Some("user3@example.com".to_owned())
         );
 
         // Format 4: invalid/missing
         let json4 = br#"{"something":"else"}"#;
-        assert_eq!(oauth::identity_from_credentials_json(json4).unwrap(), None);
+        assert_eq!(
+            identity::resolve_identity_from_json_bytes(json4).unwrap(),
+            None
+        );
 
         // Format 5: malformed JSON
         let json5 = br#"{"invalid": ...}"#;
-        assert_eq!(oauth::identity_from_credentials_json(json5).unwrap(), None);
+        assert_eq!(
+            identity::resolve_identity_from_json_bytes(json5).unwrap(),
+            None
+        );
     }
 }

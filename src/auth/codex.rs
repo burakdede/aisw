@@ -497,10 +497,133 @@ pub fn live_files_match(
     let stored = read_stored_credentials(profile_store, name, backend)?;
     let live = std::fs::read(&live_auth)
         .with_context(|| format!("could not read {}", live_auth.display()))?;
-    if stored != live {
+
+    let stored_value: serde_json::Value = serde_json::from_slice(&stored).ok().unwrap_or_default();
+    let live_value: serde_json::Value = serde_json::from_slice(&live).ok().unwrap_or_default();
+
+    if stored_value != live_value {
         return Ok(false);
     }
     Ok(config_uses_file_store(&config))
+}
+
+// ---- Automatic synchronization ----
+
+pub fn sync_profile_from_live_if_same_identity(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+    user_home: &Path,
+) -> Result<bool> {
+    let Some(snapshot) = live_credentials_snapshot_for_import(user_home)? else {
+        return Ok(false);
+    };
+
+    let stored_bytes = read_stored_credentials(profile_store, name, backend)?;
+    let Some(stored_identity) = identity::resolve_identity_from_json_bytes(&stored_bytes)? else {
+        return Ok(false);
+    };
+    let Some(live_identity) = identity::resolve_identity_from_json_bytes(&snapshot.bytes)? else {
+        return Ok(false);
+    };
+
+    if stored_identity != live_identity {
+        return Ok(false);
+    }
+
+    persist_oauth_storage(profile_store, name, &snapshot.bytes)?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+    use crate::config::ConfigStore;
+    use tempfile::tempdir;
+
+    fn stores(dir: &std::path::Path) -> (ProfileStore, ConfigStore) {
+        (ProfileStore::new(dir), ConfigStore::new(dir))
+    }
+
+    #[test]
+    fn sync_profile_from_live_updates_when_identity_matches() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(user_home.join(".codex")).unwrap();
+
+        let (ps, cs) = stores(&home);
+        let name = "work";
+
+        // 1. Create a profile with old credentials
+        ps.create(Tool::Codex, name).unwrap();
+        let old_auth = br#"{"token":"old-token","account":{"email":"user@example.com"}}"#;
+        ps.write_file(Tool::Codex, name, AUTH_FILE, old_auth)
+            .unwrap();
+        cs.add_profile(
+            Tool::Codex,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        // 2. Prepare live state with new token but SAME identity
+        let new_auth = br#"{"token":"new-token","account":{"email":"user@example.com"}}"#;
+        fs::write(user_home.join(".codex").join(AUTH_FILE), new_auth).unwrap();
+
+        // 3. Trigger sync
+        let result =
+            sync_profile_from_live_if_same_identity(&ps, name, CredentialBackend::File, &user_home)
+                .unwrap();
+
+        assert!(result, "sync should have returned true");
+        let stored = ps.read_file(Tool::Codex, name, AUTH_FILE).unwrap();
+        assert_eq!(stored, new_auth);
+    }
+
+    #[test]
+    fn sync_profile_from_live_skips_when_identity_differs() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(user_home.join(".codex")).unwrap();
+
+        let (ps, cs) = stores(&home);
+        let name = "work";
+
+        ps.create(Tool::Codex, name).unwrap();
+        let old_auth = br#"{"token":"old-token","account":{"email":"user@example.com"}}"#;
+        ps.write_file(Tool::Codex, name, AUTH_FILE, old_auth)
+            .unwrap();
+        cs.add_profile(
+            Tool::Codex,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        // New token for DIFFERENT identity
+        let diff_auth = br#"{"token":"new-token","account":{"email":"other@example.com"}}"#;
+        fs::write(user_home.join(".codex").join(AUTH_FILE), diff_auth).unwrap();
+
+        let result =
+            sync_profile_from_live_if_same_identity(&ps, name, CredentialBackend::File, &user_home)
+                .unwrap();
+
+        assert!(!result, "sync should have skipped (returned false)");
+        let stored = ps.read_file(Tool::Codex, name, AUTH_FILE).unwrap();
+        assert_eq!(stored, old_auth);
+    }
 }
 
 fn desired_live_file_store_config(user_home: &Path) -> Result<String> {

@@ -538,7 +538,7 @@ fn resolve_profile_oauth_identity(
         Ok(b) => b,
         Err(_) => return Ok(None),
     };
-    if let Some(id) = identity_from_credentials_json(&cred_bytes)? {
+    if let Some(id) = identity::resolve_identity_from_json_bytes(&cred_bytes)? {
         return Ok(Some(id));
     }
 
@@ -547,7 +547,7 @@ fn resolve_profile_oauth_identity(
     else {
         return Ok(None);
     };
-    identity_from_credentials_json(&meta_bytes)
+    identity::resolve_identity_from_json_bytes(&meta_bytes)
 }
 
 fn resolve_live_oauth_identity(
@@ -555,7 +555,7 @@ fn resolve_live_oauth_identity(
     user_home: &Path,
 ) -> Result<Option<String>> {
     // 1. Try live credentials snapshot
-    if let Some(id) = identity_from_credentials_json(&snapshot.bytes)? {
+    if let Some(id) = identity::resolve_identity_from_json_bytes(&snapshot.bytes)? {
         return Ok(Some(id));
     }
 
@@ -563,31 +563,5 @@ fn resolve_live_oauth_identity(
     let Some(metadata) = read_live_oauth_account_metadata_for_import(user_home)? else {
         return Ok(None);
     };
-    identity_from_credentials_json(&metadata)
-}
-
-pub(super) fn identity_from_credentials_json(bytes: &[u8]) -> Result<Option<String>> {
-    let v: serde_json::Value = serde_json::from_slice(bytes)
-        .ok()
-        .unwrap_or(serde_json::json!({}));
-
-    // Try various paths where email might be stored
-    if let Some(email) = v
-        .get("account")
-        .and_then(|a| a.get("email"))
-        .and_then(|e| e.as_str())
-    {
-        return Ok(Some(email.to_owned()));
-    }
-    if let Some(email) = v
-        .get("oauthAccount")
-        .and_then(|a| a.get("emailAddress"))
-        .and_then(|e| e.as_str())
-    {
-        return Ok(Some(email.to_owned()));
-    }
-    if let Some(email) = v.get("emailAddress").and_then(|e| e.as_str()) {
-        return Ok(Some(email.to_owned()));
-    }
-    Ok(None)
+    identity::resolve_identity_from_json_bytes(&metadata)
 }
