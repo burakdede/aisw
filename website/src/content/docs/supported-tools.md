@@ -100,6 +100,20 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 
 **Fail-closed** means `aisw` refuses the operation rather than guessing. This applies specifically to Codex when the keyring account identifier cannot be read from the live credential store.
 
+## Automatic Synchronization
+
+`aisw` can automatically keep your stored profiles in sync with the live tool configuration. This prevents "stale session" errors when switching back to a profile later, as tools often refresh OAuth tokens in the background.
+
+| Tool | Trigger | Identity Protection |
+|---|---|---|
+| Claude Code | `use` | Canonical email/subject matching |
+| Codex CLI | `use` | Canonical email/subject matching |
+| Gemini CLI | `use` | Canonical email/subject matching |
+
+When you run `aisw use` to switch profiles, `aisw` first checks if the current live credentials on your system belong to the *outgoing* active profile. If the identities match (e.g., same email address), `aisw` automatically captures the latest tokens into that profile before switching to the new one.
+
+This synchronization uses the project's standard identity logic to safely match accounts across JWT payloads, email variants, and normalized identifiers. Observational commands like `aisw status` will report if a discrepancy is detected but will not mutate your stored profiles.
+
 ## References
 
 - [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md)  -  detailed research on credential file locations and storage models per tool and platform

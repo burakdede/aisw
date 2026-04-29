@@ -58,6 +58,7 @@ pub use keychain::{
 pub use oauth::{
     add_oauth, capture_live_oauth_account_metadata, live_credentials_snapshot_for_import,
     read_live_oauth_account_metadata_for_import, restore_live_state_after_oauth_add,
+    sync_profile_from_live_if_same_identity,
 };
 pub use paths::live_local_state_dir;
 
@@ -111,7 +112,11 @@ pub fn live_credentials_match(
             }
             let live = std::fs::read(&live_path)
                 .with_context(|| format!("could not read {}", live_path.display()))?;
-            Ok(live == stored)
+            let live_value = serde_json::from_slice::<serde_json::Value>(&live)
+                .context("could not parse live credentials file")?;
+            let stored_value = serde_json::from_slice::<serde_json::Value>(&stored)
+                .context("could not parse stored credentials")?;
+            Ok(live_value == stored_value)
         }
         ClaudeAuthStorage::Keychain => {
             let Some(live) = keychain::read_keychain_credentials()? else {
@@ -147,6 +152,7 @@ pub(super) fn read_stored_credentials(
 
 #[cfg(all(test, unix))]
 mod tests {
+    use crate::auth::identity;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
@@ -1092,5 +1098,43 @@ mod tests {
         let live_json: serde_json::Value = serde_json::from_str(&live).unwrap();
         assert_eq!(live_json["oauthToken"], "tok");
         assert_eq!(live_json["account"]["email"], "work@example.com");
+    }
+
+    #[test]
+    fn identity_extraction_supports_all_claude_json_shapes() {
+        // Format 1: account.email
+        let json1 = br#"{"account":{"email":"user1@example.com"}}"#;
+        assert_eq!(
+            identity::resolve_identity_from_json_bytes(json1).unwrap(),
+            Some("user1@example.com".to_owned())
+        );
+
+        // Format 2: oauthAccount.emailAddress (metadata file)
+        let json2 = br#"{"oauthAccount":{"emailAddress":"user2@example.com"}}"#;
+        assert_eq!(
+            identity::resolve_identity_from_json_bytes(json2).unwrap(),
+            Some("user2@example.com".to_owned())
+        );
+
+        // Format 3: top-level emailAddress
+        let json3 = br#"{"emailAddress":"user3@example.com"}"#;
+        assert_eq!(
+            identity::resolve_identity_from_json_bytes(json3).unwrap(),
+            Some("user3@example.com".to_owned())
+        );
+
+        // Format 4: invalid/missing
+        let json4 = br#"{"something":"else"}"#;
+        assert_eq!(
+            identity::resolve_identity_from_json_bytes(json4).unwrap(),
+            None
+        );
+
+        // Format 5: malformed JSON
+        let json5 = br#"{"invalid": ...}"#;
+        assert_eq!(
+            identity::resolve_identity_from_json_bytes(json5).unwrap(),
+            None
+        );
     }
 }
