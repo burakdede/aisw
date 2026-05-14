@@ -38,11 +38,13 @@ pub(super) const KEYCHAIN_BACKEND: super::secure_backend::SecureBackend =
 
 // ---- Public types ----
 
+#[derive(Debug, Clone)]
 pub enum LiveCredentialSource {
     File(PathBuf),
     Keychain,
 }
 
+#[derive(Debug, Clone)]
 pub struct LiveCredentialSnapshot {
     pub bytes: Vec<u8>,
     pub source: LiveCredentialSource,

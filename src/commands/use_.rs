@@ -7,11 +7,20 @@ use dialoguer::{theme::ColorfulTheme, Input, Select};
 use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
-use crate::config::{AuthMethod, ConfigStore};
+use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::error::AiswError;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
+
+#[derive(Debug, Clone)]
+pub(crate) struct ResolvedProfileSwitch {
+    pub tool: Tool,
+    pub profile_name: String,
+    pub profile_meta: ProfileMeta,
+    pub state_mode: StateMode,
+    pub backup_on_switch: bool,
+}
 
 pub fn run(args: UseArgs, home: &Path) -> Result<()> {
     let user_home = dirs::home_dir().context("could not determine home directory")?;
@@ -89,7 +98,35 @@ fn run_for_tool(
     home: &Path,
     user_home: &Path,
 ) -> Result<()> {
-    let profile_store = ProfileStore::new(home);
+    let resolved = resolve_profile_switch_request(
+        tool,
+        requested_profile_name,
+        state_mode_override,
+        emit_env,
+        home,
+    )?;
+    apply_resolved_profile_switch(&resolved, emit_env, home, user_home)?;
+
+    ConfigStore::new(home).activate_profile(
+        tool,
+        &resolved.profile_name,
+        tool.supports_state_mode().then_some(resolved.state_mode),
+    )?;
+
+    if !emit_env {
+        print_switch_summary(&resolved, home);
+    }
+
+    Ok(())
+}
+
+pub(crate) fn resolve_profile_switch_request(
+    tool: Tool,
+    requested_profile_name: Option<&str>,
+    state_mode_override: Option<StateMode>,
+    emit_env: bool,
+    home: &Path,
+) -> Result<ResolvedProfileSwitch> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
     let requested_state_mode = match (tool, state_mode_override) {
@@ -120,7 +157,7 @@ fn run_for_tool(
     )?;
 
     let profile_meta = match profiles.get(&profile_name) {
-        Some(m) => m,
+        Some(m) => m.clone(),
         None => {
             let profile_names: Vec<&str> = profiles.keys().map(String::as_str).collect();
             let suggestion =
@@ -138,17 +175,42 @@ fn run_for_tool(
     };
     profile_meta.credential_backend.validate_for_tool(tool)?;
 
-    if config.settings.backup_on_switch {
+    Ok(ResolvedProfileSwitch {
+        tool,
+        profile_name,
+        profile_meta,
+        state_mode,
+        backup_on_switch: config.settings.backup_on_switch,
+    })
+}
+
+pub(crate) fn apply_resolved_profile_switch(
+    resolved: &ResolvedProfileSwitch,
+    emit_env: bool,
+    home: &Path,
+    user_home: &Path,
+) -> Result<()> {
+    let profile_store = ProfileStore::new(home);
+    if resolved.backup_on_switch {
         let backup_manager = BackupManager::new(home);
-        let profile_dir = profile_store.profile_dir(tool, &profile_name);
-        backup_manager.snapshot(tool, &profile_name, &profile_dir, profile_meta)?;
+        let profile_dir = profile_store.profile_dir(resolved.tool, &resolved.profile_name);
+        backup_manager.snapshot(
+            resolved.tool,
+            &resolved.profile_name,
+            &profile_dir,
+            &resolved.profile_meta,
+        )?;
     }
 
-    match tool {
-        Tool::Claude => match profile_meta.auth_method {
+    match resolved.tool {
+        Tool::Claude => match resolved.profile_meta.auth_method {
             AuthMethod::OAuth => {
                 if emit_env {
-                    auth::claude::emit_shell_env(&profile_name, &profile_store, state_mode);
+                    auth::claude::emit_shell_env(
+                        &resolved.profile_name,
+                        &profile_store,
+                        resolved.state_mode,
+                    );
                 } else {
                     if cfg!(target_os = "macos") {
                         output::print_info(
@@ -158,15 +220,19 @@ fn run_for_tool(
                     }
                     auth::claude::apply_live_credentials(
                         &profile_store,
-                        &profile_name,
-                        profile_meta.credential_backend,
+                        &resolved.profile_name,
+                        resolved.profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
             }
             AuthMethod::ApiKey => {
                 if emit_env {
-                    auth::claude::emit_shell_env(&profile_name, &profile_store, state_mode);
+                    auth::claude::emit_shell_env(
+                        &resolved.profile_name,
+                        &profile_store,
+                        resolved.state_mode,
+                    );
                 } else {
                     if cfg!(target_os = "macos") {
                         output::print_info(
@@ -176,32 +242,38 @@ fn run_for_tool(
                     }
                     auth::claude::apply_live_credentials(
                         &profile_store,
-                        &profile_name,
-                        profile_meta.credential_backend,
+                        &resolved.profile_name,
+                        resolved.profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
             }
         },
-        Tool::Codex => match profile_meta.auth_method {
+        Tool::Codex => match resolved.profile_meta.auth_method {
             AuthMethod::OAuth => {
                 if emit_env {
-                    auth::codex::emit_shell_env(&profile_name, &profile_store, state_mode);
+                    auth::codex::emit_shell_env(
+                        &resolved.profile_name,
+                        &profile_store,
+                        resolved.state_mode,
+                    );
                 } else {
                     auth::codex::apply_live_credentials(
                         &profile_store,
-                        &profile_name,
-                        profile_meta.credential_backend,
+                        &resolved.profile_name,
+                        resolved.profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
             }
             AuthMethod::ApiKey => {
                 if emit_env {
-                    match state_mode {
-                        StateMode::Isolated => {
-                            auth::codex::emit_shell_env(&profile_name, &profile_store, state_mode)
-                        }
+                    match resolved.state_mode {
+                        StateMode::Isolated => auth::codex::emit_shell_env(
+                            &resolved.profile_name,
+                            &profile_store,
+                            resolved.state_mode,
+                        ),
                         StateMode::Shared => {
                             crate::auth::files::emit_unset("CODEX_HOME");
                         }
@@ -209,8 +281,8 @@ fn run_for_tool(
                 } else {
                     auth::codex::apply_live_credentials(
                         &profile_store,
-                        &profile_name,
-                        profile_meta.credential_backend,
+                        &resolved.profile_name,
+                        resolved.profile_meta.credential_backend,
                         user_home,
                     )?;
                 }
@@ -220,15 +292,16 @@ fn run_for_tool(
             let gemini_dir = user_home.join(".gemini");
             std::fs::create_dir_all(&gemini_dir)
                 .with_context(|| format!("could not create {}", gemini_dir.display()))?;
-            match profile_meta.auth_method {
+            match resolved.profile_meta.auth_method {
                 AuthMethod::ApiKey => {
                     if emit_env {
-                        let key = auth::gemini::read_api_key(&profile_store, &profile_name)?;
+                        let key =
+                            auth::gemini::read_api_key(&profile_store, &resolved.profile_name)?;
                         crate::auth::files::emit_export("GEMINI_API_KEY", &key);
                     } else {
                         auth::gemini::apply_env_file(
                             &profile_store,
-                            &profile_name,
+                            &resolved.profile_name,
                             &gemini_dir.join(".env"),
                         )?;
                     }
@@ -239,7 +312,7 @@ fn run_for_tool(
                     } else {
                         auth::gemini::apply_token_cache(
                             &profile_store,
-                            &profile_name,
+                            &resolved.profile_name,
                             &gemini_dir,
                         )?;
                     }
@@ -248,52 +321,56 @@ fn run_for_tool(
         }
     }
 
-    config_store.activate_profile(
-        tool,
-        &profile_name,
-        tool.supports_state_mode().then_some(state_mode),
-    )?;
-
-    if !emit_env {
-        let title = format!("{} \u{2192} {}", tool.display_name(), &profile_name);
-        output::print_title(&title);
-        output::print_kv("Auth", auth_label(profile_meta.auth_method));
-        output::print_kv("Backend", profile_meta.credential_backend.display_name());
-        if let Some(identity) = extract_switch_identity(&profile_store, tool, &profile_name) {
-            output::print_kv("Account", &identity);
-        }
-        if tool.supports_state_mode() {
-            output::print_kv("State mode", state_mode.display_name());
-        }
-        output::print_blank_line();
-        output::print_effects_header();
-        output::print_effect("Live tool configuration updated.");
-        output::print_effect("Active profile updated.");
-        if tool.supports_state_mode() {
-            output::print_effect(match (tool, state_mode) {
-                (Tool::Claude, StateMode::Isolated) => {
-                    "Claude will use isolated profile state when shell integration is active."
-                }
-                (Tool::Claude, StateMode::Shared) => {
-                    "Claude will keep shared local state and only switch account credentials."
-                }
-                (Tool::Codex, StateMode::Isolated) => {
-                    "Codex will use isolated profile state when shell integration is active."
-                }
-                (Tool::Codex, StateMode::Shared) => {
-                    "Codex will keep shared local state and only switch account credentials."
-                }
-                (Tool::Gemini, _) => unreachable!(),
-            });
-        }
-        if config.settings.backup_on_switch {
-            output::print_effect("Backup created before switching.");
-        }
-        output::print_blank_line();
-        output::print_next_step(output::next_step_after_use());
-    }
-
     Ok(())
+}
+
+fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
+    let profile_store = ProfileStore::new(home);
+    let title = format!(
+        "{} \u{2192} {}",
+        resolved.tool.display_name(),
+        &resolved.profile_name
+    );
+    output::print_title(&title);
+    output::print_kv("Auth", auth_label(resolved.profile_meta.auth_method));
+    output::print_kv(
+        "Backend",
+        resolved.profile_meta.credential_backend.display_name(),
+    );
+    if let Some(identity) =
+        extract_switch_identity(&profile_store, resolved.tool, &resolved.profile_name)
+    {
+        output::print_kv("Account", &identity);
+    }
+    if resolved.tool.supports_state_mode() {
+        output::print_kv("State mode", resolved.state_mode.display_name());
+    }
+    output::print_blank_line();
+    output::print_effects_header();
+    output::print_effect("Live tool configuration updated.");
+    output::print_effect("Active profile updated.");
+    if resolved.tool.supports_state_mode() {
+        output::print_effect(match (resolved.tool, resolved.state_mode) {
+            (Tool::Claude, StateMode::Isolated) => {
+                "Claude will use isolated profile state when shell integration is active."
+            }
+            (Tool::Claude, StateMode::Shared) => {
+                "Claude will keep shared local state and only switch account credentials."
+            }
+            (Tool::Codex, StateMode::Isolated) => {
+                "Codex will use isolated profile state when shell integration is active."
+            }
+            (Tool::Codex, StateMode::Shared) => {
+                "Codex will keep shared local state and only switch account credentials."
+            }
+            (Tool::Gemini, _) => unreachable!(),
+        });
+    }
+    if resolved.backup_on_switch {
+        output::print_effect("Backup created before switching.");
+    }
+    output::print_blank_line();
+    output::print_next_step(output::next_step_after_use());
 }
 
 fn resolve_profile_name(

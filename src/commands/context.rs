@@ -1,17 +1,21 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::Path;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::Utc;
 
+use crate::auth;
 use crate::cli::{
     ContextArgs, ContextCommand, ContextCreateArgs, ContextListArgs, ContextRemoveArgs,
     ContextRenameArgs, ContextSetArgs, ContextUnsetArgs, ContextUseArgs,
 };
-use crate::config::{ConfigStore, ContextEntry, ContextProfiles};
+use crate::commands::use_::{apply_resolved_profile_switch, ResolvedProfileSwitch};
+use crate::config::{Config, ConfigStore, ContextEntry, ContextProfiles};
+use crate::live_apply::LiveFileChange;
 use crate::output;
 use crate::profile::validate_profile_name;
-use crate::types::Tool;
+use crate::types::{StateMode, Tool};
 
 pub fn run(args: ContextArgs, home: &Path) -> Result<()> {
     match args.command {
@@ -44,7 +48,10 @@ fn create(args: ContextCreateArgs, home: &Path) -> Result<()> {
         context_profiles.insert(tool, profile);
     }
 
-    store.create_context(&args.context_name, ContextEntry::new(context_profiles, Utc::now()))?;
+    store.create_context(
+        &args.context_name,
+        ContextEntry::new(context_profiles, Utc::now()),
+    )?;
 
     output::print_title("Created context");
     output::print_kv("Context", &args.context_name);
@@ -66,13 +73,10 @@ fn list(args: ContextListArgs, home: &Path) -> Result<()> {
         if !needle.is_empty() {
             contexts.retain(|(name, entry)| {
                 name.to_ascii_lowercase().contains(&needle)
-                    || entry
-                        .profiles
-                        .iter()
-                        .any(|(tool, profile)| {
-                            tool.binary_name().to_ascii_lowercase().contains(&needle)
-                                || profile.to_ascii_lowercase().contains(&needle)
-                        })
+                    || entry.profiles.iter().any(|(tool, profile)| {
+                        tool.binary_name().to_ascii_lowercase().contains(&needle)
+                            || profile.to_ascii_lowercase().contains(&needle)
+                    })
             });
         }
     }
@@ -106,10 +110,7 @@ fn list(args: ContextListArgs, home: &Path) -> Result<()> {
         }
         output::print_kv("Name", name);
         for tool in Tool::ALL {
-            output::print_kv(
-                tool.binary_name(),
-                entry.profiles.get(tool).unwrap_or("-"),
-            );
+            output::print_kv(tool.binary_name(), entry.profiles.get(tool).unwrap_or("-"));
         }
     }
 
@@ -234,7 +235,88 @@ fn rename(args: ContextRenameArgs, home: &Path) -> Result<()> {
 }
 
 fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
-    bail!("context use is not implemented yet")
+    let args = _args;
+    let home = _home;
+    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let store = ConfigStore::new(home);
+    let config = store.load()?;
+    let context = config
+        .context(&args.context_name)
+        .ok_or_else(|| anyhow!("context '{}' not found.", args.context_name))?;
+    let switches = resolve_context_switches(&config, context, args.state_mode)?;
+    if switches.is_empty() {
+        bail!("context '{}' has no tool mappings.", args.context_name);
+    }
+
+    if args.emit_env {
+        for switch in &switches {
+            apply_resolved_profile_switch(switch, true, home, &user_home)?;
+        }
+        let activations = switches
+            .iter()
+            .map(|switch| {
+                (
+                    switch.tool,
+                    switch.profile_name.clone(),
+                    switch
+                        .tool
+                        .supports_state_mode()
+                        .then_some(switch.state_mode),
+                )
+            })
+            .collect::<Vec<_>>();
+        store.activate_profiles(&activations)?;
+        return Ok(());
+    }
+
+    let snapshots = snapshot_live_state_for_context(&switches, &user_home)?;
+    let activations = switches
+        .iter()
+        .map(|switch| {
+            (
+                switch.tool,
+                switch.profile_name.clone(),
+                switch
+                    .tool
+                    .supports_state_mode()
+                    .then_some(switch.state_mode),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let apply_result = (|| -> Result<()> {
+        for switch in &switches {
+            apply_resolved_profile_switch(switch, false, home, &user_home)?;
+        }
+        store.activate_profiles(&activations)?;
+        Ok(())
+    })();
+
+    if let Err(err) = apply_result {
+        restore_live_state_for_context(&snapshots, &user_home)?;
+        return Err(err);
+    }
+
+    output::print_title("Activated context");
+    output::print_kv("Context", &args.context_name);
+    output::print_blank_line();
+    output::print_effects_header();
+    for switch in &switches {
+        let effect = if switch.tool.supports_state_mode() {
+            format!(
+                "{} -> {} ({})",
+                switch.tool.display_name(),
+                switch.profile_name,
+                switch.state_mode.display_name()
+            )
+        } else {
+            format!("{} -> {}", switch.tool.display_name(), switch.profile_name)
+        };
+        output::print_effect(&effect);
+    }
+    output::print_blank_line();
+    output::print_next_step("Run 'aisw status --context' to verify the active mapping.");
+    Ok(())
 }
 
 fn profile_map_from_options(
@@ -255,13 +337,197 @@ fn profile_map_from_options(
     profiles
 }
 
-fn ensure_profiles_exist(config: &crate::config::Config, profiles: &HashMap<Tool, String>) -> Result<()> {
+fn ensure_profiles_exist(
+    config: &crate::config::Config,
+    profiles: &HashMap<Tool, String>,
+) -> Result<()> {
     for (tool, profile) in profiles {
         if !config.profiles_for(*tool).contains_key(profile) {
             bail!("profile '{}' not found for {}.", profile, tool);
         }
     }
     Ok(())
+}
+
+fn resolve_context_switches(
+    config: &Config,
+    context: &ContextEntry,
+    state_mode_override: Option<StateMode>,
+) -> Result<Vec<ResolvedProfileSwitch>> {
+    let mut switches = Vec::new();
+    for tool in Tool::ALL {
+        let Some(profile_name) = context.profiles.get(tool) else {
+            continue;
+        };
+        let Some(profile_meta) = config.profiles_for(tool).get(profile_name).cloned() else {
+            return Err(anyhow!(
+                "context references missing profile '{} / {}'.\n  \
+                 Update the context with 'aisw context set' or remove it with 'aisw context remove'.",
+                tool,
+                profile_name
+            ));
+        };
+        profile_meta.credential_backend.validate_for_tool(tool)?;
+
+        let state_mode = if tool.supports_state_mode() {
+            state_mode_override.unwrap_or(StateMode::Isolated)
+        } else {
+            StateMode::Isolated
+        };
+
+        switches.push(ResolvedProfileSwitch {
+            tool,
+            profile_name: profile_name.to_owned(),
+            profile_meta,
+            state_mode,
+            backup_on_switch: config.settings.backup_on_switch,
+        });
+    }
+    Ok(switches)
+}
+
+#[derive(Debug, Clone)]
+enum LiveStateSnapshot {
+    Claude {
+        credentials: Option<auth::claude::LiveCredentialSnapshot>,
+        oauth_account_metadata: Option<Vec<u8>>,
+    },
+    Codex {
+        files: Vec<FileSnapshot>,
+    },
+    Gemini {
+        dir: std::path::PathBuf,
+        files: Vec<NamedFileSnapshot>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct FileSnapshot {
+    path: std::path::PathBuf,
+    bytes: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+struct NamedFileSnapshot {
+    file_name: OsString,
+    bytes: Vec<u8>,
+}
+
+fn snapshot_live_state_for_context(
+    switches: &[ResolvedProfileSwitch],
+    user_home: &Path,
+) -> Result<HashMap<Tool, LiveStateSnapshot>> {
+    let mut snapshots = HashMap::new();
+    for switch in switches {
+        let snapshot = match switch.tool {
+            Tool::Claude => LiveStateSnapshot::Claude {
+                credentials: auth::claude::live_credentials_snapshot_for_import(user_home)?,
+                oauth_account_metadata: auth::claude::read_live_oauth_account_metadata_for_import(
+                    user_home,
+                )?,
+            },
+            Tool::Codex => LiveStateSnapshot::Codex {
+                files: vec![
+                    snapshot_file(user_home.join(".codex").join("auth.json"))?,
+                    snapshot_file(user_home.join(".codex").join("config.toml"))?,
+                ],
+            },
+            Tool::Gemini => {
+                let dir = user_home.join(".gemini");
+                LiveStateSnapshot::Gemini {
+                    files: snapshot_regular_files(&dir)?,
+                    dir,
+                }
+            }
+        };
+        snapshots.insert(switch.tool, snapshot);
+    }
+    Ok(snapshots)
+}
+
+fn restore_live_state_for_context(
+    snapshots: &HashMap<Tool, LiveStateSnapshot>,
+    user_home: &Path,
+) -> Result<()> {
+    for tool in Tool::ALL.iter().rev() {
+        let Some(snapshot) = snapshots.get(tool) else {
+            continue;
+        };
+        match snapshot {
+            LiveStateSnapshot::Claude {
+                credentials,
+                oauth_account_metadata,
+            } => auth::claude::restore_live_state_after_oauth_add(
+                credentials.clone(),
+                oauth_account_metadata.clone(),
+                user_home,
+            )?,
+            LiveStateSnapshot::Codex { files } => restore_file_snapshots(files)?,
+            LiveStateSnapshot::Gemini { dir, files } => restore_regular_files(dir, files)?,
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_file(path: std::path::PathBuf) -> Result<FileSnapshot> {
+    let bytes = if path.exists() {
+        Some(std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?)
+    } else {
+        None
+    };
+    Ok(FileSnapshot { path, bytes })
+}
+
+fn snapshot_regular_files(dir: &Path) -> Result<Vec<NamedFileSnapshot>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    for file in auth::files::list_regular_files(dir)? {
+        files.push(NamedFileSnapshot {
+            file_name: file.file_name,
+            bytes: std::fs::read(&file.path)
+                .with_context(|| format!("could not read {}", file.path.display()))?,
+        });
+    }
+    Ok(files)
+}
+
+fn restore_file_snapshots(files: &[FileSnapshot]) -> Result<()> {
+    let changes = files
+        .iter()
+        .map(|snapshot| match &snapshot.bytes {
+            Some(bytes) => LiveFileChange::write(snapshot.path.clone(), bytes.clone()),
+            None => LiveFileChange::delete(snapshot.path.clone()),
+        })
+        .collect::<Vec<_>>();
+    crate::live_apply::apply_transaction(changes)
+}
+
+fn restore_regular_files(dir: &Path, files: &[NamedFileSnapshot]) -> Result<()> {
+    let mut changes = Vec::new();
+    let expected = files
+        .iter()
+        .map(|file| file.file_name.clone())
+        .collect::<HashSet<_>>();
+
+    if dir.exists() {
+        for current in auth::files::list_regular_files(dir)? {
+            if !expected.contains(&current.file_name) {
+                changes.push(LiveFileChange::delete(current.path));
+            }
+        }
+    }
+
+    for file in files {
+        changes.push(LiveFileChange::write(
+            dir.join(&file.file_name),
+            file.bytes.clone(),
+        ));
+    }
+
+    crate::live_apply::apply_transaction(changes)
 }
 
 fn normalized_profiles_json(profiles: &ContextProfiles) -> serde_json::Value {
