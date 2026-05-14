@@ -480,11 +480,13 @@ fn import_claude(
     } else {
         AuthMethod::OAuth
     };
+    let account_bytes = auth::claude::read_live_oauth_account_metadata_for_import(user_home)?;
     if imported_method == AuthMethod::OAuth {
         if let Some(existing_name) = existing_claude_profile_for_exact_credentials(
             &profile_store,
             &config_store,
             &source_bytes,
+            account_bytes.as_deref(),
         )? {
             output::print_kv("Credentials", &source_desc);
             print_already_managed_live_match(Tool::Claude, &config_store, "oauth", &existing_name)?;
@@ -508,29 +510,15 @@ fn import_claude(
             return Ok(());
         }
     }
-    if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
+    if let Some(existing_name) = auth::identity::existing_claude_oauth_profile_for_live_state(
         &profile_store,
         &config_store,
-        Tool::Claude,
         &source_bytes,
+        account_bytes.as_deref(),
     )? {
         output::print_kv("Credentials", &source_desc);
         print_already_managed_live_match(Tool::Claude, &config_store, "oauth", &existing_name)?;
         return Ok(());
-    }
-    if let Some(account_bytes) =
-        auth::claude::read_live_oauth_account_metadata_for_import(user_home)?
-    {
-        if let Some(existing_name) = auth::identity::existing_oauth_profile_for_json_bytes(
-            &profile_store,
-            &config_store,
-            Tool::Claude,
-            &account_bytes,
-        )? {
-            output::print_kv("Credentials", &source_desc);
-            print_already_managed_live_match(Tool::Claude, &config_store, "oauth", &existing_name)?;
-            return Ok(());
-        }
     }
 
     if confirmed && profile_store.exists(Tool::Claude, "default") {
@@ -615,6 +603,7 @@ fn existing_claude_profile_for_exact_credentials(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
     live_bytes: &[u8],
+    live_account_bytes: Option<&[u8]>,
 ) -> Result<Option<String>> {
     let config = config_store.load()?;
     for (name, meta) in config.profiles_for(Tool::Claude) {
@@ -632,7 +621,15 @@ fn existing_claude_profile_for_exact_credentials(
         };
 
         if stored.as_deref() == Some(live_bytes) {
-            return Ok(Some(name.clone()));
+            let account_match = auth::identity::existing_claude_oauth_profile_for_live_state(
+                profile_store,
+                config_store,
+                live_bytes,
+                live_account_bytes,
+            )?;
+            if account_match.as_deref() == Some(name.as_str()) || live_account_bytes.is_none() {
+                return Ok(Some(name.clone()));
+            }
         }
     }
 
