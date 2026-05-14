@@ -11,6 +11,7 @@ test -f completions/aisw.fish
 grep -q "claude" completions/aisw.bash
 grep -q "codex" completions/aisw.bash
 grep -q "gemini" completions/aisw.bash
+grep -q "context" completions/aisw.bash
 grep -q "shell-hook" completions/aisw.bash
 
 bash -c '
