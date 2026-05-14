@@ -38,6 +38,22 @@ fn add_and_activate_gemini(env: &TestEnv, name: &str) {
     env.cmd().args(["use", "gemini", name]).assert().success();
 }
 
+fn add_claude_profile(env: &TestEnv, name: &str, key: &str) {
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd()
+        .args(["add", "claude", name, "--api-key", key])
+        .assert()
+        .success();
+}
+
+fn add_codex_profile(env: &TestEnv, name: &str, key: &str) {
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd()
+        .args(["add", "codex", name, "--api-key", key])
+        .assert()
+        .success();
+}
+
 #[test]
 fn status_no_profiles_no_tools_exits_zero() {
     // Empty PATH → no tools found.
@@ -136,6 +152,119 @@ fn status_json_has_expected_keys() {
     }
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
+}
+
+#[test]
+fn status_context_json_wraps_tools_and_context_summary() {
+    let env = TestEnv::new();
+    add_and_activate_claude(&env, "acme-claude");
+    add_and_activate_codex(&env, "acme-codex");
+
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "work",
+            "--claude",
+            "acme-claude",
+            "--codex",
+            "acme-codex",
+        ])
+        .assert()
+        .success();
+
+    let output = env
+        .cmd()
+        .args(["status", "--context", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("invalid JSON");
+    assert!(json["tools"].is_array());
+    assert_eq!(json["context"]["status"], "exact");
+    assert_eq!(json["context"]["active"], "work");
+    assert_eq!(json["context"]["profiles"]["claude"], "acme-claude");
+    assert_eq!(json["context"]["profiles"]["codex"], "acme-codex");
+}
+
+#[test]
+fn status_context_reports_ambiguous_matches() {
+    let env = TestEnv::new();
+    add_and_activate_claude(&env, "acme-claude");
+    add_and_activate_codex(&env, "acme-codex");
+
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "claude-only",
+            "--claude",
+            "acme-claude",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "work",
+            "--claude",
+            "acme-claude",
+            "--codex",
+            "acme-codex",
+        ])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["status", "--context"])
+        .assert()
+        .success()
+        .stdout(contains("Context"))
+        .stdout(contains("ambiguous"))
+        .stdout(contains("claude-only, work"));
+}
+
+#[test]
+fn status_context_reports_unmanaged_tools_for_sparse_exact_match() {
+    let env = TestEnv::new();
+    add_claude_profile(
+        &env,
+        "acme-claude",
+        "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    );
+    add_codex_profile(&env, "acme-codex", VALID_CODEX_KEY);
+    env.cmd()
+        .args(["use", "claude", "acme-claude"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "codex", "acme-codex"])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "claude-only",
+            "--claude",
+            "acme-claude",
+        ])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["status", "--context"])
+        .assert()
+        .success()
+        .stdout(contains("Active context"))
+        .stdout(contains("claude-only"))
+        .stdout(contains("Unmanaged"))
+        .stdout(contains("codex=acme-codex"));
 }
 
 #[test]
