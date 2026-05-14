@@ -386,6 +386,29 @@ impl ConfigStore {
         })
     }
 
+    pub fn activate_profiles(
+        &self,
+        activations: &[(Tool, String, Option<StateMode>)],
+    ) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            for (tool, name, state_mode) in activations {
+                if !tool_profiles(config, *tool).contains_key(name) {
+                    return Err(AiswError::ProfileNotFound {
+                        tool: *tool,
+                        name: name.clone(),
+                    }
+                    .into());
+                }
+
+                *tool_active_mut(config, *tool) = Some(name.clone());
+                if let Some(mode) = state_mode {
+                    *tool_state_mode_mut(config, *tool) = *mode;
+                }
+            }
+            Ok(())
+        })
+    }
+
     pub fn clear_active(&self, tool: Tool) -> Result<Config> {
         self.with_mutating_config(|config| {
             *tool_active_mut(config, tool) = None;
@@ -907,9 +930,8 @@ fn contexts_referencing_profile(config: &Config, tool: Tool, profile_name: &str)
     let mut refs: Vec<String> = config
         .contexts()
         .iter()
-        .filter_map(|(context_name, entry)| {
-            (entry.profiles.get(tool) == Some(profile_name)).then(|| context_name.clone())
-        })
+        .filter(|(_, entry)| entry.profiles.get(tool) == Some(profile_name))
+        .map(|(context_name, _)| context_name.clone())
         .collect();
     refs.sort_unstable();
     refs
