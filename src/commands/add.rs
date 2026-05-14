@@ -1126,6 +1126,18 @@ mod tests {
         fs::set_permissions(&creds, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
+    fn write_claude_oauth_account(user_home: &Path, email: &str, org: Option<&str>) {
+        let content = match org {
+            Some(org) => {
+                format!(
+                    r#"{{"oauthAccount":{{"emailAddress":"{email}","organizationUuid":"{org}"}}}}"#
+                )
+            }
+            None => format!(r#"{{"oauthAccount":{{"emailAddress":"{email}"}}}}"#),
+        };
+        fs::write(user_home.join(".claude.json"), content).unwrap();
+    }
+
     fn write_codex_credentials(user_home: &Path, token: &str) {
         let codex_dir = user_home.join(".codex");
         fs::create_dir_all(&codex_dir).unwrap();
@@ -1261,6 +1273,72 @@ mod tests {
             err.to_string().contains("no live credentials"),
             "unexpected: {err}"
         );
+    }
+
+    #[test]
+    fn from_live_claude_allows_same_email_with_different_org() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        write_claude_credentials(&user_home, "tok-org-a");
+        write_claude_oauth_account(&user_home, "test@example.com", Some("org-a"));
+        run_in(
+            from_live_args(Tool::Claude, "org-a"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        write_claude_credentials(&user_home, "tok-org-b");
+        write_claude_oauth_account(&user_home, "test@example.com", Some("org-b"));
+        run_in(
+            from_live_args(Tool::Claude, "org-b"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps.exists(Tool::Claude, "org-a"));
+        assert!(ps.exists(Tool::Claude, "org-b"));
+    }
+
+    #[test]
+    fn from_live_claude_rejects_same_email_when_org_is_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        write_claude_credentials(&user_home, "tok-org-a");
+        write_claude_oauth_account(&user_home, "test@example.com", Some("org-a"));
+        run_in(
+            from_live_args(Tool::Claude, "org-a"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        write_claude_credentials(&user_home, "tok-no-org");
+        write_claude_oauth_account(&user_home, "test@example.com", None);
+        let err = run_in(
+            from_live_args(Tool::Claude, "no-org"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("already exists as 'org-a'"));
     }
 
     #[test]

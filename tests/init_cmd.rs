@@ -190,6 +190,70 @@ fn init_is_idempotent_for_claude_oauth_import() {
 }
 
 #[test]
+fn init_imports_claude_profile_when_same_email_has_different_org() {
+    let env = TestEnv::new();
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"account":{"email":"burak@example.com"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        env.fake_home.join(".claude.json"),
+        br#"{"oauthAccount":{"emailAddress":"burak@example.com","organizationUuid":"org-b"}}"#,
+    )
+    .unwrap();
+
+    fs::create_dir_all(&env.aisw_home).unwrap();
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "active": { "claude": null, "codex": null, "gemini": null },
+            "profiles": {
+                "claude": {
+                    "work": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    }
+                },
+                "codex": {},
+                "gemini": {}
+            },
+            "settings": { "backup_on_switch": true, "max_backups": 10 }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let profile_dir = env.aisw_home.join("profiles").join("claude").join("work");
+    fs::create_dir_all(&profile_dir).unwrap();
+    fs::write(
+        profile_dir.join(".credentials.json"),
+        br#"{"account":{"email":"burak@example.com"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        profile_dir.join("oauth-account.json"),
+        br#"{"emailAddress":"burak@example.com","organizationUuid":"org-a"}"#,
+    )
+    .unwrap();
+
+    run_init(&env).success().stdout(contains(
+        "Imported Claude Code credentials as profile 'default' and marked it active.",
+    ));
+
+    assert!(env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .exists());
+}
+
+#[test]
 fn init_is_idempotent_for_claude_oauth_import_without_identity_fields() {
     let env = TestEnv::new();
     let claude_dir = env.fake_home.join(".claude");
@@ -860,6 +924,74 @@ fn init_blocks_import_of_duplicate_oauth_identity() {
         ))
         .stdout(contains(
             "aisw does not currently record an active profile for claude.",
+        ));
+
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .exists());
+}
+
+#[test]
+fn init_blocks_import_of_duplicate_oauth_identity_when_org_is_missing() {
+    let env = TestEnv::new();
+
+    fs::create_dir_all(&env.aisw_home).unwrap();
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::json!({
+            "version": 1,
+            "active": { "claude": null, "codex": null, "gemini": null },
+            "profiles": {
+                "claude": {
+                    "work": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    }
+                },
+                "codex": {},
+                "gemini": {}
+            },
+            "settings": { "backup_on_switch": true, "max_backups": 10 }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let profile_dir = env.aisw_home.join("profiles").join("claude").join("work");
+    fs::create_dir_all(&profile_dir).unwrap();
+    fs::write(
+        profile_dir.join(".credentials.json"),
+        br#"{"account":{"email":"burak@example.com"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        profile_dir.join("oauth-account.json"),
+        br#"{"emailAddress":"burak@example.com","organizationUuid":"org-a"}"#,
+    )
+    .unwrap();
+
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"account":{"email":"burak@example.com"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        env.fake_home.join(".claude.json"),
+        br#"{"oauthAccount":{"emailAddress":"burak@example.com"}}"#,
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("already managed"))
+        .stdout(contains(
+            "Current live credentials match stored profile 'work'.",
         ));
 
     assert!(!env
