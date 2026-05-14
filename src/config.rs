@@ -14,7 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::error::AiswError;
 use crate::types::{StateMode, Tool};
 
-const CURRENT_VERSION: u32 = 1;
+const CURRENT_VERSION: u32 = 2;
 const CONFIG_FILE: &str = "config.json";
 const CONFIG_LOCK_FILE: &str = "config.json.lock";
 const AISW_HOME_ENV: &str = "AISW_HOME";
@@ -26,6 +26,8 @@ pub struct Config {
     pub version: u32,
     pub active: ActiveProfiles,
     pub profiles: AllProfiles,
+    #[serde(default)]
+    pub contexts: Contexts,
     pub settings: Settings,
 }
 
@@ -34,6 +36,19 @@ pub struct ActiveProfiles(HashMap<Tool, Option<String>>);
 
 #[derive(Debug, Clone, Default)]
 pub struct AllProfiles(HashMap<Tool, HashMap<String, ProfileMeta>>);
+
+#[derive(Debug, Clone, Default)]
+pub struct Contexts(HashMap<String, ContextEntry>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextEntry {
+    pub profiles: ContextProfiles,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContextProfiles(HashMap<Tool, String>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileMeta {
@@ -102,6 +117,7 @@ impl Default for Config {
             version: CURRENT_VERSION,
             active: ActiveProfiles::default(),
             profiles: AllProfiles::default(),
+            contexts: Contexts::default(),
             settings: Settings::default(),
         }
     }
@@ -143,6 +159,14 @@ impl Config {
 
     pub fn state_mode_for(&self, tool: Tool) -> StateMode {
         self.settings.state_mode(tool)
+    }
+
+    pub fn contexts(&self) -> &HashMap<String, ContextEntry> {
+        self.contexts.all()
+    }
+
+    pub fn context(&self, name: &str) -> Option<&ContextEntry> {
+        self.contexts.get(name)
     }
 }
 
@@ -224,6 +248,51 @@ impl ConfigStore {
                 .into());
             }
 
+            Ok(())
+        })
+    }
+
+    pub fn create_context(&self, name: &str, entry: ContextEntry) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            let contexts = context_entries_mut(config);
+            if contexts.contains_key(name) {
+                bail!("context '{}' already exists.", name);
+            }
+            contexts.insert(name.to_owned(), entry);
+            Ok(())
+        })
+    }
+
+    pub fn upsert_context(&self, name: &str, entry: ContextEntry) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            context_entries_mut(config).insert(name.to_owned(), entry);
+            Ok(())
+        })
+    }
+
+    pub fn remove_context(&self, name: &str) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            if context_entries_mut(config).remove(name).is_none() {
+                bail!("context '{}' not found.", name);
+            }
+            Ok(())
+        })
+    }
+
+    pub fn rename_context(&self, old_name: &str, new_name: &str) -> Result<Config> {
+        self.with_mutating_config(|config| {
+            let contexts = context_entries_mut(config);
+            if old_name == new_name {
+                bail!("context '{}' is already named '{}'.", old_name, new_name);
+            }
+            let entry = contexts
+                .remove(old_name)
+                .ok_or_else(|| anyhow::anyhow!("context '{}' not found.", old_name))?;
+            if contexts.contains_key(new_name) {
+                contexts.insert(old_name.to_owned(), entry);
+                bail!("context '{}' already exists.", new_name);
+            }
+            contexts.insert(new_name.to_owned(), entry);
             Ok(())
         })
     }
@@ -349,10 +418,13 @@ impl ConfigStore {
         let contents = fs::read_to_string(&self.path)
             .with_context(|| format!("could not read {}", self.path.display()))?;
 
-        let config: Config = serde_json::from_str(&contents)
+        let mut config: Config = serde_json::from_str(&contents)
             .with_context(|| format!("could not parse {}", self.path.display()))?;
 
         validate_config_version(&config)?;
+        if config.version < CURRENT_VERSION {
+            config.version = CURRENT_VERSION;
+        }
         Ok(config)
     }
 
@@ -454,6 +526,58 @@ impl AllProfiles {
     }
 }
 
+impl Contexts {
+    pub fn all(&self) -> &HashMap<String, ContextEntry> {
+        &self.0
+    }
+
+    pub fn get(&self, name: &str) -> Option<&ContextEntry> {
+        self.0.get(name)
+    }
+
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut ContextEntry> {
+        self.0.get_mut(name)
+    }
+
+    pub fn entries_mut(&mut self) -> &mut HashMap<String, ContextEntry> {
+        &mut self.0
+    }
+}
+
+impl ContextEntry {
+    pub fn new(profiles: ContextProfiles, now: DateTime<Utc>) -> Self {
+        Self {
+            profiles,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+impl ContextProfiles {
+    pub fn get(&self, tool: Tool) -> Option<&str> {
+        self.0.get(&tool).map(String::as_str)
+    }
+
+    pub fn insert(&mut self, tool: Tool, profile: impl Into<String>) {
+        self.0.insert(tool, profile.into());
+    }
+
+    pub fn remove(&mut self, tool: Tool) -> Option<String> {
+        self.0.remove(&tool)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Tool, &str)> {
+        Tool::ALL
+            .into_iter()
+            .filter_map(|tool| self.get(tool).map(|profile| (tool, profile)))
+    }
+}
+
 impl Settings {
     pub fn state_mode(&self, tool: Tool) -> StateMode {
         self.tool_settings
@@ -493,6 +617,21 @@ struct LegacySettings {
     pub claude: ToolSettings,
     #[serde(default)]
     pub codex: ToolSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+struct LegacyContextEntry {
+    #[serde(default)]
+    pub profiles: LegacyContextProfiles,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+struct LegacyContextProfiles {
+    pub claude: Option<String>,
+    pub codex: Option<String>,
+    pub gemini: Option<String>,
 }
 
 impl Serialize for ActiveProfiles {
@@ -548,6 +687,114 @@ impl<'de> Deserialize<'de> for AllProfiles {
         inner.insert(Tool::Codex, legacy.codex);
         inner.insert(Tool::Gemini, legacy.gemini);
         Ok(Self(inner))
+    }
+}
+
+impl Serialize for ContextProfiles {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        LegacyContextProfiles {
+            claude: self.get(Tool::Claude).map(str::to_owned),
+            codex: self.get(Tool::Codex).map(str::to_owned),
+            gemini: self.get(Tool::Gemini).map(str::to_owned),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ContextProfiles {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let legacy = LegacyContextProfiles::deserialize(deserializer)?;
+        let mut inner = HashMap::new();
+        if let Some(profile) = legacy.claude {
+            inner.insert(Tool::Claude, profile);
+        }
+        if let Some(profile) = legacy.codex {
+            inner.insert(Tool::Codex, profile);
+        }
+        if let Some(profile) = legacy.gemini {
+            inner.insert(Tool::Gemini, profile);
+        }
+        Ok(Self(inner))
+    }
+}
+
+impl Serialize for Contexts {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Contexts {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(Self(HashMap::<String, ContextEntry>::deserialize(
+            deserializer,
+        )?))
+    }
+}
+
+impl Serialize for ContextEntry {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        LegacyContextEntry {
+            profiles: self.profiles.clone().into(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ContextEntry {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let legacy = LegacyContextEntry::deserialize(deserializer)?;
+        Ok(Self {
+            profiles: legacy.profiles.into(),
+            created_at: legacy.created_at,
+            updated_at: legacy.updated_at,
+        })
+    }
+}
+
+impl From<ContextProfiles> for LegacyContextProfiles {
+    fn from(value: ContextProfiles) -> Self {
+        Self {
+            claude: value.get(Tool::Claude).map(str::to_owned),
+            codex: value.get(Tool::Codex).map(str::to_owned),
+            gemini: value.get(Tool::Gemini).map(str::to_owned),
+        }
+    }
+}
+
+impl From<LegacyContextProfiles> for ContextProfiles {
+    fn from(value: LegacyContextProfiles) -> Self {
+        let mut profiles = Self::default();
+        if let Some(profile) = value.claude {
+            profiles.insert(Tool::Claude, profile);
+        }
+        if let Some(profile) = value.codex {
+            profiles.insert(Tool::Codex, profile);
+        }
+        if let Some(profile) = value.gemini {
+            profiles.insert(Tool::Gemini, profile);
+        }
+        profiles
     }
 }
 
@@ -635,6 +882,10 @@ fn tool_state_mode_mut(config: &mut Config, tool: Tool) -> &mut StateMode {
     config.settings.state_mode_mut(tool)
 }
 
+fn context_entries_mut(config: &mut Config) -> &mut HashMap<String, ContextEntry> {
+    config.contexts.entries_mut()
+}
+
 static EMPTY_ACTIVE: Option<String> = None;
 static EMPTY_PROFILES: std::sync::LazyLock<HashMap<String, ProfileMeta>> =
     std::sync::LazyLock::new(HashMap::new);
@@ -673,13 +924,27 @@ mod tests {
         }
     }
 
+    fn sample_context() -> ContextEntry {
+        let now = Utc::now();
+        let mut profiles = ContextProfiles::default();
+        profiles.insert(Tool::Claude, "wayfair-claude");
+        profiles.insert(Tool::Codex, "openai-work");
+        ContextEntry {
+            profiles,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
     #[test]
-    fn default_config_is_valid_v1() {
+    fn default_config_is_valid_v2() {
         let config = Config::default();
-        assert_eq!(config.version, 1);
+        assert_eq!(config.version, 2);
+        assert!(config.contexts().is_empty());
         let json = serde_json::to_string(&config).unwrap();
         let parsed: Config = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.version, 1);
+        assert_eq!(parsed.version, 2);
+        assert!(parsed.contexts().is_empty());
     }
 
     #[test]
@@ -689,7 +954,7 @@ mod tests {
         assert!(!store.path.exists());
 
         let config = store.load().unwrap();
-        assert_eq!(config.version, 1);
+        assert_eq!(config.version, 2);
         assert!(store.path.exists());
     }
 
@@ -709,6 +974,8 @@ mod tests {
         .unwrap();
 
         let config = store.load().unwrap();
+        assert_eq!(config.version, 2);
+        assert!(config.contexts().is_empty());
         assert_eq!(config.state_mode_for(Tool::Claude), StateMode::Isolated);
         assert_eq!(config.state_mode_for(Tool::Codex), StateMode::Isolated);
     }
@@ -739,10 +1006,40 @@ mod tests {
         .unwrap();
 
         let config = store.load().unwrap();
+        assert_eq!(config.version, 2);
         assert_eq!(
             config.profiles_for(Tool::Claude)["work"].credential_backend,
             CredentialBackend::File
         );
+    }
+
+    #[test]
+    fn round_trip_preserves_contexts() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store.create_context("work", sample_context()).unwrap();
+
+        let config = store.load().unwrap();
+        let work = config.context("work").expect("context should exist");
+        assert_eq!(work.profiles.get(Tool::Claude), Some("wayfair-claude"));
+        assert_eq!(work.profiles.get(Tool::Codex), Some("openai-work"));
+        assert_eq!(work.profiles.get(Tool::Gemini), None);
+    }
+
+    #[test]
+    fn unrelated_profile_mutation_preserves_existing_contexts() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store.create_context("work", sample_context()).unwrap();
+        store
+            .add_profile(Tool::Gemini, "personal", meta(AuthMethod::ApiKey))
+            .unwrap();
+
+        let config = store.load().unwrap();
+        assert!(config.context("work").is_some());
+        assert!(config.profiles_for(Tool::Gemini).contains_key("personal"));
     }
 
     #[test]
