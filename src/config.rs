@@ -238,6 +238,16 @@ impl ConfigStore {
 
     pub fn remove_profile(&self, tool: Tool, name: &str) -> Result<Config> {
         self.with_mutating_config(|config| {
+            let context_refs = contexts_referencing_profile(config, tool, name);
+            if !context_refs.is_empty() {
+                let refs = context_refs.join(", ");
+                bail!(
+                    "cannot remove {} profile '{}' because it is referenced by contexts: {}.",
+                    tool,
+                    name,
+                    refs
+                );
+            }
             let profiles = tool_profiles_mut(config, tool);
 
             if profiles.remove(name).is_none() {
@@ -325,6 +335,13 @@ impl ConfigStore {
 
             if tool_active(config, tool).as_deref() == Some(old_name) {
                 *tool_active_mut(config, tool) = Some(new_name.to_owned());
+            }
+
+            for context in context_entries_mut(config).values_mut() {
+                if context.profiles.get(tool) == Some(old_name) {
+                    context.profiles.insert(tool, new_name.to_owned());
+                    context.updated_at = Utc::now();
+                }
             }
 
             Ok(())
@@ -886,6 +903,18 @@ fn context_entries_mut(config: &mut Config) -> &mut HashMap<String, ContextEntry
     config.contexts.entries_mut()
 }
 
+fn contexts_referencing_profile(config: &Config, tool: Tool, profile_name: &str) -> Vec<String> {
+    let mut refs: Vec<String> = config
+        .contexts()
+        .iter()
+        .filter_map(|(context_name, entry)| {
+            (entry.profiles.get(tool) == Some(profile_name)).then(|| context_name.clone())
+        })
+        .collect();
+    refs.sort_unstable();
+    refs
+}
+
 static EMPTY_ACTIVE: Option<String> = None;
 static EMPTY_PROFILES: std::sync::LazyLock<HashMap<String, ProfileMeta>> =
     std::sync::LazyLock::new(HashMap::new);
@@ -927,8 +956,8 @@ mod tests {
     fn sample_context() -> ContextEntry {
         let now = Utc::now();
         let mut profiles = ContextProfiles::default();
-        profiles.insert(Tool::Claude, "wayfair-claude");
-        profiles.insert(Tool::Codex, "openai-work");
+        profiles.insert(Tool::Claude, "acme-claude");
+        profiles.insert(Tool::Codex, "acme-codex");
         ContextEntry {
             profiles,
             created_at: now,
@@ -1022,8 +1051,8 @@ mod tests {
 
         let config = store.load().unwrap();
         let work = config.context("work").expect("context should exist");
-        assert_eq!(work.profiles.get(Tool::Claude), Some("wayfair-claude"));
-        assert_eq!(work.profiles.get(Tool::Codex), Some("openai-work"));
+        assert_eq!(work.profiles.get(Tool::Claude), Some("acme-claude"));
+        assert_eq!(work.profiles.get(Tool::Codex), Some("acme-codex"));
         assert_eq!(work.profiles.get(Tool::Gemini), None);
     }
 
@@ -1133,6 +1162,21 @@ mod tests {
     }
 
     #[test]
+    fn remove_profile_rejects_context_reference() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .add_profile(Tool::Codex, "acme-codex", meta(AuthMethod::ApiKey))
+            .unwrap();
+        store.create_context("work", sample_context()).unwrap();
+
+        let err = store.remove_profile(Tool::Codex, "acme-codex").unwrap_err();
+        assert!(err.to_string().contains("referenced by contexts"));
+        assert!(err.to_string().contains("work"));
+    }
+
+    #[test]
     fn remove_nonexistent_profile_errors() {
         let dir = tempdir().unwrap();
         let store = store(dir.path());
@@ -1209,6 +1253,41 @@ mod tests {
         assert!(!config.profiles_for(Tool::Claude).contains_key("default"));
         assert!(config.profiles_for(Tool::Claude).contains_key("work"));
         assert_eq!(store.get_active(&config, Tool::Claude), Some("work"));
+    }
+
+    #[test]
+    fn rename_profile_updates_context_references() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .add_profile(Tool::Claude, "default", meta(AuthMethod::OAuth))
+            .unwrap();
+        let now = Utc::now();
+        let mut profiles = ContextProfiles::default();
+        profiles.insert(Tool::Claude, "default");
+        store
+            .create_context(
+                "work",
+                ContextEntry {
+                    profiles,
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+            .unwrap();
+
+        store
+            .rename_profile(Tool::Claude, "default", "work")
+            .unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(
+            config
+                .context("work")
+                .and_then(|context| context.profiles.get(Tool::Claude)),
+            Some("work")
+        );
     }
 
     #[test]

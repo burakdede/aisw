@@ -544,6 +544,7 @@ mod tests {
             search: None,
             sort: None,
             active_only: false,
+            context: false,
             json,
         }
     }
@@ -939,6 +940,7 @@ mod tests {
             search: Some("work".to_owned()),
             sort: None,
             active_only: true,
+            context: false,
             json: false,
         };
         apply_status_filters(&mut statuses, &args);
@@ -988,6 +990,7 @@ mod tests {
             search: None,
             sort: Some(crate::cli::SortBy::Recent),
             active_only: false,
+            context: false,
             json: false,
         };
 
