@@ -29,7 +29,7 @@ use super::keychain::{
 use super::paths::{
     live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
 };
-use super::{LiveCredentialSnapshot, LiveCredentialSource};
+use super::{read_stored_credentials, LiveCredentialSnapshot, LiveCredentialSource};
 
 fn persist_oauth_storage(
     profile_store: &ProfileStore,
@@ -497,4 +497,71 @@ If you need a different Claude account, fully sign out of claude.com first, then
 
         std::thread::sleep(poll_interval);
     }
+}
+
+// ---- Automatic synchronization ----
+
+pub fn sync_profile_from_live_if_same_identity(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+    user_home: &Path,
+) -> Result<bool> {
+    let Some(snapshot) = live_credentials_snapshot_for_import(user_home)? else {
+        return Ok(false);
+    };
+
+    let Some(stored_identity) = resolve_profile_oauth_identity(profile_store, name, backend)?
+    else {
+        return Ok(false);
+    };
+    let Some(live_identity) = resolve_live_oauth_identity(&snapshot, user_home)? else {
+        return Ok(false);
+    };
+
+    if stored_identity != live_identity {
+        return Ok(false);
+    }
+
+    persist_oauth_storage(profile_store, name, backend, &snapshot.bytes)?;
+    persist_live_oauth_account_metadata(profile_store, name, user_home)?;
+    Ok(true)
+}
+
+fn resolve_profile_oauth_identity(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+) -> Result<Option<String>> {
+    // 1. Try credentials file/keychain
+    let cred_bytes = match read_stored_credentials(profile_store, name, backend) {
+        Ok(b) => b,
+        Err(_) => return Ok(None),
+    };
+    if let Some(id) = identity::resolve_identity_from_json_bytes(&cred_bytes)? {
+        return Ok(Some(id));
+    }
+
+    // 2. Fallback to metadata file
+    let Ok(meta_bytes) = profile_store.read_file(Tool::Claude, name, super::OAUTH_ACCOUNT_FILE)
+    else {
+        return Ok(None);
+    };
+    identity::resolve_identity_from_json_bytes(&meta_bytes)
+}
+
+fn resolve_live_oauth_identity(
+    snapshot: &LiveCredentialSnapshot,
+    user_home: &Path,
+) -> Result<Option<String>> {
+    // 1. Try live credentials snapshot
+    if let Some(id) = identity::resolve_identity_from_json_bytes(&snapshot.bytes)? {
+        return Ok(Some(id));
+    }
+
+    // 2. Fallback to live metadata file
+    let Some(metadata) = read_live_oauth_account_metadata_for_import(user_home)? else {
+        return Ok(None);
+    };
+    identity::resolve_identity_from_json_bytes(&metadata)
 }
