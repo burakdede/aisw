@@ -154,7 +154,7 @@ _aisw() {
             return 0
             ;;
         aisw__add)
-            opts="-h -V --api-key --label --set-active --from-env --from-live --yes --help --version claude codex gemini <PROFILE_NAME>"
+            opts="-h -V --api-key --label --credential-backend --set-active --from-env --from-live --yes --help --version claude codex gemini <PROFILE_NAME>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -166,6 +166,10 @@ _aisw() {
                     ;;
                 --label)
                     COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --credential-backend)
+                    COMPREPLY=( $(compgen -W "file system-keyring" -- "${cur}") )
                     return 0
                     ;;
                 *)

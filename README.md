@@ -135,7 +135,7 @@ Credentials are stored in the native OS keyring where available (macOS Keychain,
 
 ```text
 aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system_keyring] [--set-active]
 aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context list [--json]
 aisw context use <name> [--state-mode isolated|shared]

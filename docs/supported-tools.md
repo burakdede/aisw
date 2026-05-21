@@ -83,6 +83,8 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 
 **Fail-closed** means `aisw` refuses the operation rather than guessing. This applies specifically to Codex when the keyring account identifier cannot be read from the live credential store.
 
+`aisw add --credential-backend ...` sets the managed profile backend only. It does not force the upstream CLI's live auth backend.
+
 ## References
 
 - [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md)  -  detailed research on credential file locations and storage models per tool and platform
