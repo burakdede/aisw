@@ -36,7 +36,13 @@ Claude Code, Codex CLI, and Gemini CLI each store credentials in different locat
 
 ## Demo
 
+General workflow:
+
 ![aisw CLI demo](website/public/demos/aisw-important-workflows.gif)
+
+Context workflow:
+
+![aisw context demo](website/public/demos/aisw-context-workflow.gif)
 
 ## Install
 
@@ -112,6 +118,8 @@ What you get from a context:
 
 What you do not get from a context:
 - New credential storage or vendor auth behavior. Contexts only point at existing profiles.
+
+The practical value is simple: `aisw use --all --profile personal` works when names line up, and `aisw context use acme` works when the real world does not.
 
 ## What it supports
 

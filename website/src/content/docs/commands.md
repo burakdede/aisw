@@ -39,10 +39,17 @@ aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 ```text
 aisw init [--yes]
 aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active] [--yes]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context list [--json]
+aisw context use <name> [--state-mode isolated|shared]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context unset <name> [--claude] [--codex] [--gemini]
+aisw context remove <name> [--yes]
+aisw context rename <old> <new>
 aisw use <tool> <profile> [--state-mode isolated|shared]
 aisw use --all --profile <profile> [--state-mode isolated|shared]
 aisw list [tool] [--json]
-aisw status [--json]
+aisw status [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
 aisw rename <tool> <old> <new>
 aisw backup list [--json]
@@ -155,6 +162,108 @@ aisw use --all --profile personal
 
 ---
 
+## `aisw context`
+
+Contexts are saved cross-tool mappings. They let you bind different per-tool profile names under one higher-level name such as `work`, `personal`, `client-acme`, or `oss`.
+
+Practical framing:
+- Use a `profile` when you want to switch one tool's account.
+- Use a `context` when you want to switch one whole multi-tool work mode.
+
+### `aisw context create`
+
+```text
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+```
+
+Create a saved context. At least one tool mapping is required.
+
+```sh
+aisw context create acme --claude acme-claude --codex acme-codex
+```
+
+### `aisw context list`
+
+```text
+aisw context list [--json]
+```
+
+List saved contexts.
+
+```sh
+aisw context list
+aisw context list --json
+```
+
+### `aisw context use`
+
+```text
+aisw context use <name> [--state-mode isolated|shared]
+```
+
+Activate every mapped tool in a saved context as one transaction.
+
+Notes:
+- Default state mode is `isolated`.
+- `--state-mode shared` applies only to Claude Code and Codex CLI.
+- Activation is transactional across mapped tools. If one tool write fails, prior live state is restored.
+- With the shell hook active, `aisw context use` applies emitted env vars to the current shell the same way `aisw use` does.
+
+```sh
+aisw context use acme
+aisw context use acme --state-mode shared
+```
+
+### `aisw context set`
+
+```text
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+```
+
+Update one or more mappings without disturbing the others.
+
+```sh
+aisw context set acme --gemini acme-gemini
+```
+
+### `aisw context unset`
+
+```text
+aisw context unset <name> [--claude] [--codex] [--gemini]
+```
+
+Remove one or more mappings from a context. The command fails if it would leave the context empty.
+
+```sh
+aisw context unset acme --codex
+```
+
+### `aisw context remove`
+
+```text
+aisw context remove <name> [--yes]
+```
+
+Delete a saved context. This does not change live credentials or active per-tool profiles.
+
+```sh
+aisw context remove acme --yes
+```
+
+### `aisw context rename`
+
+```text
+aisw context rename <old> <new>
+```
+
+Rename a saved context. This does not change live credentials or active per-tool profiles.
+
+```sh
+aisw context rename acme client-acme
+```
+
+---
+
 ## `aisw list`
 
 ```text
@@ -174,7 +283,7 @@ aisw list --json
 ## `aisw status`
 
 ```text
-aisw status [--json]
+aisw status [--context] [--json]
 ```
 
 Show per-tool state: installed binary, active profile, credential backend, live-match status, and token expiry warnings.
@@ -182,10 +291,14 @@ Show per-tool state: installed binary, active profile, credential backend, live-
 Notes:
 - "Live match" indicates whether the tool's current live credentials match the `aisw`-recorded active profile.
 - Token expiry warnings appear when an OAuth token is expired or expires within 24 hours.
+- `--context` adds derived context matching information without changing plain `status --json`.
+- `status --context --json` wraps the existing tool array in a `{ "tools": [...], "context": ... }` object.
 
 ```sh
 aisw status
+aisw status --context
 aisw status --json
+aisw status --context --json
 ```
 
 ---

@@ -105,6 +105,22 @@ Switch all tools to the same profile name in one command:
 aisw use --all --profile work
 ```
 
+When the names stop lining up across tools, save a context instead of forcing fake symmetry:
+
+```sh
+aisw context create acme \
+  --claude acme-claude \
+  --codex acme-codex \
+  --gemini acme-gemini
+
+aisw context use acme
+```
+
+Rule of thumb:
+
+- `aisw use --all --profile work` is for the simple case where every tool uses the same profile name.
+- `aisw context use acme` is for the real case where each tool may need a different account.
+
 **State mode** (Claude Code and Codex CLI only):
 
 ```sh
@@ -122,14 +138,20 @@ The default is `isolated`. Use `shared` when you want the tool to behave as if i
 ```sh
 # Human-readable summary per tool: installed, active profile, backend, live-match status
 aisw status
+aisw status --context
 
 # Machine-readable (for scripts)
 aisw status --json
+aisw status --context --json
 
 # List all stored profiles
 aisw list
 aisw list claude
 aisw list --json
+
+# List saved contexts
+aisw context list
+aisw context list --json
 ```
 
 ## 6. Maintain profiles
@@ -151,7 +173,7 @@ aisw use claude work
 
 ## 7. Shell hook (optional but recommended)
 
-The shell hook lets `aisw use` apply environment variable exports to the current shell session in addition to writing live config files.
+The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files.
 
 ```sh
 # Zsh

@@ -23,9 +23,9 @@ The problem compounds across tools. If you maintain accounts for all three CLIs,
 
 **Single status view**  -  `aisw status` shows every tool, its active profile, whether live credentials match the recorded active profile, and any expiry warnings  -  in one command.
 
-**Cross-tool operations**  -  `aisw use --all --profile work` switches all three tools to the same profile name in a single command. `aisw list` and `aisw status --json` give a unified view across tools that works in scripts.
+**Cross-tool operations**  -  `aisw use --all --profile work` switches all three tools to the same profile name in a single command when those names line up. `aisw list` and `aisw status --json` give a unified view across tools that works in scripts.
 
-**Saved contexts**  -  `aisw context create acme --claude acme-claude --codex acme-codex --gemini acme-gemini` captures a real-world mixed-account setup under one reusable name. `aisw context use acme` restores that whole work mode as one transaction.
+**Saved contexts**  -  `aisw context create acme --claude acme-claude --codex acme-codex --gemini acme-gemini` captures a real-world mixed-account setup under one reusable name. `aisw context use acme` restores that whole work mode as one transaction, without forcing each tool to share the same profile name.
 
 **Automatic backups**  -  `aisw remove` and `aisw rename` create backups before changing state. Backups are timestamped and restorable.
 
@@ -50,6 +50,7 @@ Benefits of profiles:
 Limits of profiles:
 - They do not express a cross-tool work mode by themselves.
 - `claude/work`, `codex/work`, and `gemini/work` only line up cleanly when you intentionally gave them the same name.
+- Once your real setup becomes `acme-claude`, `acme-openai`, and `acme-gemini`, you need a context.
 
 **Contexts solve the cross-tool work-mode problem.**
 

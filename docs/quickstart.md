@@ -88,7 +88,7 @@ Switch all tools to the same profile name in one command:
 aisw use --all --profile work
 ```
 
-Save a mixed-name context and switch it in one command:
+When the names stop lining up across tools, save a context instead of forcing fake symmetry:
 
 ```sh
 aisw context create acme \
@@ -98,6 +98,11 @@ aisw context create acme \
 
 aisw context use acme
 ```
+
+Rule of thumb:
+
+- `aisw use --all --profile work` is for the simple case where every tool uses the same profile name.
+- `aisw context use acme` is for the real case where each tool may need a different account.
 
 **State mode** (Claude Code and Codex CLI only):
 

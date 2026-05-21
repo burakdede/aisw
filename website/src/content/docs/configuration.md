@@ -44,7 +44,7 @@ AISW_HOME=/tmp/aisw-test aisw list
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "active": {
     "claude": "work",
     "codex": null,
@@ -61,6 +61,17 @@ AISW_HOME=/tmp/aisw-test aisw list
     },
     "codex": {},
     "gemini": {}
+  },
+  "contexts": {
+    "acme": {
+      "profiles": {
+        "claude": "acme-claude",
+        "codex": "acme-codex",
+        "gemini": null
+      },
+      "created_at": "2026-03-25T10:05:00Z",
+      "updated_at": "2026-03-25T10:05:00Z"
+    }
   },
   "settings": {
     "backup_on_switch": true,
@@ -80,10 +91,15 @@ AISW_HOME=/tmp/aisw-test aisw list
 | `profiles.<tool>.<name>.auth_method` | `"oauth"` or `"api_key"` | How the profile was authenticated. |
 | `profiles.<tool>.<name>.credential_backend` | `"file"` or `"system_keyring"` | Where the credential bytes are stored. |
 | `profiles.<tool>.<name>.label` | string or null | Optional human-readable label. |
+| `contexts.<name>` | object | Saved sparse mapping from tool to profile names. |
+| `contexts.<name>.profiles.<tool>` | string or null | Profile name to activate for that tool when the context is used. |
+| `contexts.<name>.created_at` | ISO 8601 timestamp | When the context was created. |
+| `contexts.<name>.updated_at` | ISO 8601 timestamp | When the context was last changed. |
 | `settings.backup_on_switch` | boolean | Create a backup before activating a profile. Default: true. |
 | `settings.max_backups` | integer | Maximum number of backups to retain. Older ones are pruned when the limit is exceeded. Default: 10. |
 
 Credentials are stored under `~/.aisw/profiles/`, not in `config.json`.
+Contexts also store only references, never credential material.
 
 ## Directory layout
 
@@ -111,3 +127,5 @@ Credentials are stored under `~/.aisw/profiles/`, not in `config.json`.
 ## Version compatibility
 
 If `config.json` has a schema version higher than your installed `aisw` binary supports, all commands fail with a message asking you to upgrade. Downgrade compatibility (using a newer config with an older binary) is not guaranteed.
+
+This is intentional for contexts: version 2 prevents an older binary from silently rewriting `config.json` and dropping saved context definitions.
