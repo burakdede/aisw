@@ -6,7 +6,7 @@ use chrono::Utc;
 
 use crate::auth;
 use crate::auth::identity;
-use crate::cli::AddArgs;
+use crate::cli::{AddArgs, AddCredentialBackend};
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
 use crate::output;
 use crate::profile::ProfileStore;
@@ -23,6 +23,9 @@ pub fn run(args: AddArgs, home: &Path) -> Result<()> {
 }
 
 pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<()> {
+    let requested_backend = args.credential_backend.map(map_cli_backend);
+    validate_requested_backend(args.tool, requested_backend)?;
+
     // --from-live captures live credentials without launching any login flow.
     // Tool detection is intentionally skipped: the tool is already installed
     // and logged in, which is the prerequisite for --from-live to succeed.
@@ -46,7 +49,8 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
     // Guard: tool binary must be on PATH before we create any profile state.
     let detected = tool_detection::require_in(args.tool, tool_path)?;
 
-    if args.from_env {
+    let (backend, auth_method, source) = if args.from_env {
+        let backend = resolved_api_key_backend(&args);
         let env_var = match args.tool {
             Tool::Claude => CLAUDE_ENV_VAR,
             Tool::Codex => CODEX_ENV_VAR,
@@ -57,75 +61,65 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
             anyhow::bail!("{} is not set — cannot use --from-env", env_var);
         }
         match args.tool {
-            Tool::Claude => auth::claude::add_api_key(
+            Tool::Claude => auth::claude::add_api_key_with_backend(
                 &profile_store,
                 &config_store,
                 &args.profile_name,
                 &key,
                 args.label.clone(),
+                backend,
             )?,
-            Tool::Codex => auth::codex::add_api_key(
+            Tool::Codex => auth::codex::add_api_key_with_backend(
                 &profile_store,
                 &config_store,
                 &args.profile_name,
                 &key,
                 args.label.clone(),
+                backend,
             )?,
-            Tool::Gemini => auth::gemini::add_api_key(
+            Tool::Gemini => auth::gemini::add_api_key_with_backend(
                 &profile_store,
                 &config_store,
                 &args.profile_name,
                 &key,
                 args.label.clone(),
+                backend,
             )?,
         }
         if args.set_active {
             config_store.set_active(args.tool, &args.profile_name)?;
         }
-        output::print_title("Added profile");
-        output::print_kv("Tool", args.tool.display_name());
-        output::print_kv("Profile", &args.profile_name);
-        output::print_kv("Source", env_var);
-        output::print_kv(
-            "Activation",
-            if args.set_active { "active" } else { "stored" },
-        );
-        output::print_blank_line();
-        output::print_effects_header();
-        output::print_effect("Profile credentials stored in aisw.");
-        output::print_blank_line();
-        output::print_next_step(output::next_step_after_add(
-            args.tool,
-            &args.profile_name,
-            args.set_active,
-        ));
+        print_add_summary(&args, backend, Some(env_var), AuthMethod::ApiKey);
         return Ok(());
-    }
-
-    if let Some(ref api_key) = args.api_key {
+    } else if let Some(ref api_key) = args.api_key {
+        let backend = resolved_api_key_backend(&args);
         match args.tool {
-            Tool::Claude => auth::claude::add_api_key(
+            Tool::Claude => auth::claude::add_api_key_with_backend(
                 &profile_store,
                 &config_store,
                 &args.profile_name,
                 api_key,
                 args.label.clone(),
+                backend,
             )?,
-            Tool::Codex => auth::codex::add_api_key(
+            Tool::Codex => auth::codex::add_api_key_with_backend(
                 &profile_store,
                 &config_store,
                 &args.profile_name,
                 api_key,
                 args.label.clone(),
+                backend,
             )?,
-            Tool::Gemini => auth::gemini::add_api_key(
+            Tool::Gemini => auth::gemini::add_api_key_with_backend(
                 &profile_store,
                 &config_store,
                 &args.profile_name,
                 api_key,
                 args.label.clone(),
+                backend,
             )?,
         }
+        (backend, AuthMethod::ApiKey, None)
     } else {
         if runtime::is_non_interactive() {
             anyhow::bail!(
@@ -136,6 +130,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         }
         match args.tool {
             Tool::Claude => {
+                let backend = requested_backend.unwrap_or_else(auth::claude::oauth_stored_backend);
                 let (live_snapshot, oauth_account_snapshot, user_home): (
                     Option<auth::claude::LiveCredentialSnapshot>,
                     Option<Vec<u8>>,
@@ -151,12 +146,20 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                         Some(user_home),
                     )
                 };
-                auth::claude::add_oauth(
+                if requested_backend.is_none() {
+                    if let Some(note) = auth::claude::storage_fallback_note(
+                        crate::config::CredentialBackend::SystemKeyring,
+                    ) {
+                        output::print_warning(note);
+                    }
+                }
+                auth::claude::add_oauth_with_backend(
                     &profile_store,
                     &config_store,
                     &args.profile_name,
                     args.label.clone(),
                     &detected.binary_path,
+                    backend,
                 )?;
                 if let Some(user_home) = user_home.as_deref() {
                     // `add` should only store a profile; it must not switch the
@@ -167,47 +170,38 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                         user_home,
                     )?;
                 }
+                (backend, AuthMethod::OAuth, None)
             }
-            Tool::Codex => auth::codex::add_oauth(
-                &profile_store,
-                &config_store,
-                &args.profile_name,
-                args.label.clone(),
-                &detected.binary_path,
-            )?,
-            Tool::Gemini => auth::gemini::add_oauth(
-                &profile_store,
-                &config_store,
-                &args.profile_name,
-                args.label.clone(),
-                &detected.binary_path,
-            )?,
+            Tool::Codex => {
+                let backend = requested_backend.unwrap_or(CredentialBackend::File);
+                auth::codex::add_oauth_with_backend(
+                    &profile_store,
+                    &config_store,
+                    &args.profile_name,
+                    args.label.clone(),
+                    &detected.binary_path,
+                    backend,
+                )?;
+                (backend, AuthMethod::OAuth, None)
+            }
+            Tool::Gemini => {
+                auth::gemini::add_oauth(
+                    &profile_store,
+                    &config_store,
+                    &args.profile_name,
+                    args.label.clone(),
+                    &detected.binary_path,
+                )?;
+                (CredentialBackend::File, AuthMethod::OAuth, None)
+            }
         }
-    }
+    };
 
     if args.set_active {
         config_store.set_active(args.tool, &args.profile_name)?;
     }
 
-    output::print_title("Added profile");
-    output::print_kv("Tool", args.tool.display_name());
-    output::print_kv("Profile", &args.profile_name);
-    output::print_kv(
-        "Activation",
-        if args.set_active { "active" } else { "stored" },
-    );
-    output::print_blank_line();
-    output::print_effects_header();
-    output::print_effect("Profile credentials stored in aisw.");
-    if args.set_active {
-        output::print_effect("Active profile updated.");
-    }
-    output::print_blank_line();
-    output::print_next_step(output::next_step_after_add(
-        args.tool,
-        &args.profile_name,
-        args.set_active,
-    ));
+    print_add_summary(&args, backend, source, auth_method);
 
     Ok(())
 }
@@ -276,7 +270,8 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
             )
         })?;
 
-    let stored_backend = auth::claude::preferred_import_backend(&snapshot.source);
+    let stored_backend = requested_backend(&args)
+        .unwrap_or_else(|| auth::claude::preferred_import_backend(&snapshot.source));
     let overwriting =
         prepare_from_live_target(&profile_store, Tool::Claude, &args.profile_name, args.yes)?;
 
@@ -383,6 +378,7 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
 
+    let backend = requested_backend(&args).unwrap_or(CredentialBackend::File);
     let snapshot =
         auth::codex::live_credentials_snapshot_for_import(user_home)?.with_context(|| {
             format!(
@@ -441,14 +437,26 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    if let Err(e) = profile_store.write_file(
-        Tool::Codex,
-        &args.profile_name,
-        auth::codex::AUTH_FILE,
-        &snapshot.bytes,
-    ) {
+    let write_result = match backend {
+        CredentialBackend::File => profile_store.write_file(
+            Tool::Codex,
+            &args.profile_name,
+            auth::codex::AUTH_FILE,
+            &snapshot.bytes,
+        ),
+        CredentialBackend::SystemKeyring => crate::auth::secure_store::write_profile_secret(
+            Tool::Codex,
+            &args.profile_name,
+            &snapshot.bytes,
+        ),
+    };
+    if let Err(e) = write_result {
         if !overwriting {
             let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
+        if !overwriting && backend == CredentialBackend::SystemKeyring {
+            let _ =
+                crate::auth::secure_store::delete_profile_secret(Tool::Codex, &args.profile_name);
         }
         return Err(e);
     }
@@ -459,7 +467,7 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
             &config_store,
             Tool::Codex,
             &args.profile_name,
-            CredentialBackend::File,
+            backend,
         ) {
             if !overwriting {
                 let _ = profile_store.delete(Tool::Codex, &args.profile_name);
@@ -475,7 +483,7 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
             ProfileMeta {
                 added_at: Utc::now(),
                 auth_method,
-                credential_backend: CredentialBackend::File,
+                credential_backend: backend,
                 label: args.label.clone(),
             },
         )
@@ -486,7 +494,7 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
             ProfileMeta {
                 added_at: Utc::now(),
                 auth_method,
-                credential_backend: CredentialBackend::File,
+                credential_backend: backend,
                 label: args.label.clone(),
             },
         )
@@ -496,13 +504,17 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         if !overwriting {
             let _ = profile_store.delete(Tool::Codex, &args.profile_name);
         }
+        if !overwriting && backend == CredentialBackend::SystemKeyring {
+            let _ =
+                crate::auth::secure_store::delete_profile_secret(Tool::Codex, &args.profile_name);
+        }
         return Err(e);
     }
 
-    auth::codex::apply_live_files(&profile_store, &args.profile_name, user_home)?;
+    auth::codex::apply_live_credentials(&profile_store, &args.profile_name, backend, user_home)?;
     config_store.activate_profile(Tool::Codex, &args.profile_name, None)?;
 
-    finalize_from_live(&args, Tool::Codex, CredentialBackend::File, auth_method)
+    finalize_from_live(&args, Tool::Codex, backend, auth_method)
 }
 
 fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
@@ -669,6 +681,76 @@ fn finalize_from_live(
     Ok(())
 }
 
+fn validate_requested_backend(tool: Tool, requested: Option<CredentialBackend>) -> Result<()> {
+    let Some(backend) = requested else {
+        return Ok(());
+    };
+    backend.validate_for_tool(tool)?;
+    if backend == CredentialBackend::SystemKeyring && !auth::system_keyring::is_usable() {
+        let detail = auth::system_keyring::usability_diagnostic()
+            .unwrap_or_else(|| "The system keyring is not currently usable.".to_owned());
+        bail!(
+            "{}\n  Cannot add {} with --credential-backend system_keyring on this machine.",
+            detail,
+            tool.display_name()
+        );
+    }
+    Ok(())
+}
+
+fn resolved_api_key_backend(args: &AddArgs) -> CredentialBackend {
+    requested_backend(args).unwrap_or(CredentialBackend::File)
+}
+
+fn print_add_summary(
+    args: &AddArgs,
+    backend: CredentialBackend,
+    source: Option<&str>,
+    auth_method: AuthMethod,
+) {
+    output::print_title("Added profile");
+    output::print_kv("Tool", args.tool.display_name());
+    output::print_kv("Profile", &args.profile_name);
+    output::print_kv(
+        "Auth",
+        match auth_method {
+            AuthMethod::OAuth => "oauth",
+            AuthMethod::ApiKey => "api_key",
+        },
+    );
+    output::print_kv("Backend", backend.display_name());
+    if let Some(source) = source {
+        output::print_kv("Source", source);
+    }
+    output::print_kv(
+        "Activation",
+        if args.set_active { "active" } else { "stored" },
+    );
+    output::print_blank_line();
+    output::print_effects_header();
+    output::print_effect("Profile credentials stored in aisw.");
+    if args.set_active {
+        output::print_effect("Active profile updated.");
+    }
+    output::print_blank_line();
+    output::print_next_step(output::next_step_after_add(
+        args.tool,
+        &args.profile_name,
+        args.set_active,
+    ));
+}
+
+fn requested_backend(args: &AddArgs) -> Option<CredentialBackend> {
+    args.credential_backend.map(map_cli_backend)
+}
+
+fn map_cli_backend(backend: AddCredentialBackend) -> CredentialBackend {
+    match backend {
+        AddCredentialBackend::File => CredentialBackend::File,
+        AddCredentialBackend::SystemKeyring => CredentialBackend::SystemKeyring,
+    }
+}
+
 fn json_string_field(bytes: &[u8], field: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
     value.get(field)?.as_str().map(ToOwned::to_owned)
@@ -797,6 +879,7 @@ mod tests {
             profile_name: name.to_owned(),
             api_key: Some(api_key.to_owned()),
             label: None,
+            credential_backend: None,
             set_active: false,
             from_env: false,
             from_live: false,
@@ -810,6 +893,7 @@ mod tests {
             profile_name: name.to_owned(),
             api_key: None,
             label: None,
+            credential_backend: None,
             set_active: false,
             from_env: false,
             from_live: true,
@@ -945,6 +1029,7 @@ mod tests {
             profile_name: name.to_owned(),
             api_key: None,
             label: None,
+            credential_backend: None,
             set_active: false,
             from_env: true,
             from_live: false,
@@ -1084,6 +1169,7 @@ mod tests {
                 profile_name: "work".to_owned(),
                 api_key: None,
                 label: None,
+                credential_backend: None,
                 set_active: false,
                 from_env: false,
                 from_live: false,

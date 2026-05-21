@@ -393,6 +393,93 @@ fn add_codex_oauth_always_uses_file_backend() {
         .exists());
 }
 
+#[test]
+fn add_claude_api_key_supports_explicit_system_keyring_backend() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            VALID_CLAUDE_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Backend"))
+        .stdout(contains("system_keyring"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["work"]["credential_backend"],
+        "system_keyring"
+    );
+    assert!(
+        !env.home_file("profiles/claude/work/.credentials.json")
+            .exists(),
+        "keyring-backed Claude API key profile should not store managed credentials file",
+    );
+}
+
+#[test]
+fn add_codex_api_key_supports_explicit_system_keyring_backend() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            VALID_CODEX_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Backend"))
+        .stdout(contains("system_keyring"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["codex"]["work"]["credential_backend"],
+        "system_keyring"
+    );
+    assert!(
+        !env.home_file("profiles/codex/work/auth.json").exists(),
+        "keyring-backed Codex API key profile should not store managed auth.json",
+    );
+    env.assert_home_file_exists("profiles/codex/work/config.toml");
+}
+
+#[test]
+fn add_gemini_rejects_explicit_system_keyring_backend() {
+    let env = TestEnv::new();
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "gemini",
+            "work",
+            "--api-key",
+            VALID_GEMINI_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("not supported for gemini"))
+        .stderr(contains("file-managed"));
+}
+
 // ---- Gemini ----
 
 #[test]

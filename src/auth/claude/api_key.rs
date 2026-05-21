@@ -18,6 +18,24 @@ pub fn add_api_key(
     key: &str,
     label: Option<String>,
 ) -> Result<()> {
+    add_api_key_with_backend(
+        profile_store,
+        config_store,
+        name,
+        key,
+        label,
+        CredentialBackend::File,
+    )
+}
+
+pub fn add_api_key_with_backend(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    key: &str,
+    label: Option<String>,
+    backend: CredentialBackend,
+) -> Result<()> {
     validate_api_key(key)?;
 
     if let Some(existing_name) = identity::existing_api_key_profile_for_secret(
@@ -37,17 +55,29 @@ pub fn add_api_key(
 
     let credentials = serde_json::to_string(&serde_json::json!({ "apiKey": key }))
         .context("could not serialize API key credentials")?;
-    files::cleanup_profile_on_error(
-        profile_store.write_file(
+    match backend {
+        CredentialBackend::File => files::cleanup_profile_on_error(
+            profile_store.write_file(
+                Tool::Claude,
+                name,
+                super::CREDENTIALS_FILE,
+                credentials.as_bytes(),
+            ),
+            profile_store,
             Tool::Claude,
             name,
-            super::CREDENTIALS_FILE,
-            credentials.as_bytes(),
-        ),
-        profile_store,
-        Tool::Claude,
-        name,
-    )?;
+        )?,
+        CredentialBackend::SystemKeyring => files::cleanup_profile_on_error(
+            super::super::secure_store::write_profile_secret(
+                Tool::Claude,
+                name,
+                credentials.as_bytes(),
+            ),
+            profile_store,
+            Tool::Claude,
+            name,
+        )?,
+    };
 
     config_store.add_profile(
         Tool::Claude,
@@ -55,7 +85,7 @@ pub fn add_api_key(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::ApiKey,
-            credential_backend: CredentialBackend::File,
+            credential_backend: backend,
             label,
         },
     )?;
@@ -76,7 +106,29 @@ pub fn validate_api_key(key: &str) -> Result<()> {
 
 /// Reads the stored API key from a profile's credentials file.
 pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> {
-    let bytes = profile_store.read_file(Tool::Claude, name, super::CREDENTIALS_FILE)?;
+    read_api_key_with_backend(profile_store, name, CredentialBackend::File)
+}
+
+pub fn read_api_key_with_backend(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+) -> Result<String> {
+    let bytes = match backend {
+        CredentialBackend::File => {
+            profile_store.read_file(Tool::Claude, name, super::CREDENTIALS_FILE)?
+        }
+        CredentialBackend::SystemKeyring => {
+            super::super::secure_store::read_profile_secret(Tool::Claude, name)?.ok_or_else(
+                || {
+                    anyhow::anyhow!(
+                        "secure credentials for Claude Code profile '{}' are missing from the system keyring",
+                        name
+                    )
+                },
+            )?
+        }
+    };
     let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
         anyhow::anyhow!(
             "could not parse credentials file for profile '{}'.\n  \

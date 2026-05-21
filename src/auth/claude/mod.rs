@@ -52,14 +52,19 @@ pub struct LiveCredentialSnapshot {
 
 // ---- Public re-exports from sub-modules ----
 
-pub use api_key::{add_api_key, read_api_key, validate_api_key};
+pub use api_key::{
+    add_api_key, add_api_key_with_backend, read_api_key, read_api_key_with_backend,
+    validate_api_key,
+};
 pub use keychain::{
-    imported_profile_backend, keychain_import_supported, preferred_import_backend,
-    read_live_keychain_credentials_for_import, storage_fallback_note, uses_live_keychain,
+    imported_profile_backend, keychain_import_supported, oauth_stored_backend,
+    preferred_import_backend, read_live_keychain_credentials_for_import, storage_fallback_note,
+    uses_live_keychain,
 };
 pub use oauth::{
-    add_oauth, capture_live_oauth_account_metadata, live_credentials_snapshot_for_import,
-    read_live_oauth_account_metadata_for_import, restore_live_state_after_oauth_add,
+    add_oauth, add_oauth_with_backend, capture_live_oauth_account_metadata,
+    live_credentials_snapshot_for_import, read_live_oauth_account_metadata_for_import,
+    restore_live_state_after_oauth_add,
 };
 pub use paths::live_local_state_dir;
 
@@ -427,6 +432,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -491,6 +497,7 @@ mod tests {
             "alias",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -559,6 +566,7 @@ mod tests {
             "alias",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -589,6 +597,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_millis(200),
             TEST_POLL,
         )
@@ -626,6 +635,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -675,6 +685,7 @@ mod tests {
             "work",
             None,
             &claude_bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -732,6 +743,7 @@ mod tests {
             "work",
             None,
             &claude_bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -779,6 +791,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -825,6 +838,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -877,6 +891,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -925,6 +940,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -972,6 +988,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )

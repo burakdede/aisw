@@ -114,6 +114,10 @@ pub struct AddArgs {
     #[arg(long, value_name = "TEXT")]
     pub label: Option<String>,
 
+    /// Where aisw stores this profile's managed credentials
+    #[arg(long, value_enum)]
+    pub credential_backend: Option<AddCredentialBackend>,
+
     /// Switch to this profile immediately after adding
     #[arg(long)]
     pub set_active: bool,
@@ -129,6 +133,12 @@ pub struct AddArgs {
     /// Overwrite an existing profile without prompting (only meaningful with --from-live)
     #[arg(long)]
     pub yes: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AddCredentialBackend {
+    File,
+    SystemKeyring,
 }
 
 #[derive(Args, Debug)]
@@ -478,6 +488,7 @@ mod tests {
         assert_eq!(args.profile_name, "work");
         assert_eq!(args.api_key.as_deref(), Some("sk-ant-test"));
         assert!(!args.set_active);
+        assert_eq!(args.credential_backend, None);
     }
 
     #[test]
@@ -497,6 +508,27 @@ mod tests {
         assert_eq!(args.tool, Tool::Codex);
         assert_eq!(args.label.as_deref(), Some("my account"));
         assert!(args.set_active);
+    }
+
+    #[test]
+    fn add_with_explicit_credential_backend() {
+        let cli = parse(&[
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            "sk-codex-test-key",
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .unwrap();
+        let Command::Add(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert_eq!(
+            args.credential_backend,
+            Some(AddCredentialBackend::SystemKeyring)
+        );
     }
 
     #[test]
