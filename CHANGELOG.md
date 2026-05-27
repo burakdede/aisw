@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.5 - 2026-05-27
+
+### Added
+
+- Added explicit `aisw add --credential-backend file|system-keyring` selection for managed Claude and Codex profile credentials.
+
+### Fixed
+
+- Hardened explicit credential-backend adds so failed config writes clean up newly written system-keyring secrets.
+- Hardened `--from-live --yes` overwrites so failed captures restore the previous profile config, active profile state, and managed credential secret.
+- Prevented config-only duplicate profiles from writing orphaned credential data.
+
 ## 0.3.4 - 2026-05-15
 
 ### Fixed
