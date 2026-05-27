@@ -205,16 +205,23 @@ pub fn add_api_key_with_backend(
         name,
     )?;
 
-    config_store.add_profile(
-        Tool::Codex,
-        name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::ApiKey,
-            credential_backend: backend,
-            label,
-        },
-    )?;
+    config_store
+        .add_profile(
+            Tool::Codex,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::ApiKey,
+                credential_backend: backend,
+                label,
+            },
+        )
+        .inspect_err(|_| {
+            files::cleanup_profile(profile_store, Tool::Codex, name);
+            if backend == CredentialBackend::SystemKeyring {
+                let _ = secure_store::delete_profile_secret(Tool::Codex, name);
+            }
+        })?;
 
     Ok(())
 }
@@ -362,6 +369,9 @@ fn store_oauth_profile(
         )
         .inspect_err(|_| {
             let _ = profile_store.delete(Tool::Codex, name);
+            if backend == CredentialBackend::SystemKeyring {
+                let _ = secure_store::delete_profile_secret(Tool::Codex, name);
+            }
         })?;
 
     Ok(())
@@ -628,6 +638,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::auth::test_overrides::EnvVarGuard;
     use crate::config::ConfigStore;
     use crate::profile::ProfileStore;
 
@@ -825,6 +836,41 @@ mod tests {
         assert!(!ps.exists(Tool::Codex, "main"));
     }
 
+    #[test]
+    fn system_keyring_api_key_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let keyring_dir = dir.path().join("keyring");
+        let _guard = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        std::fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_api_key_with_backend(
+            &ps,
+            &cs,
+            "main",
+            valid_key(),
+            None,
+            CredentialBackend::SystemKeyring,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Codex, "main"));
+        assert!(secure_store::read_profile_secret(Tool::Codex, "main")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Codex)
+            .contains_key("main"));
+    }
+
     // ---- OAuth tests ----
 
     // Poll interval used in all OAuth tests.
@@ -929,6 +975,48 @@ mod tests {
             config.profiles_for(Tool::Codex)["main"].auth_method,
             AuthMethod::OAuth
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn system_keyring_oauth_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let keyring_dir = dir.path().join("keyring");
+        let _guard = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true);
+
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        std::fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "main",
+            None,
+            &bin,
+            CredentialBackend::SystemKeyring,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Codex, "main"));
+        assert!(secure_store::read_profile_secret(Tool::Codex, "main")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Codex)
+            .contains_key("main"));
     }
 
     #[test]

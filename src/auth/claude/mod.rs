@@ -379,6 +379,41 @@ mod tests {
         assert!(!ps.exists(Tool::Claude, "work"));
     }
 
+    #[test]
+    fn system_keyring_api_key_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let keyring_dir = dir.path().join("keyring");
+        let _guard = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_api_key_with_backend(
+            &ps,
+            &cs,
+            "work",
+            valid_key(),
+            None,
+            CredentialBackend::SystemKeyring,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Claude, "work"));
+        assert!(secure_store::read_profile_secret(Tool::Claude, "work")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Claude)
+            .contains_key("work"));
+    }
+
     // ---- OAuth tests ----
 
     // Poll interval used in all OAuth tests: fast enough to complete quickly without
@@ -444,6 +479,52 @@ mod tests {
             config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::OAuth
         );
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn system_keyring_oauth_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let keyring_dir = dir.path().join("keyring");
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let bin = make_oauth_mock(&bin_dir, true);
+
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            CredentialBackend::SystemKeyring,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Claude, "work"));
+        assert!(secure_store::read_profile_secret(Tool::Claude, "work")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Claude)
+            .contains_key("work"));
     }
 
     #[test]

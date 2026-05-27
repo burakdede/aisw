@@ -79,16 +79,23 @@ pub fn add_api_key_with_backend(
         )?,
     };
 
-    config_store.add_profile(
-        Tool::Claude,
-        name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::ApiKey,
-            credential_backend: backend,
-            label,
-        },
-    )?;
+    config_store
+        .add_profile(
+            Tool::Claude,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::ApiKey,
+                credential_backend: backend,
+                label,
+            },
+        )
+        .inspect_err(|_| {
+            files::cleanup_profile(profile_store, Tool::Claude, name);
+            if backend == CredentialBackend::SystemKeyring {
+                let _ = super::super::secure_store::delete_profile_secret(Tool::Claude, name);
+            }
+        })?;
 
     Ok(())
 }
