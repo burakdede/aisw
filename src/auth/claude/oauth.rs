@@ -23,7 +23,7 @@ use super::super::files;
 use super::super::identity;
 use super::super::secure_store;
 use super::keychain::{
-    forced_auth_storage, oauth_stored_backend, read_keychain_credentials, storage_fallback_note,
+    forced_auth_storage, oauth_stored_backend, read_keychain_credentials,
     watch_keychain_during_oauth, ClaudeAuthStorage,
 };
 use super::paths::{
@@ -288,32 +288,48 @@ pub fn add_oauth(
     label: Option<String>,
     claude_bin: &Path,
 ) -> Result<()> {
+    add_oauth_with_backend(
+        profile_store,
+        config_store,
+        name,
+        label,
+        claude_bin,
+        oauth_stored_backend(),
+    )
+}
+
+pub fn add_oauth_with_backend(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    claude_bin: &Path,
+    stored_backend: CredentialBackend,
+) -> Result<()> {
     add_oauth_with(
         profile_store,
         config_store,
         name,
         label,
         claude_bin,
+        stored_backend,
         super::OAUTH_TIMEOUT,
         super::POLL_INTERVAL,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn add_oauth_with(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
     name: &str,
     label: Option<String>,
     claude_bin: &Path,
+    stored_backend: CredentialBackend,
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<()> {
     profile_store.create(Tool::Claude, name)?;
-    let stored_backend = oauth_stored_backend();
-
-    if let Some(note) = storage_fallback_note(CredentialBackend::SystemKeyring) {
-        output::print_warning(note);
-    }
 
     let auth_bytes = files::cleanup_profile_on_error(
         run_oauth_flow(claude_bin, timeout, poll_interval),

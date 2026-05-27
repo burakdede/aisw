@@ -131,7 +131,8 @@ pub fn existing_api_key_profile_for_secret(
 ) -> Result<Option<String>> {
     let config = config_store.load()?;
     for existing_name in api_key_profile_names(&config, tool) {
-        let existing_secret = read_api_key_for_profile(profile_store, tool, existing_name)?;
+        let existing_secret =
+            read_api_key_for_profile(profile_store, &config, tool, existing_name)?;
         if existing_secret == secret {
             return Ok(Some(existing_name.to_owned()));
         }
@@ -162,12 +163,14 @@ fn api_key_profile_names(config: &Config, tool: Tool) -> Vec<&str> {
 
 fn read_api_key_for_profile(
     profile_store: &ProfileStore,
+    config: &Config,
     tool: Tool,
     profile_name: &str,
 ) -> Result<String> {
+    let backend = config.profiles_for(tool)[profile_name].credential_backend;
     match tool {
-        Tool::Claude => claude::read_api_key(profile_store, profile_name),
-        Tool::Codex => codex::read_api_key(profile_store, profile_name),
+        Tool::Claude => claude::read_api_key_with_backend(profile_store, profile_name, backend),
+        Tool::Codex => codex::read_api_key_with_backend(profile_store, profile_name, backend),
         Tool::Gemini => gemini::read_api_key(profile_store, profile_name),
     }
 }

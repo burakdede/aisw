@@ -39,6 +39,7 @@ complete -c aisw -n "__fish_aisw_needs_command" -f -a "backup" -d 'Manage creden
 complete -c aisw -n "__fish_aisw_needs_command" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l api-key -d 'API key — skips the interactive auth method prompt' -r
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l label -d 'Human-readable label for this profile' -r
+complete -c aisw -n "__fish_aisw_using_subcommand add" -l credential-backend -d 'Where aisw stores this profile\'s managed credentials' -r -a "file system-keyring"
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l set-active -d 'Switch to this profile immediately after adding'
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l from-env -d 'Use the tool\'s standard environment variable instead of interactive prompts'
 complete -c aisw -n "__fish_aisw_using_subcommand add" -l from-live -d 'Capture live credentials from the tool\'s current config without launching a login flow'

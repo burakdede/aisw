@@ -146,7 +146,26 @@ pub fn add_api_key(
     key: &str,
     label: Option<String>,
 ) -> Result<()> {
+    add_api_key_with_backend(
+        profile_store,
+        config_store,
+        name,
+        key,
+        label,
+        CredentialBackend::File,
+    )
+}
+
+pub fn add_api_key_with_backend(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    key: &str,
+    label: Option<String>,
+    backend: CredentialBackend,
+) -> Result<()> {
     validate_api_key(key)?;
+    debug_assert_eq!(backend, CredentialBackend::File);
 
     if let Some(existing_name) = identity::existing_api_key_profile_for_secret(
         profile_store,
@@ -177,7 +196,7 @@ pub fn add_api_key(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::ApiKey,
-            credential_backend: CredentialBackend::File,
+            credential_backend: backend,
             label,
         },
     )?;

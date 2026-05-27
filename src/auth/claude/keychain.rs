@@ -155,7 +155,7 @@ pub(super) fn trusted_claude_app_paths() -> Vec<PathBuf> {
 // ---- Backend selection ----
 
 /// The `CredentialBackend` to use when storing newly captured OAuth credentials.
-pub(super) fn oauth_stored_backend() -> CredentialBackend {
+pub fn oauth_stored_backend() -> CredentialBackend {
     if cfg!(target_os = "macos") {
         return CredentialBackend::File;
     }
