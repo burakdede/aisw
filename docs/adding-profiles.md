@@ -6,7 +6,7 @@ description: How to add and capture named profiles in aisw using API keys, OAuth
 # Adding profiles
 
 ```text
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system_keyring] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active]
 ```
 
 `<tool>` is one of: `claude`, `codex`, `gemini`.
@@ -75,7 +75,7 @@ aisw add codex work --from-live --yes
 | Flag | Effect |
 |---|---|
 | `--label TEXT` | Description shown in `aisw list` and `aisw status` |
-| `--credential-backend file|system_keyring` | Override where `aisw` stores the managed profile secret |
+| `--credential-backend file|system-keyring` | Override where `aisw` stores the managed profile secret |
 | `--set-active` | Activates the profile immediately after adding (not needed with `--from-live`, which always activates) |
 
 ```sh
@@ -95,7 +95,7 @@ All credential files are written with `0600` permissions. The profile name is re
 `--credential-backend` controls the managed `aisw` profile storage backend, not the upstream CLI's live auth backend.
 
 - `file`: portable and backup-friendly
-- `system_keyring`: stronger local secret storage for Claude and Codex where the OS keyring is usable
+- `system-keyring`: stronger local secret storage for Claude and Codex where the OS keyring is usable. Stored config and status output use `system_keyring`.
 - Gemini remains file-managed because its auth is coupled to broader `~/.gemini/` state
 
 ## Duplicate account detection
