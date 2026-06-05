@@ -498,10 +498,7 @@ pub fn live_files_match(
     let live = std::fs::read(&live_auth)
         .with_context(|| format!("could not read {}", live_auth.display()))?;
 
-    let stored_value: serde_json::Value = serde_json::from_slice(&stored).ok().unwrap_or_default();
-    let live_value: serde_json::Value = serde_json::from_slice(&live).ok().unwrap_or_default();
-
-    if stored_value != live_value {
+    if !files::json_equal(&stored, &live)? {
         return Ok(false);
     }
     Ok(config_uses_file_store(&config))

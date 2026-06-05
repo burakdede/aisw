@@ -144,9 +144,13 @@ fn run_for_tool(
         backup_manager.snapshot(tool, &profile_name, &profile_dir, profile_meta)?;
     }
 
-    // --- Sync logic start ---
-    let _ = maybe_sync_active_profile_before_switch(&config, &profile_store, tool, user_home);
-    // --- Sync logic end ---
+    if let Err(e) =
+        maybe_sync_active_profile_before_switch(&config, &profile_store, tool, user_home)
+    {
+        output::print_warning_stderr(format!(
+            "Warning: could not sync active profile before switching: {e:#}"
+        ));
+    }
 
     match tool {
         Tool::Claude => match profile_meta.auth_method {

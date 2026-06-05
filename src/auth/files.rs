@@ -70,6 +70,14 @@ pub fn list_regular_files(dir: &Path) -> Result<Vec<RegularFile>> {
     Ok(files)
 }
 
+pub fn json_equal(a: &[u8], b: &[u8]) -> Result<bool> {
+    let va = serde_json::from_slice::<serde_json::Value>(a)
+        .context("could not parse JSON for comparison")?;
+    let vb = serde_json::from_slice::<serde_json::Value>(b)
+        .context("could not parse JSON for comparison")?;
+    Ok(va == vb)
+}
+
 #[cfg(unix)]
 pub fn set_permissions_600(path: &Path) -> Result<()> {
     use std::fs;
@@ -123,6 +131,26 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn json_equal_matches_semantically_equivalent_json() {
+        assert!(json_equal(br#"{"a":1,"b":2}"#, br#"{"b":2,"a":1}"#).unwrap());
+    }
+
+    #[test]
+    fn json_equal_differs_on_different_values() {
+        assert!(!json_equal(br#"{"a":1}"#, br#"{"a":2}"#).unwrap());
+    }
+
+    #[test]
+    fn json_equal_propagates_error_on_invalid_first() {
+        json_equal(b"not json", br#"{"a":1}"#).unwrap_err();
+    }
+
+    #[test]
+    fn json_equal_propagates_error_on_invalid_second() {
+        json_equal(br#"{"a":1}"#, b"not json").unwrap_err();
+    }
 
     #[test]
     fn cleanup_profile_on_error_deletes_profile() {

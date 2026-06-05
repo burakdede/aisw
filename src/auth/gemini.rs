@@ -691,11 +691,7 @@ pub fn live_token_cache_matches(
             std::fs::read(&live).with_context(|| format!("could not read {}", live.display()))?;
 
         if file.file_name.to_string_lossy().ends_with(".json") {
-            let src_value: serde_json::Value =
-                serde_json::from_slice(&src_bytes).ok().unwrap_or_default();
-            let live_value: serde_json::Value =
-                serde_json::from_slice(&live_bytes).ok().unwrap_or_default();
-            if src_value != live_value {
+            if !files::json_equal(&src_bytes, &live_bytes)? {
                 return Ok(false);
             }
         } else if src_bytes != live_bytes {
@@ -723,16 +719,17 @@ pub fn sync_profile_from_live_if_same_identity(
     };
 
     let oauth_files = live_oauth_files_for_import(user_home)?;
-    let Some(primary) = preferred_live_oauth_file(&oauth_files) else {
-        return Ok(false);
-    };
-
-    if primary.file_name != OsStr::new("oauth_creds.json") {
+    if oauth_files.is_empty() {
         return Ok(false);
     }
 
-    let live_bytes = std::fs::read(&primary.path)?;
-    let Some(live_identity) = identity::resolve_identity_from_json_bytes(&live_bytes)? else {
+    let live_identity = oauth_files.iter().find_map(|f| {
+        let bytes = std::fs::read(&f.path).ok()?;
+        identity::resolve_identity_from_json_bytes(&bytes)
+            .ok()
+            .flatten()
+    });
+    let Some(live_identity) = live_identity else {
         return Ok(false);
     };
 
@@ -859,6 +856,51 @@ mod sync_tests {
             .unwrap();
         let stored: serde_json::Value = serde_json::from_slice(&stored_bytes).unwrap();
         assert_eq!(stored["access_token"], "old");
+    }
+
+    #[test]
+    fn sync_works_when_live_state_has_both_settings_and_oauth_creds() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("user");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let name = "work";
+        let id_token = make_fixture_jwt("user@example.com");
+
+        ps.create(Tool::Gemini, name).unwrap();
+        let old_creds = serde_json::json!({"id_token": id_token, "access_token": "old"});
+        ps.write_file(
+            Tool::Gemini,
+            name,
+            "oauth_creds.json",
+            &serde_json::to_vec(&old_creds).unwrap(),
+        )
+        .unwrap();
+
+        // Live state has BOTH files — preferred_live_oauth_file returns settings.json,
+        // which is what the old guard used to reject.
+        let new_creds = serde_json::json!({"id_token": id_token, "access_token": "new"});
+        std::fs::write(
+            gemini_dir.join("oauth_creds.json"),
+            serde_json::to_vec(&new_creds).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(gemini_dir.join("settings.json"), br#"{"theme":"dark"}"#).unwrap();
+
+        let result = sync_profile_from_live_if_same_identity(&ps, name, &user_home).unwrap();
+
+        assert!(result, "sync must run even when settings.json is present");
+        let stored_bytes = ps
+            .read_file(Tool::Gemini, name, "oauth_creds.json")
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_slice(&stored_bytes).unwrap();
+        assert_eq!(stored["access_token"], "new");
+        // settings.json must also have been written into the profile
+        let settings_bytes = ps.read_file(Tool::Gemini, name, "settings.json").unwrap();
+        assert_eq!(settings_bytes, br#"{"theme":"dark"}"#);
     }
 }
 
