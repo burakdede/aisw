@@ -154,6 +154,24 @@ pub fn add_api_key(
     key: &str,
     label: Option<String>,
 ) -> Result<()> {
+    add_api_key_with_backend(
+        profile_store,
+        config_store,
+        name,
+        key,
+        label,
+        CredentialBackend::File,
+    )
+}
+
+pub fn add_api_key_with_backend(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    key: &str,
+    label: Option<String>,
+    backend: CredentialBackend,
+) -> Result<()> {
     validate_api_key(key)?;
 
     if let Some(existing_name) = identity::existing_api_key_profile_for_secret(
@@ -181,22 +199,29 @@ pub fn add_api_key(
     let auth_json = serde_json::to_string(&serde_json::json!({ "token": key }))
         .context("could not serialize API key credentials")?;
     files::cleanup_profile_on_error(
-        profile_store.write_file(Tool::Codex, name, AUTH_FILE, auth_json.as_bytes()),
+        persist_managed_credentials(profile_store, name, backend, auth_json.as_bytes()),
         profile_store,
         Tool::Codex,
         name,
     )?;
 
-    config_store.add_profile(
-        Tool::Codex,
-        name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::ApiKey,
-            credential_backend: CredentialBackend::File,
-            label,
-        },
-    )?;
+    config_store
+        .add_profile(
+            Tool::Codex,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::ApiKey,
+                credential_backend: backend,
+                label,
+            },
+        )
+        .inspect_err(|_| {
+            files::cleanup_profile(profile_store, Tool::Codex, name);
+            if backend == CredentialBackend::SystemKeyring {
+                let _ = secure_store::delete_profile_secret(Tool::Codex, name);
+            }
+        })?;
 
     Ok(())
 }
@@ -224,23 +249,44 @@ pub fn add_oauth(
     label: Option<String>,
     codex_bin: &Path,
 ) -> Result<()> {
+    add_oauth_with_backend(
+        profile_store,
+        config_store,
+        name,
+        label,
+        codex_bin,
+        CredentialBackend::File,
+    )
+}
+
+pub fn add_oauth_with_backend(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    label: Option<String>,
+    codex_bin: &Path,
+    backend: CredentialBackend,
+) -> Result<()> {
     add_oauth_with(
         profile_store,
         config_store,
         name,
         label,
         codex_bin,
+        backend,
         OAUTH_TIMEOUT,
         POLL_INTERVAL,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_oauth_with(
     profile_store: &ProfileStore,
     config_store: &ConfigStore,
     name: &str,
     label: Option<String>,
     codex_bin: &Path,
+    backend: CredentialBackend,
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<()> {
@@ -266,11 +312,17 @@ fn add_oauth_with(
     files::set_permissions_600(&auth_path)?;
     let auth_bytes =
         fs::read(&auth_path).with_context(|| format!("could not read {}", auth_path.display()))?;
-    store_oauth_profile(profile_store, config_store, name, label, &auth_bytes).inspect_err(
-        |_| {
-            let _ = fs::remove_dir_all(&capture_dir);
-        },
-    )?;
+    store_oauth_profile(
+        profile_store,
+        config_store,
+        name,
+        label,
+        backend,
+        &auth_bytes,
+    )
+    .inspect_err(|_| {
+        let _ = fs::remove_dir_all(&capture_dir);
+    })?;
     let _ = fs::remove_dir_all(&capture_dir);
 
     Ok(())
@@ -281,10 +333,11 @@ fn store_oauth_profile(
     config_store: &ConfigStore,
     name: &str,
     label: Option<String>,
+    backend: CredentialBackend,
     auth_bytes: &[u8],
 ) -> Result<()> {
     files::cleanup_profile_on_error(
-        persist_oauth_storage(profile_store, name, auth_bytes),
+        persist_oauth_storage(profile_store, name, backend, auth_bytes),
         profile_store,
         Tool::Codex,
         name,
@@ -296,7 +349,7 @@ fn store_oauth_profile(
             config_store,
             Tool::Codex,
             name,
-            CredentialBackend::File,
+            backend,
         ),
         profile_store,
         Tool::Codex,
@@ -310,12 +363,15 @@ fn store_oauth_profile(
             ProfileMeta {
                 added_at: Utc::now(),
                 auth_method: AuthMethod::OAuth,
-                credential_backend: CredentialBackend::File,
+                credential_backend: backend,
                 label,
             },
         )
         .inspect_err(|_| {
             let _ = profile_store.delete(Tool::Codex, name);
+            if backend == CredentialBackend::SystemKeyring {
+                let _ = secure_store::delete_profile_secret(Tool::Codex, name);
+            }
         })?;
 
     Ok(())
@@ -324,10 +380,27 @@ fn store_oauth_profile(
 fn persist_oauth_storage(
     profile_store: &ProfileStore,
     name: &str,
+    backend: CredentialBackend,
     auth_bytes: &[u8],
 ) -> Result<()> {
     write_file_store_config(profile_store, name)?;
-    profile_store.write_file(Tool::Codex, name, AUTH_FILE, auth_bytes)
+    persist_managed_credentials(profile_store, name, backend, auth_bytes)
+}
+
+fn persist_managed_credentials(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+    auth_bytes: &[u8],
+) -> Result<()> {
+    match backend {
+        CredentialBackend::File => {
+            profile_store.write_file(Tool::Codex, name, AUTH_FILE, auth_bytes)
+        }
+        CredentialBackend::SystemKeyring => {
+            secure_store::write_profile_secret(Tool::Codex, name, auth_bytes)
+        }
+    }
 }
 
 fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {
@@ -399,7 +472,15 @@ fn run_oauth_flow(
 
 /// Read the stored API token from a profile's auth file.
 pub fn read_api_key(profile_store: &ProfileStore, name: &str) -> Result<String> {
-    let bytes = profile_store.read_file(Tool::Codex, name, AUTH_FILE)?;
+    read_api_key_with_backend(profile_store, name, CredentialBackend::File)
+}
+
+pub fn read_api_key_with_backend(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+) -> Result<String> {
+    let bytes = read_stored_credentials(profile_store, name, backend)?;
     let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
         anyhow::anyhow!(
             "could not parse auth file for profile '{}'.\n  \
@@ -528,7 +609,7 @@ pub fn sync_profile_from_live_if_same_identity(
         return Ok(false);
     }
 
-    persist_oauth_storage(profile_store, name, &snapshot.bytes)?;
+    persist_oauth_storage(profile_store, name, backend, &snapshot.bytes)?;
     Ok(true)
 }
 
@@ -677,6 +758,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::auth::test_overrides::EnvVarGuard;
     use crate::config::ConfigStore;
     use crate::profile::ProfileStore;
 
@@ -874,6 +956,41 @@ mod tests {
         assert!(!ps.exists(Tool::Codex, "main"));
     }
 
+    #[test]
+    fn system_keyring_api_key_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let keyring_dir = dir.path().join("keyring");
+        let _guard = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        std::fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_api_key_with_backend(
+            &ps,
+            &cs,
+            "main",
+            valid_key(),
+            None,
+            CredentialBackend::SystemKeyring,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Codex, "main"));
+        assert!(secure_store::read_profile_secret(Tool::Codex, "main")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Codex)
+            .contains_key("main"));
+    }
+
     // ---- OAuth tests ----
 
     // Poll interval used in all OAuth tests.
@@ -935,6 +1052,7 @@ mod tests {
             "main",
             None,
             &bin,
+            CredentialBackend::File,
             Duration::from_secs(2),
             TEST_POLL,
         )
@@ -965,6 +1083,7 @@ mod tests {
             "main",
             None,
             &bin,
+            CredentialBackend::File,
             Duration::from_secs(2),
             TEST_POLL,
         )
@@ -976,6 +1095,48 @@ mod tests {
             config.profiles_for(Tool::Codex)["main"].auth_method,
             AuthMethod::OAuth
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn system_keyring_oauth_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let keyring_dir = dir.path().join("keyring");
+        let _guard = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true);
+
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        std::fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "main",
+            None,
+            &bin,
+            CredentialBackend::SystemKeyring,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Codex, "main"));
+        assert!(secure_store::read_profile_secret(Tool::Codex, "main")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Codex)
+            .contains_key("main"));
     }
 
     #[test]
@@ -997,6 +1158,7 @@ mod tests {
             "main",
             None,
             &bin,
+            CredentialBackend::File,
             Duration::from_millis(200),
             TEST_POLL,
         )
@@ -1029,6 +1191,7 @@ mod tests {
             "main",
             None,
             &bin,
+            CredentialBackend::File,
             Duration::from_secs(2),
             TEST_POLL,
         )
@@ -1068,6 +1231,7 @@ mod tests {
             "main",
             None,
             &bin,
+            CredentialBackend::File,
             Duration::from_secs(2),
             TEST_POLL,
         )
@@ -1126,6 +1290,7 @@ mod tests {
             "alias",
             None,
             &bin,
+            CredentialBackend::File,
             Duration::from_secs(2),
             TEST_POLL,
         )

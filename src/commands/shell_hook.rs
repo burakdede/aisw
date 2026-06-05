@@ -7,7 +7,7 @@ const BASH_ZSH_HOOK: &str = "\
 # Added by aisw \u{2014} do not edit manually
 export AISW_SHELL_HOOK=1
 aisw() {
-  if [ \"$1\" = \"use\" ]; then
+  if [ \"$1\" = \"use\" ] || { [ \"$1\" = \"context\" ] && [ \"$2\" = \"use\" ]; }; then
     eval \"$(command aisw \"$@\" --emit-env 2>/dev/null)\"
     command aisw \"$@\"
   else
@@ -23,7 +23,7 @@ const FISH_HOOK: &str = "\
 set -gx AISW_SHELL_HOOK 1
 
 function aisw
-  if test \"$argv[1]\" = \"use\"
+  if test \"$argv[1]\" = \"use\"; or begin; test \"$argv[1]\" = \"context\"; and test \"$argv[2]\" = \"use\"; end
     eval (command aisw $argv --emit-env 2>/dev/null)
     command aisw $argv
   else
@@ -70,6 +70,7 @@ mod tests {
     #[test]
     fn hook_intercepts_use_subcommand() {
         assert!(BASH_ZSH_HOOK.contains("\"use\""));
+        assert!(BASH_ZSH_HOOK.contains("\"context\""));
         assert!(BASH_ZSH_HOOK.contains("--emit-env"));
     }
 
@@ -90,6 +91,7 @@ mod tests {
     #[test]
     fn fish_hook_intercepts_use_subcommand() {
         assert!(FISH_HOOK.contains("\"use\""));
+        assert!(FISH_HOOK.contains("\"context\""));
         assert!(FISH_HOOK.contains("--emit-env"));
     }
 

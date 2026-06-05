@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Why aisw?","headline":"Why aisw?","description":"Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.","url":"https://burakdede.github.io/aisw/why-aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, why aisw?, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.3","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Why aisw?","item":"https://burakdede.github.io/aisw/why-aisw/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Why aisw?","headline":"Why aisw?","description":"Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.","url":"https://burakdede.github.io/aisw/why-aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, why aisw?, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.4","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Why aisw?","item":"https://burakdede.github.io/aisw/why-aisw/"}]}]}
 ---
 
 ## The problem
@@ -40,9 +40,53 @@ The problem compounds across tools. If you maintain accounts for all three CLIs,
 
 **Single status view**  -  `aisw status` shows every tool, its active profile, whether live credentials match the recorded active profile, and any expiry warnings  -  in one command.
 
-**Cross-tool operations**  -  `aisw use --all --profile work` switches all three tools to the same profile name in a single command. `aisw list` and `aisw status --json` give a unified view across tools that works in scripts.
+**Cross-tool operations**  -  `aisw use --all --profile work` switches all three tools to the same profile name in a single command when those names line up. `aisw list` and `aisw status --json` give a unified view across tools that works in scripts.
+
+**Saved contexts**  -  `aisw context create acme --claude acme-claude --codex acme-codex --gemini acme-gemini` captures a real-world mixed-account setup under one reusable name. `aisw context use acme` restores that whole work mode as one transaction, without forcing each tool to share the same profile name.
 
 **Automatic backups**  -  `aisw remove` and `aisw rename` create backups before changing state. Backups are timestamped and restorable.
+
+## Profiles vs contexts
+
+This distinction matters because the two features solve different problems.
+
+**Profiles solve the per-tool account problem.**
+
+A profile is one saved account snapshot for one tool.
+
+Use a profile when your problem sounds like:
+- "I have a work Claude account and a personal Claude account."
+- "I need a CI Codex API key that is separate from my local account."
+- "I want to capture the Gemini account I already authenticated with."
+
+Benefits of profiles:
+- One stable name for one tool's credential state.
+- Safe switching with rollback for that tool.
+- Per-tool backups, status, and lifecycle commands.
+
+Limits of profiles:
+- They do not express a cross-tool work mode by themselves.
+- `claude/work`, `codex/work`, and `gemini/work` only line up cleanly when you intentionally gave them the same name.
+- Once your real setup becomes `acme-claude`, `acme-openai`, and `acme-gemini`, you need a context.
+
+**Contexts solve the cross-tool work-mode problem.**
+
+A context is one saved mapping from tool to profile name.
+
+Use a context when your problem sounds like:
+- "My acme setup uses `acme-claude`, `acme-codex`, and `acme-gemini`."
+- "I want `work`, `personal`, or `client-acme` to mean one whole multi-tool setup, not one profile per tool."
+- "I switch between real project modes, not just between individual accounts."
+
+Benefits of contexts:
+- One name for a real multi-tool state.
+- Transactional activation across all mapped tools.
+- Better status visibility for whether your current per-tool state still matches a saved work mode.
+
+Limits of contexts:
+- They do not contain credentials.
+- They do not replace vendor auth flows.
+- They are only references to existing per-tool profiles.
 
 ## What aisw does not do
 

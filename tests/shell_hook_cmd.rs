@@ -90,6 +90,10 @@ aisw use gemini api >/dev/null
 printf 'gemini_api=%s\n' "${{GEMINI_API_KEY-__unset__}}"
 aisw use gemini oauth >/dev/null
 printf 'gemini_oauth=%s\n' "${{GEMINI_API_KEY-__unset__}}"
+aisw context create workspace --codex work --gemini api >/dev/null
+aisw context use workspace >/dev/null
+printf 'context_codex=%s\n' "${{CODEX_HOME-__unset__}}"
+printf 'context_gemini=%s\n' "${{GEMINI_API_KEY-__unset__}}"
 "#
     );
 
@@ -131,6 +135,14 @@ printf 'gemini_oauth=%s\n' "${{GEMINI_API_KEY-__unset__}}"
         stdout.contains("gemini_oauth=__unset__"),
         "gemini OAuth use should unset GEMINI_API_KEY in {shell}\nstdout:\n{stdout}"
     );
+    assert!(
+        stdout.contains(&format!("context_codex={expected_codex_home}")),
+        "context use should export CODEX_HOME in {shell}\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("context_gemini={VALID_GEMINI_KEY}")),
+        "context use should export GEMINI_API_KEY in {shell}\nstdout:\n{stdout}"
+    );
 }
 
 fn assert_real_fish_shell_hook_behavior() {
@@ -159,6 +171,10 @@ if set -q GEMINI_API_KEY
 else
     printf 'gemini_oauth=__unset__\n'
 end
+aisw context create workspace --codex work --gemini api >/dev/null
+aisw context use workspace >/dev/null
+printf 'context_codex=%s\n' "$CODEX_HOME"
+printf 'context_gemini=%s\n' "$GEMINI_API_KEY"
 "#;
 
     let Some(output) = env.run_shell_script("fish", script) else {
@@ -198,6 +214,14 @@ end
     assert!(
         stdout.contains("gemini_oauth=__unset__"),
         "gemini OAuth use should unset GEMINI_API_KEY in fish\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("context_codex={expected_codex_home}")),
+        "context use should export CODEX_HOME in fish\nstdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("context_gemini={VALID_GEMINI_KEY}")),
+        "context use should export GEMINI_API_KEY in fish\nstdout:\n{stdout}"
     );
 }
 

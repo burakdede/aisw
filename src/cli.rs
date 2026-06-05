@@ -55,6 +55,9 @@ pub enum Command {
     /// Add a new account profile for a tool
     Add(AddArgs),
 
+    /// Manage named multi-tool contexts
+    Context(ContextArgs),
+
     /// Switch the active account for a tool
     #[command(name = "use")]
     Use(UseArgs),
@@ -111,6 +114,10 @@ pub struct AddArgs {
     #[arg(long, value_name = "TEXT")]
     pub label: Option<String>,
 
+    /// Where aisw stores this profile's managed credentials
+    #[arg(long, value_enum)]
+    pub credential_backend: Option<AddCredentialBackend>,
+
     /// Switch to this profile immediately after adding
     #[arg(long)]
     pub set_active: bool,
@@ -126,6 +133,12 @@ pub struct AddArgs {
     /// Overwrite an existing profile without prompting (only meaningful with --from-live)
     #[arg(long)]
     pub yes: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AddCredentialBackend {
+    File,
+    SystemKeyring,
 }
 
 #[derive(Args, Debug)]
@@ -154,6 +167,135 @@ pub struct UseArgs {
     /// Profile name when using --all
     #[arg(long = "profile", value_name = "PROFILE")]
     pub all_profile: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct ContextArgs {
+    #[command(subcommand)]
+    pub command: ContextCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ContextCommand {
+    /// Create a named context that maps tools to profiles
+    Create(ContextCreateArgs),
+
+    /// Show saved contexts
+    List(ContextListArgs),
+
+    /// Activate a saved context
+    Use(ContextUseArgs),
+
+    /// Set or replace tool mappings in an existing context
+    Set(ContextSetArgs),
+
+    /// Remove tool mappings from an existing context
+    Unset(ContextUnsetArgs),
+
+    /// Remove a saved context
+    Remove(ContextRemoveArgs),
+
+    /// Rename a saved context
+    Rename(ContextRenameArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ContextCreateArgs {
+    /// Name for this context (alphanumeric, hyphens, underscores, max 32 chars)
+    pub context_name: String,
+
+    /// Claude profile to include
+    #[arg(long, value_name = "PROFILE")]
+    pub claude: Option<String>,
+
+    /// Codex profile to include
+    #[arg(long, value_name = "PROFILE")]
+    pub codex: Option<String>,
+
+    /// Gemini profile to include
+    #[arg(long, value_name = "PROFILE")]
+    pub gemini: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct ContextListArgs {
+    /// Filter by context name or mapped profile text
+    #[arg(long)]
+    pub search: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ContextUseArgs {
+    /// Context to activate
+    pub context_name: String,
+
+    /// Claude/Codex only: choose whether switching keeps shared local state or isolates it per profile
+    #[arg(long, value_enum)]
+    pub state_mode: Option<StateMode>,
+
+    /// Print shell export statements to stdout instead of applying them directly.
+    /// Used internally by the shell hook — not intended for direct use.
+    #[arg(long, hide = true)]
+    pub emit_env: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ContextSetArgs {
+    /// Existing context name
+    pub context_name: String,
+
+    /// Claude profile to set
+    #[arg(long, value_name = "PROFILE")]
+    pub claude: Option<String>,
+
+    /// Codex profile to set
+    #[arg(long, value_name = "PROFILE")]
+    pub codex: Option<String>,
+
+    /// Gemini profile to set
+    #[arg(long, value_name = "PROFILE")]
+    pub gemini: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct ContextUnsetArgs {
+    /// Existing context name
+    pub context_name: String,
+
+    /// Remove the Claude mapping
+    #[arg(long)]
+    pub claude: bool,
+
+    /// Remove the Codex mapping
+    #[arg(long)]
+    pub codex: bool,
+
+    /// Remove the Gemini mapping
+    #[arg(long)]
+    pub gemini: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ContextRemoveArgs {
+    /// Context to remove
+    pub context_name: String,
+
+    /// Skip the confirmation prompt
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ContextRenameArgs {
+    /// Existing context name
+    pub old_name: String,
+
+    /// New context name
+    pub new_name: String,
 }
 
 #[derive(Args, Debug)]
@@ -228,6 +370,10 @@ pub struct StatusArgs {
     /// Show only tools with an active profile
     #[arg(long)]
     pub active_only: bool,
+
+    /// Include derived context information
+    #[arg(long)]
+    pub context: bool,
 
     /// Output as JSON
     #[arg(long)]
@@ -342,6 +488,7 @@ mod tests {
         assert_eq!(args.profile_name, "work");
         assert_eq!(args.api_key.as_deref(), Some("sk-ant-test"));
         assert!(!args.set_active);
+        assert_eq!(args.credential_backend, None);
     }
 
     #[test]
@@ -361,6 +508,79 @@ mod tests {
         assert_eq!(args.tool, Tool::Codex);
         assert_eq!(args.label.as_deref(), Some("my account"));
         assert!(args.set_active);
+    }
+
+    #[test]
+    fn add_with_explicit_credential_backend() {
+        let cli = parse(&[
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            "sk-codex-test-key",
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .unwrap();
+        let Command::Add(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert_eq!(
+            args.credential_backend,
+            Some(AddCredentialBackend::SystemKeyring)
+        );
+    }
+
+    #[test]
+    fn context_create_command() {
+        let cli = parse(&[
+            "context",
+            "create",
+            "work",
+            "--claude",
+            "acme-claude",
+            "--codex",
+            "acme-codex",
+        ])
+        .unwrap();
+        let Command::Context(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let ContextCommand::Create(args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert_eq!(args.context_name, "work");
+        assert_eq!(args.claude.as_deref(), Some("acme-claude"));
+        assert_eq!(args.codex.as_deref(), Some("acme-codex"));
+        assert_eq!(args.gemini, None);
+    }
+
+    #[test]
+    fn context_use_emit_env_is_hidden_but_parseable() {
+        let cli = parse(&["context", "use", "work", "--emit-env"]).unwrap();
+        let Command::Context(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let ContextCommand::Use(args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert_eq!(args.context_name, "work");
+        assert!(args.emit_env);
+    }
+
+    #[test]
+    fn context_unset_flags_parse() {
+        let cli = parse(&["context", "unset", "work", "--claude", "--gemini"]).unwrap();
+        let Command::Context(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let ContextCommand::Unset(args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert_eq!(args.context_name, "work");
+        assert!(args.claude);
+        assert!(!args.codex);
+        assert!(args.gemini);
     }
 
     #[test]
@@ -491,7 +711,17 @@ mod tests {
         assert_eq!(args.search.as_deref(), Some("work"));
         assert_eq!(args.sort, Some(SortBy::Name));
         assert!(args.active_only);
+        assert!(!args.context);
         assert!(args.json);
+    }
+
+    #[test]
+    fn status_context_flag_parses() {
+        let cli = parse(&["status", "--context"]).unwrap();
+        let Command::Status(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(args.context);
     }
 
     #[test]
@@ -649,6 +879,17 @@ mod tests {
         assert!(
             !help.contains("emit-env"),
             "emit-env should be hidden from help"
+        );
+    }
+
+    #[test]
+    fn emit_env_absent_from_context_use_help() {
+        let help = Cli::try_parse_from(["aisw", "context", "use", "--help"])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            !help.contains("emit-env"),
+            "emit-env should be hidden from context use help"
         );
     }
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.5 - 2026-05-27
+
+### Added
+
+- Added explicit `aisw add --credential-backend file|system-keyring` selection for managed Claude and Codex profile credentials.
+
+### Fixed
+
+- Hardened explicit credential-backend adds so failed config writes clean up newly written system-keyring secrets.
+- Hardened `--from-live --yes` overwrites so failed captures restore the previous profile config, active profile state, and managed credential secret.
+- Prevented config-only duplicate profiles from writing orphaned credential data.
+
+## 0.3.4 - 2026-05-15
+
+### Fixed
+
+- Fixed Claude OAuth duplicate detection for multi-org accounts so the same email can be stored under separate profiles when the underlying org/workspace differs.
+- Fixed the same Claude multi-org duplicate-account behavior in `aisw init`, which could previously misclassify a different-org login as already managed.
+
 ## 0.3.3 - 2026-04-24
 
 ### Added

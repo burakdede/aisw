@@ -19,10 +19,10 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Shell Integration","headline":"Shell Integration","description":"Install and configure the aisw shell hook for bash, zsh, and fish. Understand what the hook does and how shell completions work.","url":"https://burakdede.github.io/aisw/shell-integration/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, shell integration, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.3","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Shell Integration","item":"https://burakdede.github.io/aisw/shell-integration/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Shell Integration","headline":"Shell Integration","description":"Install and configure the aisw shell hook for bash, zsh, and fish. Understand what the hook does and how shell completions work.","url":"https://burakdede.github.io/aisw/shell-integration/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, shell integration, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.4","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Shell Integration","item":"https://burakdede.github.io/aisw/shell-integration/"}]}]}
 ---
 
-The shell hook is optional. Without it, `aisw use` still writes live tool credential files and updates `~/.aisw/config.json`. The hook adds one capability: applying the emitted environment variable exports (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) into the current shell session.
+The shell hook is optional. Without it, `aisw use` and `aisw context use` still write live tool credential files and update `~/.aisw/config.json`. The hook adds one capability: applying the emitted environment variable exports (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and API-key exports such as `GEMINI_API_KEY`) into the current shell session.
 
 ## Install
 
@@ -77,9 +77,9 @@ echo "$AISW_SHELL_HOOK"
 
 ## What the hook does
 
-The hook wraps the `aisw` function in your shell. When you run `aisw use ...`, the hook:
+The hook wraps the `aisw` function in your shell. When you run `aisw use ...` or `aisw context use ...`, the hook:
 
-1. Runs `aisw use ... --emit-env` to write the credential files and print `export VAR=value` lines to stdout.
+1. Runs the same command with `--emit-env` to update active config state and print shell exports/unsets to stdout.
 2. Evals those exports in the current shell, so `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are set immediately.
 3. Passes all other `aisw` subcommands through to the binary unchanged.
 
@@ -87,7 +87,10 @@ Without the hook, you can achieve the same effect manually:
 
 ```sh
 eval "$(aisw use claude work --emit-env)"
+eval "$(aisw context use acme --emit-env)"
 ```
+
+`context use` defaults to isolated shell state. Pass `--state-mode shared` when you intentionally want Claude Code or Codex CLI to keep their shared upstream config directories.
 
 ## Remove
 

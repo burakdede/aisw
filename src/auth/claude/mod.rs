@@ -38,11 +38,13 @@ pub(super) const KEYCHAIN_BACKEND: super::secure_backend::SecureBackend =
 
 // ---- Public types ----
 
+#[derive(Debug, Clone)]
 pub enum LiveCredentialSource {
     File(PathBuf),
     Keychain,
 }
 
+#[derive(Debug, Clone)]
 pub struct LiveCredentialSnapshot {
     pub bytes: Vec<u8>,
     pub source: LiveCredentialSource,
@@ -50,15 +52,19 @@ pub struct LiveCredentialSnapshot {
 
 // ---- Public re-exports from sub-modules ----
 
-pub use api_key::{add_api_key, read_api_key, validate_api_key};
+pub use api_key::{
+    add_api_key, add_api_key_with_backend, read_api_key, read_api_key_with_backend,
+    validate_api_key,
+};
 pub use keychain::{
-    imported_profile_backend, keychain_import_supported, preferred_import_backend,
-    read_live_keychain_credentials_for_import, storage_fallback_note, uses_live_keychain,
+    imported_profile_backend, keychain_import_supported, oauth_stored_backend,
+    preferred_import_backend, read_live_keychain_credentials_for_import, storage_fallback_note,
+    uses_live_keychain,
 };
 pub use oauth::{
-    add_oauth, capture_live_oauth_account_metadata, live_credentials_snapshot_for_import,
-    read_live_oauth_account_metadata_for_import, restore_live_state_after_oauth_add,
-    sync_profile_from_live_if_same_identity,
+    add_oauth, add_oauth_with_backend, capture_live_oauth_account_metadata,
+    live_credentials_snapshot_for_import, read_live_oauth_account_metadata_for_import,
+    restore_live_state_after_oauth_add, sync_profile_from_live_if_same_identity,
 };
 pub use paths::live_local_state_dir;
 
@@ -378,6 +384,41 @@ mod tests {
         assert!(!ps.exists(Tool::Claude, "work"));
     }
 
+    #[test]
+    fn system_keyring_api_key_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let keyring_dir = dir.path().join("keyring");
+        let _guard = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_api_key_with_backend(
+            &ps,
+            &cs,
+            "work",
+            valid_key(),
+            None,
+            CredentialBackend::SystemKeyring,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Claude, "work"));
+        assert!(secure_store::read_profile_secret(Tool::Claude, "work")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Claude)
+            .contains_key("work"));
+    }
+
     // ---- OAuth tests ----
 
     // Poll interval used in all OAuth tests: fast enough to complete quickly without
@@ -431,6 +472,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -442,6 +484,52 @@ mod tests {
             config.profiles_for(Tool::Claude)["work"].auth_method,
             AuthMethod::OAuth
         );
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn system_keyring_oauth_add_cleans_secret_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let keyring_dir = dir.path().join("keyring");
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let bin = make_oauth_mock(&bin_dir, true);
+
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            CredentialBackend::SystemKeyring,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("config.json.tmp"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!ps.exists(Tool::Claude, "work"));
+        assert!(secure_store::read_profile_secret(Tool::Claude, "work")
+            .unwrap()
+            .is_none());
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Claude)
+            .contains_key("work"));
     }
 
     #[test]
@@ -495,6 +583,7 @@ mod tests {
             "alias",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -502,6 +591,74 @@ mod tests {
 
         assert!(err.to_string().contains("already exists as 'work'"));
         assert!(!ps.exists(Tool::Claude, "alias"));
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn oauth_duplicate_identity_allows_same_email_with_different_org() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             mkdir -p \"$HOME/.claude\"\n\
+             printf '%s' '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$HOME/.claude/.credentials.json\"\n\
+             printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"burak@example.com\",\"organizationUuid\":\"org-b\"}}' > \"$HOME/.claude.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            CREDENTIALS_FILE,
+            br#"{"oauthToken":"tok","account":{"email":"burak@example.com"}}"#,
+        )
+        .unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            OAUTH_ACCOUNT_FILE,
+            br#"{"emailAddress":"burak@example.com","organizationUuid":"org-a"}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Claude,
+            "work",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "alias",
+            None,
+            &bin,
+            CredentialBackend::File,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert!(ps.exists(Tool::Claude, "alias"));
     }
 
     #[test]
@@ -526,6 +683,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_millis(200),
             TEST_POLL,
         )
@@ -563,6 +721,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -612,6 +771,7 @@ mod tests {
             "work",
             None,
             &claude_bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -669,6 +829,7 @@ mod tests {
             "work",
             None,
             &claude_bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -716,6 +877,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -762,6 +924,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -814,6 +977,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -862,6 +1026,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )
@@ -909,6 +1074,7 @@ mod tests {
             "work",
             None,
             &bin,
+            CredentialBackend::File,
             std::time::Duration::from_secs(2),
             TEST_POLL,
         )

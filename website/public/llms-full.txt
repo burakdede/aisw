@@ -2,7 +2,7 @@
 
 > Structured documentation index for language models and retrieval systems.
 
-Current version: 0.3.2
+Current version: 0.3.4
 
 ## aisw documentation
 
@@ -28,7 +28,7 @@ URL: https://burakdede.github.io/aisw/commands/
 Section: reference
 Summary: Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 Source: https://github.com/burakdede/aisw/blob/main/docs/commands.md
-Headings: Global flags | At a glance | `aisw init` | `aisw add` | `aisw use` | `aisw list` | `aisw status` | `aisw remove` | `aisw rename` | `aisw backup list` | `aisw backup restore` | `aisw uninstall` | `aisw shell-hook` | `aisw doctor` | Automation reference
+Headings: Global flags | At a glance | `aisw init` | `aisw add` | `aisw use` | `aisw context` | `aisw context create` | `aisw context list` | `aisw context use` | `aisw context set` | `aisw context unset` | `aisw context remove` | `aisw context rename` | `aisw list` | `aisw status` | `aisw remove` | `aisw rename` | `aisw backup list` | `aisw backup restore` | `aisw uninstall` | `aisw shell-hook` | `aisw doctor` | Automation reference
 Common queries: aisw command reference | aisw add use list status | aisw flags
 
 ## Automation and Scripting
@@ -82,7 +82,7 @@ URL: https://burakdede.github.io/aisw/how-it-works/
 Section: reference
 Summary: Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
 Source: https://github.com/burakdede/aisw/blob/main/docs/how-it-works.md
-Headings: Profile model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Identity deduplication | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
+Headings: Profile and context model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Identity deduplication | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
 Common queries: how does aisw switch accounts | aisw credential storage | aisw keyring integration | aisw atomic switching | aisw profile model
 
 ## Security
@@ -100,7 +100,7 @@ URL: https://burakdede.github.io/aisw/why-aisw/
 Section: overview
 Summary: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
 Source: https://github.com/burakdede/aisw/blob/main/docs/why-aisw.md
-Headings: The problem | What aisw does differently | What aisw does not do | Typical users | Design principles
+Headings: The problem | What aisw does differently | Profiles vs contexts | What aisw does not do | Typical users | Design principles
 Common queries: why use aisw | AI CLI account switching problem | Claude Code account manager | Codex CLI account switcher | Gemini CLI account switcher | multiple AI coding agent accounts
 
 ## Troubleshooting

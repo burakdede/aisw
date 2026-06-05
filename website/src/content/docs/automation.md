@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.3","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.4","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
 ---
 
 `aisw` is designed to be used safely in CI pipelines, shell scripts, and non-interactive environments.
@@ -60,8 +60,10 @@ All inventory and status commands support `--json`:
 
 ```sh
 aisw status --json
+aisw status --context --json
 aisw list --json
 aisw list claude --json
+aisw context list --json
 aisw backup list --json
 aisw doctor --json
 ```
@@ -71,14 +73,20 @@ JSON output goes to stdout. Errors always go to stderr with a non-zero exit code
 ### Useful JSON patterns
 
 ```sh
-# Get the active Claude profile name
-aisw status --json | jq -r '.tools.claude.active_profile'
+# Get the active Claude profile name from the plain status array
+aisw status --json | jq -r '.[] | select(.tool == "claude") | .active_profile'
 
-# Check whether the live credentials match the active profile
-aisw status --json | jq '.tools.claude.live_match'
+# Get the derived active context name
+aisw status --context --json | jq -r '.context.active'
+
+# Check whether the live credentials match the active Claude profile
+aisw status --json | jq '.[] | select(.tool == "claude") | .active_profile_applied'
 
 # List all stored Codex profile names
-aisw list codex --json | jq -r '.[].name'
+aisw list codex --json | jq -r '.profiles[].name'
+
+# List all saved contexts
+aisw context list --json | jq -r '.contexts[].name'
 
 # Find profiles with expired tokens
 aisw status --json | jq '.tools[] | select(.token_warning != null) | {tool, warning: .token_warning}'
@@ -94,7 +102,7 @@ aisw backup list --json | jq '[.[] | select(.profile == "claude/work")] | sort_b
 | Human-readable tables and status | stdout | Suppressed by `--quiet` |
 | Errors | stderr + non-zero exit | Always present, never suppressed |
 | Prompts | stderr or tty | Only shown without `--non-interactive` and without `--yes` |
-| `aisw use --emit-env` | stdout | Shell variable exports; not affected by `--quiet` |
+| `aisw use --emit-env` / `aisw context use --emit-env` | stdout | Shell variable exports; not affected by `--quiet` |
 | `aisw shell-hook` | stdout | Shell hook code; not affected by `--quiet` |
 | JSON output (`--json`) | stdout | Not affected by `--quiet` |
 
@@ -108,11 +116,14 @@ If the shell hook is not installed, `aisw use` still writes live credential file
 # Apply profile and capture env exports into the current shell
 eval "$(aisw use codex work --emit-env)"
 
+# Apply a saved cross-tool context into the current shell
+eval "$(aisw context use acme --emit-env)"
+
 # Or in a subshell
 (eval "$(aisw use claude work --emit-env)"; claude ...)
 ```
 
-`--emit-env` prints `export VAR=value` lines for any environment variables the profile activation sets (e.g. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`).
+`--emit-env` prints `export VAR=value` or `unset VAR` lines for any environment variables the activation sets (e.g. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_API_KEY`).
 
 ## Concurrency
 

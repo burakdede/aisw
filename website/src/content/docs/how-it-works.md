@@ -19,20 +19,22 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.3","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.4","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
 ---
 
 This page explains the design decisions behind `aisw`, how credentials are stored and applied, and the per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
 
-## Profile model
+## Profile and context model
 
 `aisw` stores named profiles under `~/.aisw/profiles/<tool>/<name>/`. A profile is a captured snapshot of a tool's credential and auth state. The profile directory contains the credential files specific to that tool  -  nothing else.
 
-The central registry is `~/.aisw/config.json`, which records which profiles exist, which is active per tool, and profile metadata such as the auth method and credential backend. Credentials are never stored in `config.json`.
+Contexts are a higher-level sparse mapping from tool to profile name. They live in `~/.aisw/config.json` alongside the per-tool profile registry and let one saved name activate a mixed set such as `claude -> acme-claude`, `codex -> acme-codex`, `gemini -> acme-gemini`.
+
+The central registry is `~/.aisw/config.json`, which records which profiles exist, which is active per tool, which contexts exist, and metadata such as auth method and credential backend. Credentials are never stored in `config.json`.
 
 ```text
 ~/.aisw/
-├── config.json               # registry: active profiles, metadata
+├── config.json               # registry: active profiles, contexts, metadata
 ├── profiles/
 │   ├── claude/work/          # credential files for this profile
 │   ├── claude/personal/
@@ -43,11 +45,15 @@ The central registry is `~/.aisw/config.json`, which records which profiles exis
 
 When you run `aisw use claude work`, `aisw` reads the stored credential files for that profile and writes them to the locations Claude Code actually reads. The tool sees exactly what it would see if you had authenticated natively.
 
+When you run `aisw context use acme`, `aisw` resolves every mapped tool/profile pair first, snapshots all affected live state, applies the mapped writes in deterministic tool order, and commits the config update only after the full activation succeeds.
+
 ## Atomic switching with rollback
 
 Profile activation is transactional. Before writing any live credential file, `aisw` snapshots the current live state. If any write fails partway through, the snapshot is restored and an error is returned. You never end up with a partially switched account.
 
 This matters most when a tool stores state across multiple files (e.g. Claude Code's credentials file plus OAuth account metadata), where a partial write would leave the tool in an inconsistent state.
+
+The same guarantee now applies to context activation across multiple tools. A failed Codex or Gemini apply rolls back any Claude writes that already happened during the same `context use`.
 
 ## Credential storage backends
 
@@ -147,6 +153,8 @@ The check is informational. `aisw` does not attempt to refresh tokens; that is t
 ## Config locking
 
 Commands that write to `~/.aisw/config.json` take an exclusive file lock. If two `aisw` commands run concurrently, the second waits briefly and then fails with a clear error rather than writing partial state. This is safe in CI environments where parallel steps might both invoke `aisw`.
+
+Context activation still derives active-context status from current per-tool active profiles. `aisw` does not store a sticky “last selected context” field, because that would become misleading after a manual single-tool switch.
 
 ## Backup behavior
 

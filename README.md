@@ -7,7 +7,7 @@
   </picture>
 </p>
 
-<p align="center"><strong>Named profile manager for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
+<p align="center"><strong>Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
 
 <p align="center">Switch between work, personal, and client accounts in one command - across all three AI coding agents.</p>
 
@@ -32,11 +32,17 @@
 
 Claude Code, Codex CLI, and Gemini CLI each store credentials in different locations - files, OS keychains, and tool-specific directories. If you maintain separate work and personal accounts, or manage credentials for multiple clients, switching means editing hidden files, copying tokens, and hoping nothing breaks.
 
-`aisw` solves this with named profiles. Each profile is a captured snapshot of a tool's auth state. Switching is a single command that atomically replaces the live credentials and produces a clean rollback on failure.
+`aisw` solves this with named profiles and contexts. Profiles capture per-tool auth state. Contexts let you map those profiles across tools into one saved work mode. Switching is a single command that atomically replaces the live credentials and produces a clean rollback on failure.
 
 ## Demo
 
+General workflow:
+
 ![aisw CLI demo](website/public/demos/aisw-important-workflows.gif)
+
+Context workflow:
+
+![aisw context demo](website/public/demos/aisw-context-workflow.gif)
 
 ## Install
 
@@ -65,14 +71,55 @@ aisw add claude personal
 aisw add codex work --api-key "$OPENAI_API_KEY"
 aisw add gemini work --api-key "$GEMINI_API_KEY"
 
+# Save a cross-tool context when profile names differ
+aisw context create acme \
+  --claude acme-claude \
+  --codex acme-codex \
+  --gemini acme-gemini
+
 # Switch
 aisw use claude work
 aisw use --all --profile personal    # switch all tools at once
+aisw context use acme
 
 # Inspect
 aisw status
+aisw status --context
 aisw list
 ```
+
+## Profiles vs contexts
+
+**Profile** means one saved account for one tool.
+
+Use a profile when the problem is:
+- "I need two Claude accounts and I want to switch between them safely."
+- "I want a named Codex API key for CI."
+- "I need to capture the Gemini account I am already logged into."
+
+What you get from a profile:
+- A stable name for one tool's auth state.
+- Atomic switching and rollback for that tool.
+- Clear per-tool status and backup behavior.
+
+What you do not get from a profile alone:
+- A cross-tool work mode when profile names differ across Claude, Codex, and Gemini.
+
+**Context** means one saved multi-tool work mode built from profiles.
+
+Use a context when the problem is:
+- "My acme workspace uses one Claude account, a different OpenAI/Codex account, and a different Gemini account."
+- "I want one command for work, personal, client-acme, or oss even when the per-tool profile names do not match."
+
+What you get from a context:
+- One user-facing name for a real mixed-account setup.
+- Transactional multi-tool activation across the mapped tools.
+- A clearer status view for whether your current tool state still matches a saved work mode.
+
+What you do not get from a context:
+- New credential storage or vendor auth behavior. Contexts only point at existing profiles.
+
+The practical value is simple: `aisw use --all --profile personal` works when names line up, and `aisw context use acme` works when the real world does not.
 
 ## What it supports
 
@@ -88,11 +135,18 @@ Credentials are stored in the native OS keyring where available (macOS Keychain,
 
 ```text
 aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context list [--json]
+aisw context use <name> [--state-mode isolated|shared]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context unset <name> [--claude] [--codex] [--gemini]
+aisw context remove <name> [--yes]
+aisw context rename <old> <new>
 aisw use <tool> <profile> [--state-mode isolated|shared]
 aisw use --all --profile <profile>
 aisw list [tool] [--json]
-aisw status [--json]
+aisw status [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
 aisw rename <tool> <old> <new>
 aisw backup list [--json]

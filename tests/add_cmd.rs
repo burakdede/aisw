@@ -1,6 +1,9 @@
 // Integration tests for `aisw add` across all tools.
 mod common;
 
+use std::fs;
+use std::path::PathBuf;
+
 use common::assert_output_redacts_secret;
 use common::TestEnv;
 use predicates::str::contains;
@@ -11,6 +14,68 @@ const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 const VALID_GEMINI_KEY_ALT: &str = "AIzaalt0987654321FEDCBA";
+
+fn write_config_only_profile(env: &TestEnv, tool: &str, profile: &str, backend: &str) {
+    let mut config = serde_json::json!({
+        "version": 2,
+        "active": {"claude": null, "codex": null, "gemini": null},
+        "profiles": {"claude": {}, "codex": {}, "gemini": {}},
+        "contexts": {},
+        "settings": {
+            "backup_on_switch": true,
+            "max_backups": 10,
+            "tool_settings": {
+                "claude": {"state_mode": "isolated"},
+                "codex": {"state_mode": "isolated"}
+            }
+        }
+    });
+    config["profiles"][tool][profile] = serde_json::json!({
+        "added_at": "2026-01-01T00:00:00Z",
+        "auth_method": "api_key",
+        "credential_backend": backend,
+        "label": null
+    });
+    fs::write(
+        env.home_file("config.json"),
+        serde_json::to_string_pretty(&config).unwrap(),
+    )
+    .unwrap();
+}
+
+fn keyring_account_component(account: &str) -> String {
+    if !cfg!(windows) {
+        return account.to_owned();
+    }
+
+    let mut encoded = String::with_capacity(2 + account.len() * 2);
+    encoded.push_str("h_");
+    for byte in account.as_bytes() {
+        encoded.push_str(&format!("{byte:02x}"));
+    }
+    encoded
+}
+
+fn aisw_keyring_secret_path(env: &TestEnv, tool: &str, profile: &str) -> PathBuf {
+    let account = format!("profile:{tool}:{profile}");
+    env.fake_home
+        .join("keychain")
+        .join("aisw")
+        .join(keyring_account_component(&account))
+        .join("secret")
+}
+
+fn seed_aisw_keyring_secret(env: &TestEnv, tool: &str, profile: &str, secret: &str) -> PathBuf {
+    let path = aisw_keyring_secret_path(env, tool, profile);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        path.parent().unwrap().join("account"),
+        format!("profile:{tool}:{profile}"),
+    )
+    .unwrap();
+    fs::write(&path, secret).unwrap();
+    path
+}
 
 // ---- Claude ----
 
@@ -253,6 +318,60 @@ fn add_claude_recovers_from_unmanaged_orphaned_profile_dir() {
     );
 }
 
+#[test]
+fn add_claude_rejects_config_only_duplicate_before_writing_system_keyring() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    write_config_only_profile(&env, "claude", "work", "system_keyring");
+    let secret_path = seed_aisw_keyring_secret(
+        &env,
+        "claude",
+        "work",
+        r#"{"apiKey":"sk-ant-api03-OLDOLDOLDOLDOLDOLDOLDOLD"}"#,
+    );
+
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            VALID_CLAUDE_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("already exists"));
+
+    assert_eq!(
+        fs::read_to_string(&secret_path).unwrap(),
+        r#"{"apiKey":"sk-ant-api03-OLDOLDOLDOLDOLDOLDOLDOLD"}"#
+    );
+    assert!(
+        !env.home_file("profiles/claude/work").exists(),
+        "config-only duplicate must not create a profile directory"
+    );
+}
+
+#[test]
+fn add_claude_rejects_config_only_duplicate_before_writing_file_profile() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    write_config_only_profile(&env, "claude", "work", "file");
+
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", VALID_CLAUDE_KEY])
+        .assert()
+        .failure()
+        .stderr(contains("already exists"));
+
+    assert!(
+        !env.home_file("profiles/claude/work").exists(),
+        "config-only duplicate must not create a profile directory"
+    );
+}
+
 // ---- Codex ----
 
 #[test]
@@ -391,6 +510,124 @@ fn add_codex_oauth_always_uses_file_backend() {
     assert!(!env
         .home_file("profiles/codex/work/.oauth-capture/auth.json")
         .exists());
+}
+
+#[test]
+fn add_claude_api_key_supports_explicit_system_keyring_backend() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            VALID_CLAUDE_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Backend"))
+        .stdout(contains("system_keyring"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["claude"]["work"]["credential_backend"],
+        "system_keyring"
+    );
+    assert!(
+        !env.home_file("profiles/claude/work/.credentials.json")
+            .exists(),
+        "keyring-backed Claude API key profile should not store managed credentials file",
+    );
+}
+
+#[test]
+fn add_codex_api_key_supports_explicit_system_keyring_backend() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            VALID_CODEX_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("Backend"))
+        .stdout(contains("system_keyring"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["codex"]["work"]["credential_backend"],
+        "system_keyring"
+    );
+    assert!(
+        !env.home_file("profiles/codex/work/auth.json").exists(),
+        "keyring-backed Codex API key profile should not store managed auth.json",
+    );
+    env.assert_home_file_exists("profiles/codex/work/config.toml");
+}
+
+#[test]
+fn add_codex_rejects_config_only_duplicate_before_writing_system_keyring() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    write_config_only_profile(&env, "codex", "work", "system_keyring");
+    let secret_path = seed_aisw_keyring_secret(&env, "codex", "work", r#"{"token":"old"}"#);
+
+    env.cmd()
+        .args([
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            VALID_CODEX_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("already exists"));
+
+    assert_eq!(
+        fs::read_to_string(&secret_path).unwrap(),
+        r#"{"token":"old"}"#
+    );
+    assert!(
+        !env.home_file("profiles/codex/work").exists(),
+        "config-only duplicate must not create a profile directory"
+    );
+}
+
+#[test]
+fn add_gemini_rejects_explicit_system_keyring_backend() {
+    let env = TestEnv::new();
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+
+    env.cmd()
+        .args([
+            "add",
+            "gemini",
+            "work",
+            "--api-key",
+            VALID_GEMINI_KEY,
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("not supported for gemini"))
+        .stderr(contains("file-managed"));
 }
 
 // ---- Gemini ----

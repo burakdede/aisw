@@ -2,7 +2,7 @@
 
 > Documentation for aisw CLI.
 
-Current version: 0.3.2
+Current version: 0.3.4
 
 ## Docs
 

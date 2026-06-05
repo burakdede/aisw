@@ -5,6 +5,7 @@ use crate::config::ConfigStore;
 
 pub mod add;
 pub mod backup;
+pub mod context;
 pub mod doctor;
 pub mod init;
 pub mod list;
@@ -19,6 +20,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
     let home = ConfigStore::aisw_home()?;
     match cli.command {
         Command::Add(args) => add::run(args, &home)?,
+        Command::Context(args) => context::run(args, &home)?,
         Command::Use(args) => use_::run(args, &home)?,
         Command::List(args) => list::run(args, &home)?,
         Command::Remove(args) => remove::run(args, &home)?,

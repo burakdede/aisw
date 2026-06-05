@@ -5,7 +5,7 @@ use anyhow::Result;
 
 use crate::auth;
 use crate::cli::StatusArgs;
-use crate::config::{AuthMethod, ConfigStore, CredentialBackend};
+use crate::config::{AuthMethod, Config, ConfigStore, CredentialBackend};
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::tool_detection;
@@ -31,6 +31,16 @@ pub(crate) struct ToolStatus {
     pub permissions_ok: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DerivedContextStatus {
+    status: &'static str,
+    active: Option<String>,
+    matches: Vec<String>,
+    drift_candidates: Vec<String>,
+    mapped_profiles: Option<std::collections::HashMap<Tool, String>>,
+    unmanaged_tools: Vec<(Tool, Option<String>)>,
+}
+
 pub fn run(args: StatusArgs, home: &Path) -> Result<()> {
     let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
     run_in(
@@ -47,12 +57,19 @@ pub(crate) fn run_in(
     user_home: &Path,
     tool_path: OsString,
 ) -> Result<()> {
-    let mut statuses = collect_status(home, user_home, &tool_path)?;
+    let all_statuses = collect_status(home, user_home, &tool_path)?;
+    let context_status = if args.context {
+        let config = ConfigStore::new(home).load()?;
+        Some(derive_context_status(&config, &all_statuses))
+    } else {
+        None
+    };
+    let mut statuses = all_statuses;
     apply_status_filters(&mut statuses, &args);
     if args.json {
-        print_json(&statuses)?;
+        print_json(&statuses, context_status.as_ref())?;
     } else {
-        print_text(&statuses);
+        print_text(&statuses, context_status.as_ref());
     }
     Ok(())
 }
@@ -348,7 +365,7 @@ fn backend_diagnostic(s: &ToolStatus) -> Option<String> {
     None
 }
 
-fn print_text(statuses: &[ToolStatus]) {
+fn print_text(statuses: &[ToolStatus], context_status: Option<&DerivedContextStatus>) {
     const ACTIVE_WIDTH: usize = 36;
     const AUTH_WIDTH: usize = 18;
     const BACKEND_WIDTH: usize = 28;
@@ -356,6 +373,42 @@ fn print_text(statuses: &[ToolStatus]) {
     const STATE_WIDTH: usize = 80;
 
     output::print_title("Status");
+
+    if let Some(context_status) = context_status {
+        output::print_kv("Context", context_status.status);
+        if let Some(active) = context_status.active.as_deref() {
+            output::print_kv("Active context", active);
+        }
+        if !context_status.matches.is_empty() {
+            output::print_kv("Matches", context_status.matches.join(", "));
+        }
+        if !context_status.drift_candidates.is_empty() {
+            output::print_kv("Drift", context_status.drift_candidates.join(", "));
+        }
+        if let Some(mapped_profiles) = context_status.mapped_profiles.as_ref() {
+            for tool in Tool::ALL {
+                if let Some(profile) = mapped_profiles.get(&tool) {
+                    output::print_kv(tool.binary_name(), profile);
+                }
+            }
+        }
+        if !context_status.unmanaged_tools.is_empty() {
+            let unmanaged = context_status
+                .unmanaged_tools
+                .iter()
+                .map(|(tool, profile)| {
+                    format!(
+                        "{}={}",
+                        tool.binary_name(),
+                        profile.as_deref().unwrap_or("none")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            output::print_kv("Unmanaged", &unmanaged);
+        }
+        output::print_blank_line();
+    }
 
     for s in statuses {
         output::print_tool_section(s.tool);
@@ -383,7 +436,10 @@ fn print_text(statuses: &[ToolStatus]) {
     }
 }
 
-fn print_json(statuses: &[ToolStatus]) -> Result<()> {
+fn print_json(
+    statuses: &[ToolStatus],
+    context_status: Option<&DerivedContextStatus>,
+) -> Result<()> {
     let json: Vec<serde_json::Value> = statuses
         .iter()
         .map(|s| {
@@ -401,8 +457,117 @@ fn print_json(statuses: &[ToolStatus]) -> Result<()> {
             })
         })
         .collect();
-    println!("{}", serde_json::to_string_pretty(&json)?);
+    if let Some(context_status) = context_status {
+        let context_json = serde_json::json!({
+            "status": context_status.status,
+            "active": context_status.active,
+            "matches": context_status.matches,
+            "drift_candidates": context_status.drift_candidates,
+            "profiles": context_status.mapped_profiles.as_ref().map(|profiles| {
+                serde_json::json!({
+                    "claude": profiles.get(&Tool::Claude),
+                    "codex": profiles.get(&Tool::Codex),
+                    "gemini": profiles.get(&Tool::Gemini),
+                })
+            }).unwrap_or(serde_json::Value::Null),
+            "unmanaged_tools": context_status.unmanaged_tools.iter().map(|(tool, active_profile)| {
+                serde_json::json!({
+                    "tool": tool.binary_name(),
+                    "active_profile": active_profile,
+                })
+            }).collect::<Vec<_>>(),
+            "tools": statuses.iter().map(|s| {
+                serde_json::json!({
+                    "tool": s.tool.binary_name(),
+                    "active_profile": s.active_profile,
+                })
+            }).collect::<Vec<_>>()
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "tools": json,
+                "context": context_json,
+            }))?
+        );
+    } else {
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    }
     Ok(())
+}
+
+fn derive_context_status(config: &Config, statuses: &[ToolStatus]) -> DerivedContextStatus {
+    let active_profiles = Tool::ALL
+        .iter()
+        .map(|tool| {
+            (
+                *tool,
+                statuses
+                    .iter()
+                    .find(|status| status.tool == *tool)
+                    .and_then(|status| status.active_profile.clone()),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let mut matches = Vec::new();
+    let mut drift_candidates = Vec::new();
+    for (name, context) in config.contexts() {
+        let match_count = context
+            .profiles
+            .iter()
+            .filter(|(tool, profile)| {
+                active_profiles.get(tool).and_then(|value| value.as_deref()) == Some(profile)
+            })
+            .count();
+        let total = context.profiles.iter().count();
+        if total > 0 && match_count == total {
+            matches.push(name.clone());
+        } else if match_count > 0 {
+            drift_candidates.push(name.clone());
+        }
+    }
+
+    matches.sort();
+    drift_candidates.sort();
+
+    let (status, active, mapped_profiles, unmanaged_tools) = match matches.len() {
+        0 if drift_candidates.is_empty() => ("none", None, None, Vec::new()),
+        0 => ("drift", None, None, Vec::new()),
+        1 => {
+            let active = matches[0].clone();
+            let context = config
+                .context(&active)
+                .expect("matched context should exist in config");
+            let unmanaged_tools = Tool::ALL
+                .iter()
+                .filter(|tool| context.profiles.get(**tool).is_none())
+                .map(|tool| (*tool, active_profiles.get(tool).cloned().flatten()))
+                .collect::<Vec<_>>();
+            (
+                "exact",
+                Some(active),
+                Some(
+                    context
+                        .profiles
+                        .iter()
+                        .map(|(tool, profile)| (tool, profile.to_owned()))
+                        .collect(),
+                ),
+                unmanaged_tools,
+            )
+        }
+        _ => ("ambiguous", None, None, Vec::new()),
+    };
+
+    DerivedContextStatus {
+        status,
+        active,
+        matches,
+        drift_candidates,
+        mapped_profiles,
+        unmanaged_tools,
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -545,6 +710,7 @@ mod tests {
             search: None,
             sort: None,
             active_only: false,
+            context: false,
             json,
         }
     }
@@ -940,6 +1106,7 @@ mod tests {
             search: Some("work".to_owned()),
             sort: None,
             active_only: true,
+            context: false,
             json: false,
         };
         apply_status_filters(&mut statuses, &args);
@@ -989,6 +1156,7 @@ mod tests {
             search: None,
             sort: Some(crate::cli::SortBy::Recent),
             active_only: false,
+            context: false,
             json: false,
         };
 

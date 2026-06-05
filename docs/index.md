@@ -5,7 +5,7 @@ description: aisw manages named profiles for Claude Code, Codex CLI, and Gemini 
 
 # aisw
 
-Named profile manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch between multiple accounts in one command across all three AI coding agents  -  on macOS, Linux, and Windows.
+Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI. Store per-tool accounts, save mixed-name work modes, and switch between them in one command across all three AI coding agents  -  on macOS, Linux, and Windows.
 
 ## Install
 
@@ -44,8 +44,13 @@ aisw add gemini work --api-key "$GEMINI_API_KEY"
 aisw use claude work
 aisw use --all --profile personal     # switch all tools at once
 
+# Save and activate a mixed-name context
+aisw context create acme --claude acme-claude --codex acme-codex --gemini acme-gemini
+aisw context use acme
+
 # Inspect state
 aisw status
+aisw status --context
 aisw list
 ```
 

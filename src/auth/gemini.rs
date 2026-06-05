@@ -146,7 +146,26 @@ pub fn add_api_key(
     key: &str,
     label: Option<String>,
 ) -> Result<()> {
+    add_api_key_with_backend(
+        profile_store,
+        config_store,
+        name,
+        key,
+        label,
+        CredentialBackend::File,
+    )
+}
+
+pub fn add_api_key_with_backend(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    name: &str,
+    key: &str,
+    label: Option<String>,
+    backend: CredentialBackend,
+) -> Result<()> {
     validate_api_key(key)?;
+    debug_assert_eq!(backend, CredentialBackend::File);
 
     if let Some(existing_name) = identity::existing_api_key_profile_for_secret(
         profile_store,
@@ -177,7 +196,7 @@ pub fn add_api_key(
         ProfileMeta {
             added_at: Utc::now(),
             auth_method: AuthMethod::ApiKey,
-            credential_backend: CredentialBackend::File,
+            credential_backend: backend,
             label,
         },
     )?;
@@ -373,7 +392,6 @@ fn run_oauth_flow(
     crate::output::print_info("Steps:");
     crate::output::print_info("  1. Complete Gemini sign-in in your browser");
     crate::output::print_info("  2. Stay in this terminal; aisw will detect completion");
-    let spinner = crate::output::start_spinner("Waiting for Gemini OAuth...");
 
     let result = (|| {
         let terminal = TerminalGuard::capture();
@@ -411,19 +429,6 @@ fn run_oauth_flow(
         }
     })();
 
-    match &result {
-        Ok(_) => {
-            if let Some(ref sp) = spinner {
-                sp.finish_with_message("\u{2713} Credentials captured");
-            }
-        }
-        Err(_) => {
-            if let Some(ref sp) = spinner {
-                sp.finish_and_clear();
-            }
-        }
-    }
-
     // Always clean up the scratch HOME regardless of outcome. On success the
     // credential files have already been copied into the profile directory.
     let _ = std::fs::remove_dir_all(&scratch);
@@ -437,17 +442,12 @@ fn spawn_oauth_child(
 ) -> Result<std::process::Child> {
     #[cfg(target_os = "macos")]
     {
-        use std::os::unix::process::CommandExt;
-
         let child = Command::new("/usr/bin/script")
             .arg("-q")
             .arg("/dev/null")
             .arg(gemini_bin)
             .env("GEMINI_CLI_HOME", scratch)
             .current_dir(scratch_workdir)
-            // Create a dedicated process group so we can terminate the entire
-            // OAuth process tree (script + gemini child) reliably.
-            .process_group(0)
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
         Ok(child)
@@ -455,14 +455,9 @@ fn spawn_oauth_child(
 
     #[cfg(not(target_os = "macos"))]
     {
-        #[cfg(unix)]
-        use std::os::unix::process::CommandExt;
-
         let mut cmd = Command::new(gemini_bin);
         cmd.env("GEMINI_CLI_HOME", scratch)
             .current_dir(scratch_workdir);
-        #[cfg(unix)]
-        cmd.process_group(0);
         let child = cmd
             .spawn()
             .with_context(|| format!("could not spawn {}", gemini_bin.display()))?;
@@ -474,7 +469,7 @@ fn stop_interactive_child(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let pid = child.id() as i32;
-        send_signal_to_oauth_tree(pid, libc::SIGINT);
+        let _ = unsafe { libc::kill(pid, libc::SIGINT) };
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
@@ -486,7 +481,7 @@ fn stop_interactive_child(child: &mut std::process::Child) {
         #[cfg(target_os = "linux")]
         kill_child_descendants(pid, libc::SIGTERM);
 
-        send_signal_to_oauth_tree(pid, libc::SIGTERM);
+        let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
         for _ in 0..10 {
             if child.try_wait().ok().flatten().is_some() {
                 return;
@@ -500,13 +495,6 @@ fn stop_interactive_child(child: &mut std::process::Child) {
 
     let _ = child.kill();
     let _ = child.wait();
-}
-
-#[cfg(unix)]
-fn send_signal_to_oauth_tree(pid: i32, signal: i32) {
-    // Try process-group signaling first (negative PID), then direct PID.
-    let _ = unsafe { libc::kill(-pid, signal) };
-    let _ = unsafe { libc::kill(pid, signal) };
 }
 
 #[cfg(target_os = "linux")]
@@ -1184,6 +1172,36 @@ mod tests {
             .profile_dir(Tool::Gemini, "default")
             .join("oauth_creds.json")
             .exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_child_stays_in_foreground_process_group() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let scratch = dir.path().join("scratch");
+        let workspace = scratch.join("workspace");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        prepare_scratch_home(&scratch, &workspace).unwrap();
+
+        let bin = bin_dir.join("gemini");
+        fs::write(&bin, "#!/bin/sh\nsleep 5\n").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut child = spawn_oauth_child(&bin, &scratch, &workspace).unwrap();
+        let child_pgid = unsafe { libc::getpgid(child.id() as i32) };
+        let parent_pgid = unsafe { libc::getpgrp() };
+        stop_interactive_child(&mut child);
+
+        assert_eq!(
+            child_pgid, parent_pgid,
+            "Gemini OAuth must stay in the foreground process group so its TUI can read stdin"
+        );
     }
 
     #[test]
