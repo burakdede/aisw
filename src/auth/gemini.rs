@@ -360,23 +360,14 @@ fn add_oauth_with(
     Ok(())
 }
 
-/// Decode `oauth_creds.json` from the profile dir and extract the `email` from the `id_token` JWT.
-/// Returns None if file missing, malformed, or JWT has no email claim.
+/// Decode `oauth_creds.json` from the profile dir and extract the identity using canonical project logic.
 pub fn extract_captured_identity(profile_store: &ProfileStore, name: &str) -> Option<String> {
     let bytes = profile_store
         .read_file(Tool::Gemini, name, "oauth_creds.json")
         .ok()?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    let id_token = v.get("id_token").and_then(|t| t.as_str())?;
-    decode_jwt_email_from_token(id_token)
-}
-
-fn decode_jwt_email_from_token(jwt: &str) -> Option<String> {
-    let payload = crate::util::jwt::decode_jwt_payload(jwt)?;
-    payload
-        .get("email")
-        .and_then(|e| e.as_str())
-        .map(String::from)
+    identity::resolve_identity_from_json_bytes(&bytes)
+        .ok()
+        .flatten()
 }
 
 /// Spawn `gemini` with an overridden HOME, wait for it to exit, then copy
@@ -686,12 +677,219 @@ pub fn live_token_cache_matches(
             .with_context(|| format!("could not read {}", file.path.display()))?;
         let live_bytes =
             std::fs::read(&live).with_context(|| format!("could not read {}", live.display()))?;
-        if src_bytes != live_bytes {
+
+        if file.file_name.to_string_lossy().ends_with(".json") {
+            if !files::json_equal(&src_bytes, &live_bytes)? {
+                return Ok(false);
+            }
+        } else if src_bytes != live_bytes {
             return Ok(false);
         }
     }
 
     Ok(saw_file)
+}
+
+// ---- Automatic synchronization ----
+
+pub fn sync_profile_from_live_if_same_identity(
+    profile_store: &ProfileStore,
+    name: &str,
+    user_home: &Path,
+) -> Result<bool> {
+    let gemini_dir = live_dir(user_home);
+    if !gemini_dir.exists() {
+        return Ok(false);
+    }
+
+    let Some(stored_identity) = extract_captured_identity(profile_store, name) else {
+        return Ok(false);
+    };
+
+    let oauth_files = live_oauth_files_for_import(user_home)?;
+    if oauth_files.is_empty() {
+        return Ok(false);
+    }
+
+    let live_identity = oauth_files.iter().find_map(|f| {
+        let bytes = std::fs::read(&f.path).ok()?;
+        identity::resolve_identity_from_json_bytes(&bytes)
+            .ok()
+            .flatten()
+    });
+    let Some(live_identity) = live_identity else {
+        return Ok(false);
+    };
+
+    if stored_identity != live_identity {
+        return Ok(false);
+    }
+
+    // Identidades coinciden, sincronizamos todos los archivos de la caché
+    for file in oauth_files {
+        let file_name = file.file_name.to_string_lossy().into_owned();
+        let bytes = std::fs::read(&file.path)?;
+        profile_store.write_file(Tool::Gemini, name, &file_name, &bytes)?;
+    }
+
+    Ok(true)
+}
+
+#[cfg(test)]
+fn make_fixture_jwt(email: &str) -> String {
+    let payload_json = format!(r#"{{"email":"{}","exp":9999999999}}"#, email);
+    let payload = crate::util::jwt::encode_jwt_payload_for_test(payload_json.as_bytes());
+    format!("eyJhbGciOiJIUzI1NiJ9.{}.sig", payload)
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn sync_profile_from_live_updates_when_identity_matches() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("user");
+        std::fs::create_dir_all(user_home.join(".gemini")).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let name = "work";
+
+        // Mock a valid 3-part id_token with email (canonical logic requires 3 parts)
+        let id_token = make_fixture_jwt("user@example.com");
+
+        // 1. Create a profile with old credentials
+        ps.create(Tool::Gemini, name).unwrap();
+        let old_creds = serde_json::json!({
+            "id_token": id_token,
+            "access_token": "old"
+        });
+        ps.write_file(
+            Tool::Gemini,
+            name,
+            "oauth_creds.json",
+            &serde_json::to_vec(&old_creds).unwrap(),
+        )
+        .unwrap();
+
+        // 2. Prepare live state with new token but SAME identity
+        let new_creds = serde_json::json!({
+            "id_token": id_token,
+            "access_token": "new"
+        });
+        std::fs::write(
+            user_home.join(".gemini").join("oauth_creds.json"),
+            serde_json::to_vec(&new_creds).unwrap(),
+        )
+        .unwrap();
+
+        // 3. Trigger sync
+        let result = sync_profile_from_live_if_same_identity(&ps, name, &user_home).unwrap();
+
+        assert!(
+            result,
+            "sync should have returned true because identities match"
+        );
+        let stored_bytes = ps
+            .read_file(Tool::Gemini, name, "oauth_creds.json")
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_slice(&stored_bytes).unwrap();
+        assert_eq!(stored["access_token"], "new");
+    }
+
+    #[test]
+    fn sync_profile_from_live_skips_when_identity_differs() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("user");
+        std::fs::create_dir_all(user_home.join(".gemini")).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let name = "work";
+
+        // Identities (3-part JWTs)
+        let id_token_1 = make_fixture_jwt("user@example.com");
+        let id_token_2 = make_fixture_jwt("other@example.com");
+
+        ps.create(Tool::Gemini, name).unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            name,
+            "oauth_creds.json",
+            &serde_json::to_vec(
+                &serde_json::json!({"id_token": id_token_1, "access_token": "old"}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        // New token for DIFFERENT identity
+        std::fs::write(
+            user_home.join(".gemini").join("oauth_creds.json"),
+            serde_json::to_vec(&serde_json::json!({"id_token": id_token_2, "access_token": "new"}))
+                .unwrap(),
+        )
+        .unwrap();
+
+        let result = sync_profile_from_live_if_same_identity(&ps, name, &user_home).unwrap();
+
+        assert!(
+            !result,
+            "sync should have skipped because identities differ"
+        );
+        let stored_bytes = ps
+            .read_file(Tool::Gemini, name, "oauth_creds.json")
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_slice(&stored_bytes).unwrap();
+        assert_eq!(stored["access_token"], "old");
+    }
+
+    #[test]
+    fn sync_works_when_live_state_has_both_settings_and_oauth_creds() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("user");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(&gemini_dir).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let name = "work";
+        let id_token = make_fixture_jwt("user@example.com");
+
+        ps.create(Tool::Gemini, name).unwrap();
+        let old_creds = serde_json::json!({"id_token": id_token, "access_token": "old"});
+        ps.write_file(
+            Tool::Gemini,
+            name,
+            "oauth_creds.json",
+            &serde_json::to_vec(&old_creds).unwrap(),
+        )
+        .unwrap();
+
+        // Live state has BOTH files — preferred_live_oauth_file returns settings.json,
+        // which is what the old guard used to reject.
+        let new_creds = serde_json::json!({"id_token": id_token, "access_token": "new"});
+        std::fs::write(
+            gemini_dir.join("oauth_creds.json"),
+            serde_json::to_vec(&new_creds).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(gemini_dir.join("settings.json"), br#"{"theme":"dark"}"#).unwrap();
+
+        let result = sync_profile_from_live_if_same_identity(&ps, name, &user_home).unwrap();
+
+        assert!(result, "sync must run even when settings.json is present");
+        let stored_bytes = ps
+            .read_file(Tool::Gemini, name, "oauth_creds.json")
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_slice(&stored_bytes).unwrap();
+        assert_eq!(stored["access_token"], "new");
+        // settings.json must also have been written into the profile
+        let settings_bytes = ps.read_file(Tool::Gemini, name, "settings.json").unwrap();
+        assert_eq!(settings_bytes, br#"{"theme":"dark"}"#);
+    }
 }
 
 #[cfg(test)]
@@ -1490,12 +1688,6 @@ mod tests {
     }
 
     // ---- extract_captured_identity tests ----
-
-    fn make_fixture_jwt(email: &str) -> String {
-        let payload_json = format!(r#"{{"email":"{}","exp":9999999999}}"#, email);
-        let payload = crate::util::jwt::encode_jwt_payload_for_test(payload_json.as_bytes());
-        format!("eyJhbGciOiJIUzI1NiJ9.{}.sig", payload)
-    }
 
     #[test]
     fn extract_identity_with_valid_jwt() {

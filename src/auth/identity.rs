@@ -267,7 +267,6 @@ fn read_optional_profile_file(
         .map(Some)
 }
 
-#[cfg(test)]
 pub(crate) fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<String>> {
     Ok(
         resolve_identity_from_json_bytes_for_tool(Tool::Codex, bytes)?.map(
