@@ -1510,12 +1510,25 @@ mod tests {
     }
 
     fn write_codex_credentials(user_home: &Path, token: &str) {
+        write_codex_credentials_with_account_id(user_home, token, None);
+    }
+
+    fn write_codex_credentials_with_account_id(
+        user_home: &Path,
+        token: &str,
+        account_id: Option<&str>,
+    ) {
         let codex_dir = user_home.join(".codex");
         fs::create_dir_all(&codex_dir).unwrap();
         let auth = codex_dir.join("auth.json");
-        let content = format!(
-            r#"{{"primaryEmail":"test@example.com","oauthToken":"{token}","refreshToken":"refresh"}}"#
-        );
+        let content = match account_id {
+            Some(account_id) => format!(
+                r#"{{"primaryEmail":"test@example.com","tokens":{{"account_id":"{account_id}"}},"oauthToken":"{token}","refreshToken":"refresh"}}"#
+            ),
+            None => format!(
+                r#"{{"primaryEmail":"test@example.com","oauthToken":"{token}","refreshToken":"refresh"}}"#
+            ),
+        };
         fs::write(&auth, content).unwrap();
         fs::set_permissions(&auth, fs::Permissions::from_mode(0o600)).unwrap();
     }
@@ -1804,6 +1817,76 @@ mod tests {
         let stored = ps.read_file(Tool::Codex, "work", "auth.json").unwrap();
         let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
         assert_eq!(json["oauthToken"], "codex-tok");
+    }
+
+    #[test]
+    fn from_live_codex_allows_same_email_with_different_account_id() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        write_codex_credentials_with_account_id(
+            &user_home,
+            "codex-workspace",
+            Some("acc-workspace"),
+        );
+        run_in(
+            from_live_args(Tool::Codex, "workspace"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        write_codex_credentials_with_account_id(&user_home, "codex-personal", Some("acc-personal"));
+        run_in(
+            from_live_args(Tool::Codex, "personal"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps.exists(Tool::Codex, "workspace"));
+        assert!(ps.exists(Tool::Codex, "personal"));
+    }
+
+    #[test]
+    fn from_live_codex_rejects_same_email_when_account_id_is_same() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        write_codex_credentials_with_account_id(&user_home, "codex-workspace", Some("acc-shared"));
+        run_in(
+            from_live_args(Tool::Codex, "workspace"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        write_codex_credentials_with_account_id(
+            &user_home,
+            "codex-workspace-2",
+            Some("acc-shared"),
+        );
+        let err = run_in(
+            from_live_args(Tool::Codex, "alias"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("A Codex OAuth profile for this account already exists as 'workspace'"));
     }
 
     #[test]
