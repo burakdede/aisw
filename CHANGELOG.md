@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6 - 2026-06-11
+
+### Fixed
+
+- Fixed Codex OAuth duplicate detection so profiles with the same email can coexist when they belong to different Codex account IDs.
+- Fixed shared identity test helpers so the Codex multi-account change does not break Claude, Gemini, Windows, or coverage test runs.
+
 ## 0.3.5 - 2026-05-27
 
 ### Added

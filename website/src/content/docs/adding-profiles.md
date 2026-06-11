@@ -19,11 +19,11 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Adding Profiles","headline":"Adding Profiles","description":"How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.","url":"https://burakdede.github.io/aisw/adding-profiles/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, adding profiles, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.4","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Adding Profiles","item":"https://burakdede.github.io/aisw/adding-profiles/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Adding Profiles","headline":"Adding Profiles","description":"How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.","url":"https://burakdede.github.io/aisw/adding-profiles/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, adding profiles, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Adding Profiles","item":"https://burakdede.github.io/aisw/adding-profiles/"}]}]}
 ---
 
 ```text
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active]
 ```
 
 `<tool>` is one of: `claude`, `codex`, `gemini`.
@@ -92,6 +92,7 @@ aisw add codex work --from-live --yes
 | Flag | Effect |
 |---|---|
 | `--label TEXT` | Description shown in `aisw list` and `aisw status` |
+| `--credential-backend file|system-keyring` | Override where `aisw` stores the managed profile secret |
 | `--set-active` | Activates the profile immediately after adding (not needed with `--from-live`, which always activates) |
 
 ```sh
@@ -107,6 +108,12 @@ Profiles are stored under:
 ```
 
 All credential files are written with `0600` permissions. The profile name is recorded in `~/.aisw/config.json` along with the auth method, storage backend, creation timestamp, and label.
+
+`--credential-backend` controls the managed `aisw` profile storage backend, not the upstream CLI's live auth backend.
+
+- `file`: portable and backup-friendly
+- `system-keyring`: stronger local secret storage for Claude and Codex where the OS keyring is usable. Stored config and status output use `system_keyring`.
+- Gemini remains file-managed because its auth is coupled to broader `~/.gemini/` state
 
 ## Duplicate account detection
 
