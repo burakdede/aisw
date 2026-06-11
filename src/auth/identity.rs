@@ -18,6 +18,11 @@ enum OAuthIdentity {
         organization_uuid: Option<String>,
         fallback: Option<String>,
     },
+    Codex {
+        email: Option<String>,
+        account_id: Option<String>,
+        fallback: Option<String>,
+    },
     Generic(String),
 }
 
@@ -269,12 +274,8 @@ fn read_optional_profile_file(
 
 pub(crate) fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<String>> {
     Ok(
-        resolve_identity_from_json_bytes_for_tool(Tool::Codex, bytes)?.map(
-            |identity| match identity {
-                OAuthIdentity::Claude { .. } => unreachable!(),
-                OAuthIdentity::Generic(identity) => identity,
-            },
-        ),
+        resolve_identity_from_json_bytes_for_tool(Tool::Codex, bytes)?
+            .map(|identity| identity.display().to_owned()),
     )
 }
 
@@ -344,7 +345,24 @@ fn resolve_identity_from_value(tool: Tool, value: &Value) -> Option<OAuthIdentit
                 fallback,
             })
         }
-        Tool::Codex | Tool::Gemini => find_email(value)
+        Tool::Codex => {
+            let email = find_codex_email(value)
+                .or_else(|| find_email(value))
+                .map(normalize_identity);
+            let account_id = find_codex_account_id(value).map(normalize_identity);
+            let fallback = find_codex_subject(value).map(normalize_identity);
+
+            if email.is_none() && account_id.is_none() && fallback.is_none() {
+                return None;
+            }
+
+            Some(OAuthIdentity::Codex {
+                email,
+                account_id,
+                fallback,
+            })
+        }
+        Tool::Gemini => find_email(value)
             .or_else(|| find_subject(value))
             .map(normalize_identity)
             .map(OAuthIdentity::Generic),
@@ -389,6 +407,45 @@ fn find_subject(value: &Value) -> Option<String> {
                 .ok()
                 .flatten()
                 .and_then(|payload| find_subject(&payload));
+        }
+
+        None
+    })
+}
+
+fn find_codex_email(value: &Value) -> Option<String> {
+    walk_json(value, &|key, raw| {
+        let trimmed = raw.trim();
+        if matches!(key, Some("primaryEmail")) && looks_like_email(trimmed) {
+            return Some(trimmed.to_owned());
+        }
+        None
+    })
+}
+
+fn find_codex_subject(value: &Value) -> Option<String> {
+    walk_json(value, &|key, raw| {
+        let trimmed = raw.trim();
+        if matches!(key, Some("sub" | "subject" | "user_id" | "userId")) && !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
+        }
+
+        if looks_like_jwt(trimmed) {
+            return decode_jwt_payload(trimmed)
+                .ok()
+                .flatten()
+                .and_then(|payload| find_codex_subject(&payload));
+        }
+
+        None
+    })
+}
+
+fn find_codex_account_id(value: &Value) -> Option<String> {
+    walk_json(value, &|key, raw| {
+        let trimmed = raw.trim();
+        if matches!(key, Some("account_id" | "accountId")) && !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
         }
 
         None
@@ -486,6 +543,33 @@ impl OAuthIdentity {
 
                 left_fallback.is_some() && left_fallback == right_fallback
             }
+            (
+                OAuthIdentity::Codex {
+                    email: left_email,
+                    account_id: left_account_id,
+                    fallback: left_fallback,
+                },
+                OAuthIdentity::Codex {
+                    email: right_email,
+                    account_id: right_account_id,
+                    fallback: right_fallback,
+                },
+            ) => {
+                if let (Some(left_email), Some(right_email)) = (left_email, right_email) {
+                    if left_email != right_email {
+                        return false;
+                    }
+
+                    return match (left_account_id, right_account_id) {
+                        (Some(left_account_id), Some(right_account_id)) => {
+                            left_account_id == right_account_id
+                        }
+                        _ => true,
+                    };
+                }
+
+                left_fallback.is_some() && left_fallback == right_fallback
+            }
             (OAuthIdentity::Generic(left), OAuthIdentity::Generic(right)) => left == right,
             _ => false,
         }
@@ -494,6 +578,12 @@ impl OAuthIdentity {
     fn display(&self) -> &str {
         match self {
             OAuthIdentity::Claude {
+                email, fallback, ..
+            } => email
+                .as_deref()
+                .or(fallback.as_deref())
+                .unwrap_or("unknown account"),
+            OAuthIdentity::Codex {
                 email, fallback, ..
             } => email
                 .as_deref()
@@ -514,7 +604,11 @@ mod tests {
             serde_json::from_str(r#"{"account":{"email":"Burak@Example.com"}}"#).unwrap();
         assert_eq!(
             resolve_identity_from_value(Tool::Codex, &value),
-            Some(OAuthIdentity::Generic("burak@example.com".to_owned()))
+            Some(OAuthIdentity::Codex {
+                email: Some("burak@example.com".to_owned()),
+                account_id: None,
+                fallback: None,
+            })
         );
     }
 
@@ -539,7 +633,11 @@ mod tests {
         let value: Value = serde_json::from_str(&format!(r#"{{"id_token":"{}"}}"#, token)).unwrap();
         assert_eq!(
             resolve_identity_from_value(Tool::Codex, &value),
-            Some(OAuthIdentity::Generic("user-123".to_owned()))
+            Some(OAuthIdentity::Codex {
+                email: None,
+                account_id: None,
+                fallback: Some("user-123".to_owned()),
+            })
         );
     }
 
@@ -561,7 +659,11 @@ mod tests {
         let value: Value = serde_json::from_str(&format!(r#"{{"id_token":"{}"}}"#, token)).unwrap();
         assert_eq!(
             resolve_identity_from_value(Tool::Codex, &value),
-            Some(OAuthIdentity::Generic("user-1234".to_owned()))
+            Some(OAuthIdentity::Codex {
+                email: None,
+                account_id: None,
+                fallback: Some("user-1234".to_owned()),
+            })
         );
     }
 
@@ -570,6 +672,52 @@ mod tests {
         let value: Value =
             serde_json::from_str(r#"{"id_token":"eyJhbGciOiJub25lIn0.bad$payload.sig"}"#).unwrap();
         assert_eq!(resolve_identity_from_value(Tool::Codex, &value), None);
+    }
+
+    #[test]
+    fn resolves_codex_identity_with_account_id() {
+        let value: Value = serde_json::from_str(
+            r#"{"primaryEmail":"Burak@Example.com","tokens":{"account_id":"acc-workspace"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_identity_from_value(Tool::Codex, &value),
+            Some(OAuthIdentity::Codex {
+                email: Some("burak@example.com".to_owned()),
+                account_id: Some("acc-workspace".to_owned()),
+                fallback: None,
+            })
+        );
+    }
+
+    #[test]
+    fn codex_identity_distinguishes_same_email_and_different_account_id() {
+        let left = OAuthIdentity::Codex {
+            email: Some("work@example.com".to_owned()),
+            account_id: Some("acc-a".to_owned()),
+            fallback: None,
+        };
+        let right = OAuthIdentity::Codex {
+            email: Some("work@example.com".to_owned()),
+            account_id: Some("acc-b".to_owned()),
+            fallback: None,
+        };
+        assert!(!left.matches(&right));
+    }
+
+    #[test]
+    fn codex_identity_matches_same_email_and_same_account_id() {
+        let left = OAuthIdentity::Codex {
+            email: Some("work@example.com".to_owned()),
+            account_id: Some("acc-a".to_owned()),
+            fallback: None,
+        };
+        let right = OAuthIdentity::Codex {
+            email: Some("work@example.com".to_owned()),
+            account_id: Some("acc-a".to_owned()),
+            fallback: None,
+        };
+        assert!(left.matches(&right));
     }
 
     #[test]
