@@ -275,13 +275,8 @@ fn read_optional_profile_file(
 #[cfg(test)]
 pub(crate) fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<String>> {
     Ok(
-        resolve_identity_from_json_bytes_for_tool(Tool::Codex, bytes)?.map(
-            |identity| match identity {
-                OAuthIdentity::Claude { .. } => unreachable!(),
-                OAuthIdentity::Codex { .. } => unreachable!(),
-                OAuthIdentity::Generic(identity) => identity,
-            },
-        ),
+        resolve_identity_from_json_bytes_for_tool(Tool::Codex, bytes)?
+            .map(|identity| identity.display().to_owned()),
     )
 }
 
