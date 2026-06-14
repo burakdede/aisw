@@ -374,17 +374,25 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
     };
 
     let write_result = match stored_backend {
-        CredentialBackend::File => profile_store.write_file(
-            Tool::Claude,
-            &args.profile_name,
-            ".credentials.json",
-            &snapshot.bytes,
-        ),
-        CredentialBackend::SystemKeyring => crate::auth::secure_store::write_profile_secret(
-            Tool::Claude,
-            &args.profile_name,
-            &snapshot.bytes,
-        ),
+        CredentialBackend::File => {
+            let normalized = auth::claude::normalize_credentials_bytes(&snapshot.bytes)
+                .unwrap_or_else(|| snapshot.bytes.clone());
+            profile_store.write_file(
+                Tool::Claude,
+                &args.profile_name,
+                ".credentials.json",
+                &normalized,
+            )
+        }
+        CredentialBackend::SystemKeyring => {
+            let normalized = auth::claude::normalize_credentials_bytes(&snapshot.bytes)
+                .unwrap_or_else(|| snapshot.bytes.clone());
+            crate::auth::secure_store::write_profile_secret(
+                Tool::Claude,
+                &args.profile_name,
+                &normalized,
+            )
+        }
     };
 
     if let Err(e) = write_result {
@@ -1588,6 +1596,37 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
         assert_eq!(json["oauthToken"], "tok-abc");
+    }
+
+    #[test]
+    fn from_live_claude_decodes_hex_wrapped_live_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(aisw_home.join("profiles")).unwrap();
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(".credentials.json"),
+            b"7b226f61757468546f6b656e223a22746f6b2d686578227d",
+        )
+        .unwrap();
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        run_in(
+            from_live_args(Tool::Claude, "work"),
+            &aisw_home,
+            OsString::new(),
+        )
+        .unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        let stored = ps
+            .read_file(Tool::Claude, "work", ".credentials.json")
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(json["oauthToken"], "tok-hex");
     }
 
     #[test]

@@ -136,7 +136,8 @@ pub fn read_api_key_with_backend(
             )?
         }
     };
-    let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
+    let normalized = super::normalize_credentials_bytes(&bytes).unwrap_or(bytes);
+    let json: serde_json::Value = serde_json::from_slice(&normalized).map_err(|e| {
         anyhow::anyhow!(
             "could not parse credentials file for profile '{}'.\n  \
              The profile may be corrupted. Run 'aisw remove claude {}' \

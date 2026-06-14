@@ -649,6 +649,48 @@ fn use_claude_writes_keychain_when_keychain_backend_selected() {
 }
 
 #[test]
+fn use_claude_decodes_hex_wrapped_credentials_before_writing_live_state() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    let profile_dir = env.aisw_home.join("profiles").join("claude").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join(".credentials.json"),
+        b"7b226f61757468546f6b656e223a22746f6b227d",
+    )
+    .unwrap();
+
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 1,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {
+                    "work": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": null
+                    }
+                },
+                "codex": {},
+                "gemini": {}
+            },
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        }),
+    );
+
+    env.cmd().args(["use", "claude", "work"]).assert().success();
+
+    let live =
+        std::fs::read_to_string(env.fake_home.join(".claude").join(".credentials.json")).unwrap();
+    let live_json: serde_json::Value = serde_json::from_str(&live).unwrap();
+    assert_eq!(live_json["oauthToken"], "tok");
+}
+
+#[test]
 fn failing_claude_use_does_not_leak_api_key() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");
