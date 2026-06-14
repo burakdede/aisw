@@ -118,10 +118,10 @@ pub fn live_credentials_match(
             }
             let live = std::fs::read(&live_path)
                 .with_context(|| format!("could not read {}", live_path.display()))?;
-            let live_value = serde_json::from_slice::<serde_json::Value>(&live)
-                .context("could not parse live credentials file")?;
-            let stored_value = serde_json::from_slice::<serde_json::Value>(&stored)
-                .context("could not parse stored credentials")?;
+            let live_value =
+                credentials_json_value(&live).context("could not parse live credentials file")?;
+            let stored_value =
+                credentials_json_value(&stored).context("could not parse stored credentials")?;
             Ok(live_value == stored_value)
         }
         ClaudeAuthStorage::Keychain => {
@@ -130,9 +130,9 @@ pub fn live_credentials_match(
             };
             // Compare as parsed JSON values to handle the trailing newline
             // added by the security CLI and any key-ordering differences.
-            let live_value = serde_json::from_slice::<serde_json::Value>(&live)
+            let live_value = credentials_json_value(&live)
                 .context("could not parse live Keychain credentials")?;
-            let stored_value = serde_json::from_slice::<serde_json::Value>(&stored)
+            let stored_value = credentials_json_value(&stored)
                 .context("could not parse stored credential payload")?;
             Ok(live_value == stored_value)
         }
@@ -153,6 +153,81 @@ pub(super) fn read_stored_credentials(
                     name
                 )
             }),
+    }
+    .map(|bytes| normalize_credentials_bytes(&bytes).unwrap_or(bytes))
+}
+
+pub(crate) fn persist_stored_credentials(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+    bytes: &[u8],
+) -> Result<()> {
+    let normalized = normalize_credentials_bytes(bytes).unwrap_or_else(|| bytes.to_vec());
+    match backend {
+        CredentialBackend::File => {
+            profile_store.write_file(Tool::Claude, name, CREDENTIALS_FILE, &normalized)
+        }
+        CredentialBackend::SystemKeyring => {
+            secure_store::write_profile_secret(Tool::Claude, name, &normalized)
+        }
+    }
+}
+
+pub(crate) fn normalize_credentials_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
+    if has_object_json_shape(bytes) {
+        return Some(bytes.to_vec());
+    }
+
+    let mut candidate = bytes.to_vec();
+    for _ in 0..3 {
+        let text = std::str::from_utf8(&candidate).ok()?.trim();
+        if text.len() % 2 != 0 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return None;
+        }
+
+        let decoded = decode_hex_bytes(text)?;
+        if has_object_json_shape(&decoded) {
+            return Some(decoded);
+        }
+        candidate = decoded;
+    }
+
+    None
+}
+
+fn credentials_json_value(bytes: &[u8]) -> Result<serde_json::Value> {
+    let normalized = normalize_credentials_bytes(bytes).unwrap_or_else(|| bytes.to_vec());
+    serde_json::from_slice(&normalized).context("credential payload is not valid JSON")
+}
+
+fn has_object_json_shape(bytes: &[u8]) -> bool {
+    matches!(
+        serde_json::from_slice::<serde_json::Value>(bytes),
+        Ok(serde_json::Value::Object(_))
+    )
+}
+
+fn decode_hex_bytes(text: &str) -> Option<Vec<u8>> {
+    let mut decoded = Vec::with_capacity(text.len() / 2);
+    let mut chunks = text.as_bytes().chunks_exact(2);
+    for pair in &mut chunks {
+        let hi = decode_hex_nibble(pair[0])?;
+        let lo = decode_hex_nibble(pair[1])?;
+        decoded.push((hi << 4) | lo);
+    }
+    if !chunks.remainder().is_empty() {
+        return None;
+    }
+    Some(decoded)
+}
+
+fn decode_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -1264,6 +1339,44 @@ mod tests {
         let live_json: serde_json::Value = serde_json::from_str(&live).unwrap();
         assert_eq!(live_json["oauthToken"], "tok");
         assert_eq!(live_json["account"]["email"], "work@example.com");
+    }
+
+    #[test]
+    fn normalize_credentials_bytes_decodes_nested_hex_wrapped_json() {
+        let once = b"7b226f61757468546f6b656e223a22746f6b227d";
+        let twice =
+            b"37623232366636313735373436383534366636623635366532323361323237343666366232323764";
+
+        let normalized_once = normalize_credentials_bytes(once).unwrap();
+        let normalized_twice = normalize_credentials_bytes(twice).unwrap();
+
+        assert_eq!(normalized_once, br#"{"oauthToken":"tok"}"#);
+        assert_eq!(normalized_twice, br#"{"oauthToken":"tok"}"#);
+    }
+
+    #[test]
+    fn keychain_live_credentials_match_decodes_hex_wrapped_live_payload() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keyring"));
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            CREDENTIALS_FILE,
+            br#"{"oauthToken":"tok"}"#,
+        )
+        .unwrap();
+
+        keychain::write_keychain_credentials(b"7b226f61757468546f6b656e223a22746f6b227d").unwrap();
+
+        assert!(live_credentials_match(&ps, "work", CredentialBackend::File, &user_home).unwrap());
     }
 
     #[test]
