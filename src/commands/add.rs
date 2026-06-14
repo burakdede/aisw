@@ -373,27 +373,12 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         None
     };
 
-    let write_result = match stored_backend {
-        CredentialBackend::File => {
-            let normalized = auth::claude::normalize_credentials_bytes(&snapshot.bytes)
-                .unwrap_or_else(|| snapshot.bytes.clone());
-            profile_store.write_file(
-                Tool::Claude,
-                &args.profile_name,
-                ".credentials.json",
-                &normalized,
-            )
-        }
-        CredentialBackend::SystemKeyring => {
-            let normalized = auth::claude::normalize_credentials_bytes(&snapshot.bytes)
-                .unwrap_or_else(|| snapshot.bytes.clone());
-            crate::auth::secure_store::write_profile_secret(
-                Tool::Claude,
-                &args.profile_name,
-                &normalized,
-            )
-        }
-    };
+    let write_result = auth::claude::persist_stored_credentials(
+        &profile_store,
+        &args.profile_name,
+        stored_backend,
+        &snapshot.bytes,
+    );
 
     if let Err(e) = write_result {
         if let Some(snapshot) = overwrite_snapshot.as_ref() {

@@ -157,6 +157,23 @@ pub(super) fn read_stored_credentials(
     .map(|bytes| normalize_credentials_bytes(&bytes).unwrap_or(bytes))
 }
 
+pub(crate) fn persist_stored_credentials(
+    profile_store: &ProfileStore,
+    name: &str,
+    backend: CredentialBackend,
+    bytes: &[u8],
+) -> Result<()> {
+    let normalized = normalize_credentials_bytes(bytes).unwrap_or_else(|| bytes.to_vec());
+    match backend {
+        CredentialBackend::File => {
+            profile_store.write_file(Tool::Claude, name, CREDENTIALS_FILE, &normalized)
+        }
+        CredentialBackend::SystemKeyring => {
+            secure_store::write_profile_secret(Tool::Claude, name, &normalized)
+        }
+    }
+}
+
 pub(crate) fn normalize_credentials_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     if has_object_json_shape(bytes) {
         return Some(bytes.to_vec());

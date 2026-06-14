@@ -121,23 +121,8 @@ pub fn read_api_key_with_backend(
     name: &str,
     backend: CredentialBackend,
 ) -> Result<String> {
-    let bytes = match backend {
-        CredentialBackend::File => {
-            profile_store.read_file(Tool::Claude, name, super::CREDENTIALS_FILE)?
-        }
-        CredentialBackend::SystemKeyring => {
-            super::super::secure_store::read_profile_secret(Tool::Claude, name)?.ok_or_else(
-                || {
-                    anyhow::anyhow!(
-                        "secure credentials for Claude Code profile '{}' are missing from the system keyring",
-                        name
-                    )
-                },
-            )?
-        }
-    };
-    let normalized = super::normalize_credentials_bytes(&bytes).unwrap_or(bytes);
-    let json: serde_json::Value = serde_json::from_slice(&normalized).map_err(|e| {
+    let bytes = super::read_stored_credentials(profile_store, name, backend)?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
         anyhow::anyhow!(
             "could not parse credentials file for profile '{}'.\n  \
              The profile may be corrupted. Run 'aisw remove claude {}' \

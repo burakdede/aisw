@@ -37,16 +37,7 @@ fn persist_oauth_storage(
     stored_backend: CredentialBackend,
     auth_bytes: &[u8],
 ) -> Result<()> {
-    let normalized =
-        super::normalize_credentials_bytes(auth_bytes).unwrap_or_else(|| auth_bytes.to_vec());
-    match stored_backend {
-        CredentialBackend::File => {
-            profile_store.write_file(Tool::Claude, name, super::CREDENTIALS_FILE, &normalized)
-        }
-        CredentialBackend::SystemKeyring => {
-            secure_store::write_profile_secret(Tool::Claude, name, &normalized)
-        }
-    }
+    super::persist_stored_credentials(profile_store, name, stored_backend, auth_bytes)
 }
 
 // ---- Live credential snapshot (for import) ----
