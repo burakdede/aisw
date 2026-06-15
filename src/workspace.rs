@@ -71,6 +71,7 @@ impl From<crate::cli::WorkspaceGuardMode> for GuardMode {
     }
 }
 
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoInfo {
     pub root: PathBuf,
