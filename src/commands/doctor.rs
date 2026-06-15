@@ -262,14 +262,12 @@ fn credentials_filename(tool: Tool) -> &'static str {
 // ---- rc file path helper ----
 
 pub fn rc_path_for_shell(shell_exe: &str, user_home: &Path) -> Option<PathBuf> {
-    let basename = Path::new(shell_exe)
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or(shell_exe);
-    match basename {
+    let basename = crate::commands::init::normalized_shell_name(Some(shell_exe))?;
+    match basename.as_str() {
         "bash" => Some(user_home.join(".bashrc")),
         "zsh" => Some(user_home.join(".zshrc")),
         "fish" => Some(user_home.join(".config").join("fish").join("config.fish")),
+        "pwsh" => Some(crate::commands::init::rc_file(user_home, "pwsh")),
         _ => None,
     }
 }
@@ -304,7 +302,11 @@ pub fn collect(home: &Path, user_home: &Path, path_var: &std::ffi::OsStr) -> Doc
     checks.push(check_keyring());
 
     // 4. Shell hook
-    let shell_exe = std::env::var("SHELL").ok();
+    let shell_exe = std::env::var("SHELL").ok().or_else(|| {
+        std::env::var("PSModulePath")
+            .ok()
+            .map(|_| "pwsh".to_owned())
+    });
     let rc_path = shell_exe
         .as_deref()
         .and_then(|s| rc_path_for_shell(s, user_home));
@@ -533,6 +535,19 @@ mod tests {
             rc_path_for_shell("fish", home),
             Some(Path::new("/home/user/.config/fish/config.fish").to_path_buf())
         );
+    }
+
+    #[test]
+    fn rc_path_pwsh() {
+        let home = Path::new("/home/user");
+        let expected = if cfg!(windows) {
+            Path::new("/home/user/Documents/PowerShell/Microsoft.PowerShell_profile.ps1")
+                .to_path_buf()
+        } else {
+            Path::new("/home/user/.config/powershell/Microsoft.PowerShell_profile.ps1")
+                .to_path_buf()
+        };
+        assert_eq!(rc_path_for_shell("pwsh", home), Some(expected));
     }
 
     #[test]

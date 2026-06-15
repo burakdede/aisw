@@ -8,7 +8,7 @@ use crate::commands::init::{rc_file, HOOK_MARKER};
 use crate::output;
 use crate::runtime;
 
-const SHELLS: [&str; 3] = ["bash", "zsh", "fish"];
+const SHELLS: [&str; 4] = ["bash", "zsh", "fish", "pwsh"];
 
 pub fn run(args: UninstallArgs, home: &Path, user_home: &Path) -> Result<()> {
     if runtime::is_non_interactive() && !args.yes && !args.dry_run {

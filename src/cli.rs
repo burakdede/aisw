@@ -494,6 +494,7 @@ pub enum Shell {
     Bash,
     Zsh,
     Fish,
+    Pwsh,
 }
 
 #[derive(Args, Debug)]
@@ -848,6 +849,7 @@ mod tests {
             ("bash", Shell::Bash),
             ("zsh", Shell::Zsh),
             ("fish", Shell::Fish),
+            ("pwsh", Shell::Pwsh),
         ] {
             let cli = parse(&["shell-hook", input]).unwrap();
             let Command::ShellHook(args) = cli.command else {

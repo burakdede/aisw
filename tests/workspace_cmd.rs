@@ -200,6 +200,126 @@ fn workspace_bind_path_outside_repo_updates_user_store() {
 }
 
 #[test]
+fn strict_workspace_guard_blocks_wrapped_claude_before_launch() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+    env.add_script_tool(
+        "claude",
+        "#!/bin/sh\nprintf launched > \"$HOME/claude-launched\"\n",
+    );
+
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["workspace", "guard", "--mode", "strict"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "claude", "personal-claude"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "codex", "personal-codex"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "gemini", "personal-gemini"])
+        .assert()
+        .success();
+
+    let script = format!(
+        "eval \"$(command aisw shell-hook bash)\"\ncd \"{}\"\nclaude hello\n",
+        repo.join("api").display()
+    );
+    let output = env.run_shell_script("bash", &script).unwrap();
+    assert!(!output.status.success(), "claude launch should be blocked");
+    assert!(
+        !env.fake_home.join("claude-launched").exists(),
+        "wrapped claude should not have executed"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("workspace guard refused"));
+}
+
+#[test]
+fn strict_workspace_guard_blocks_wrapped_codex_and_gemini_before_launch() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+    env.add_script_tool(
+        "codex",
+        "#!/bin/sh\nprintf launched > \"$HOME/codex-launched\"\n",
+    );
+    env.add_script_tool(
+        "gemini",
+        "#!/bin/sh\nprintf launched > \"$HOME/gemini-launched\"\n",
+    );
+
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["workspace", "guard", "--mode", "strict"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "claude", "personal-claude"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "codex", "personal-codex"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "gemini", "personal-gemini"])
+        .assert()
+        .success();
+
+    let codex_script = format!(
+        "eval \"$(command aisw shell-hook bash)\"\ncd \"{}\"\ncodex hello\n",
+        repo.join("api").display()
+    );
+    let codex_output = env.run_shell_script("bash", &codex_script).unwrap();
+    assert!(
+        !codex_output.status.success(),
+        "codex launch should be blocked"
+    );
+    assert!(
+        !env.fake_home.join("codex-launched").exists(),
+        "wrapped codex should not have executed"
+    );
+
+    let gemini_script = format!(
+        "eval \"$(command aisw shell-hook bash)\"\ncd \"{}\"\ngemini hello\n",
+        repo.join("api").display()
+    );
+    let gemini_output = env.run_shell_script("bash", &gemini_script).unwrap();
+    assert!(
+        !gemini_output.status.success(),
+        "gemini launch should be blocked"
+    );
+    assert!(
+        !env.fake_home.join("gemini-launched").exists(),
+        "wrapped gemini should not have executed"
+    );
+}
+
+#[test]
 fn workspace_check_warn_mode_allows_launch() {
     let env = TestEnv::new();
     setup_profiles_and_contexts(&env);

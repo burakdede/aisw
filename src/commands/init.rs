@@ -37,26 +37,24 @@ pub(crate) fn run_inner(
     let detected_tools = detect_supported_tools();
 
     // Shell hook installation.
-    let shell_name = shell_env
-        .and_then(|s| Path::new(s).file_name())
-        .and_then(|n| n.to_str());
+    let shell_name = normalized_shell_name(shell_env);
     output::print_section("Shell integration");
-    output::print_kv("Shell", shell_name.unwrap_or("unknown"));
-    match shell_name {
-        Some(s @ ("bash" | "zsh" | "fish")) => {
+    output::print_kv("Shell", shell_name.as_deref().unwrap_or("unknown"));
+    match shell_name.as_deref() {
+        Some(s @ ("bash" | "zsh" | "fish" | "pwsh")) => {
             install_shell_hook(user_home, s, confirmed)?;
         }
         Some(name) => {
             output::print_warning(format!(
                 "Shell not recognized ({}). Install the hook manually: \
-                 aisw shell-hook bash >> ~/.bashrc",
+                 aisw shell-hook pwsh >> <your-profile.ps1>",
                 name
             ));
         }
         None => {
             output::print_warning(
                 "Could not detect shell. Install the hook manually: \
-                 aisw shell-hook bash >> ~/.bashrc",
+                 aisw shell-hook pwsh >> <your-profile.ps1>",
             );
         }
     }
@@ -91,6 +89,22 @@ fn print_detected_tools(detected: &HashMap<Tool, Option<DetectedTool>>) {
     }
 }
 
+pub(crate) fn normalized_shell_name(shell_env: Option<&str>) -> Option<String> {
+    let basename = shell_env
+        .and_then(|s| Path::new(s).file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
+
+    match basename.as_str() {
+        "bash" | "zsh" | "fish" | "pwsh" => Some(basename),
+        "powershell" => Some("pwsh".to_owned()),
+        _ if basename.is_empty() => None,
+        _ => Some(basename),
+    }
+}
+
 pub(crate) fn rc_file(user_home: &Path, shell: &str) -> PathBuf {
     match shell {
         "bash" => {
@@ -102,6 +116,19 @@ pub(crate) fn rc_file(user_home: &Path, shell: &str) -> PathBuf {
         }
         "zsh" => user_home.join(".zshrc"),
         "fish" => user_home.join(".config").join("fish").join("config.fish"),
+        "pwsh" => {
+            if cfg!(windows) {
+                user_home
+                    .join("Documents")
+                    .join("PowerShell")
+                    .join("Microsoft.PowerShell_profile.ps1")
+            } else {
+                user_home
+                    .join(".config")
+                    .join("powershell")
+                    .join("Microsoft.PowerShell_profile.ps1")
+            }
+        }
         _ => unreachable!(),
     }
 }
@@ -138,6 +165,10 @@ fn install_shell_hook(user_home: &Path, shell: &str, confirmed: bool) -> Result<
     let hook_line = match shell {
         "bash" | "zsh" => format!("\n{}\neval \"$(aisw shell-hook {})\"\n", HOOK_MARKER, shell),
         "fish" => format!("\n{}\naisw shell-hook fish | source\n", HOOK_MARKER),
+        "pwsh" => format!(
+            "\n{}\naisw shell-hook pwsh | Out-String | Invoke-Expression\n",
+            HOOK_MARKER
+        ),
         _ => unreachable!(),
     };
 
@@ -986,6 +1017,20 @@ mod tests {
         let rc = user_home.join(".config").join("fish").join("config.fish");
         let contents = fs::read_to_string(&rc).unwrap();
         assert!(contents.contains("shell-hook fish | source"));
+    }
+
+    #[test]
+    fn normalized_shell_name_maps_powershell_variants() {
+        assert_eq!(
+            normalized_shell_name(Some("/usr/bin/pwsh")),
+            Some("pwsh".to_owned())
+        );
+        assert_eq!(
+            normalized_shell_name(Some(
+                "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+            )),
+            Some("pwsh".to_owned())
+        );
     }
 
     #[test]
