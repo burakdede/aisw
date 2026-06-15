@@ -252,7 +252,7 @@ fn assert_real_pwsh_shell_hook_behavior() {
     add_gemini_oauth_profile(&env, "oauth");
 
     let script = r#"
-Invoke-Expression ((command aisw shell-hook pwsh | Out-String))
+aisw shell-hook pwsh | Out-String | Invoke-Expression
 Write-Output "sentinel=$env:AISW_SHELL_HOOK"
 aisw use codex work *> $null
 Write-Output "codex_isolated=$env:CODEX_HOME"
