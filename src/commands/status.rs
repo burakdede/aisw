@@ -32,13 +32,13 @@ pub(crate) struct ToolStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct DerivedContextStatus {
-    status: &'static str,
-    active: Option<String>,
-    matches: Vec<String>,
-    drift_candidates: Vec<String>,
-    mapped_profiles: Option<std::collections::HashMap<Tool, String>>,
-    unmanaged_tools: Vec<(Tool, Option<String>)>,
+pub(crate) struct DerivedContextStatus {
+    pub(crate) status: &'static str,
+    pub(crate) active: Option<String>,
+    pub(crate) matches: Vec<String>,
+    pub(crate) drift_candidates: Vec<String>,
+    pub(crate) mapped_profiles: Option<std::collections::HashMap<Tool, String>>,
+    pub(crate) unmanaged_tools: Vec<(Tool, Option<String>)>,
 }
 
 pub fn run(args: StatusArgs, home: &Path) -> Result<()> {
@@ -496,7 +496,10 @@ fn print_json(
     Ok(())
 }
 
-fn derive_context_status(config: &Config, statuses: &[ToolStatus]) -> DerivedContextStatus {
+pub(crate) fn derive_context_status(
+    config: &Config,
+    statuses: &[ToolStatus],
+) -> DerivedContextStatus {
     let active_profiles = Tool::ALL
         .iter()
         .map(|tool| {

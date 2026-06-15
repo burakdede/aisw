@@ -15,6 +15,7 @@ pub mod shell_hook;
 pub mod status;
 pub mod uninstall;
 pub mod use_;
+pub mod workspace;
 
 pub fn dispatch(cli: Cli) -> Result<()> {
     let home = ConfigStore::aisw_home()?;
@@ -49,6 +50,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Workspace(args) => workspace::run(args, &home)?,
     }
     Ok(())
 }

@@ -12,6 +12,7 @@ pub mod terminal;
 pub mod tool_detection;
 pub mod types;
 pub mod util;
+pub mod workspace;
 
 /// Serializes child-process spawning across all unit tests.
 ///

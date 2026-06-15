@@ -89,6 +89,9 @@ pub enum Command {
 
     /// Run a health check on the aisw installation and tool environment
     Doctor(DoctorArgs),
+
+    /// Bind workspaces to expected contexts and enforce guardrails
+    Workspace(WorkspaceArgs),
 }
 
 #[derive(Args, Debug)]
@@ -96,6 +99,84 @@ pub struct DoctorArgs {
     /// Output results as JSON
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceArgs {
+    #[command(subcommand)]
+    pub command: WorkspaceCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WorkspaceCommand {
+    /// Bind a path, repo, remote, or default rule to a context
+    Bind(WorkspaceBindArgs),
+
+    /// Show workspace-to-context resolution for the current directory
+    Status(WorkspaceStatusArgs),
+
+    /// Validate workspace rules and current workspace configuration
+    Doctor(WorkspaceDoctorArgs),
+
+    /// Set the default workspace guard mode
+    Guard(WorkspaceGuardArgs),
+
+    #[command(hide = true)]
+    Check(WorkspaceCheckArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceBindArgs {
+    /// Path to bind. In a git repo this writes .git/info/aisw.json by default.
+    pub path: Option<String>,
+
+    /// Context to bind the workspace to
+    #[arg(long, value_name = "CONTEXT")]
+    pub context: String,
+
+    /// Bind a git remote pattern like github.com/acme/*
+    #[arg(long, value_name = "PATTERN", conflicts_with_all = ["path", "default"])]
+    pub git_remote: Option<String>,
+
+    /// Set the default context when no workspace-specific rule matches
+    #[arg(long, conflicts_with_all = ["path", "git_remote"])]
+    pub default: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceStatusArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceDoctorArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceGuardArgs {
+    /// Default workspace guard mode
+    #[arg(long, value_enum)]
+    pub mode: WorkspaceGuardMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum WorkspaceGuardMode {
+    Warn,
+    Strict,
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceCheckArgs {
+    #[arg(long)]
+    pub tool: Option<Tool>,
+
+    #[arg(long, hide = true)]
+    pub prompt: bool,
 }
 
 #[derive(Args, Debug)]
