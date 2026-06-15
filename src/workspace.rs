@@ -593,7 +593,6 @@ pub fn validate_context_exists(config: &Config, name: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::config::{ContextEntry, ContextProfiles};
-    use std::env;
     use tempfile::TempDir;
 
     #[test]
@@ -691,21 +690,14 @@ mod tests {
 
     #[test]
     fn expand_tilde_expands_home_and_leaves_plain_paths_unchanged() {
-        let temp = TempDir::new().unwrap();
-        let original_home = env::var_os("HOME");
-        env::set_var("HOME", temp.path());
-
+        let _temp = TempDir::new().unwrap();
+        let home = dirs::home_dir().expect("home directory should be available");
         let expanded = expand_tilde(Path::new("~/clients/acme")).unwrap();
-        assert_eq!(expanded, temp.path().join("clients").join("acme"));
+        assert_eq!(expanded, home.join("clients").join("acme"));
         assert_eq!(
             expand_tilde(Path::new("relative/path")).unwrap(),
             PathBuf::from("relative/path")
         );
-
-        match original_home {
-            Some(value) => env::set_var("HOME", value),
-            None => env::remove_var("HOME"),
-        }
     }
 
     #[test]
