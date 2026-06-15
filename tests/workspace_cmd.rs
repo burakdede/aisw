@@ -200,6 +200,33 @@ fn workspace_bind_path_outside_repo_updates_user_store() {
 }
 
 #[test]
+fn workspace_bind_default_and_git_remote_update_user_store() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+
+    env.cmd()
+        .args(["workspace", "bind", "--default", "--context", "client-acme"])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--git-remote",
+            "git@github.com:acme/*",
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+
+    let json: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("workspaces.json")).unwrap();
+    assert_eq!(json["default_context"], "client-acme");
+    assert_eq!(json["git_remote_rules"][0]["pattern"], "github.com/acme/*");
+}
+
+#[test]
 fn strict_workspace_guard_blocks_wrapped_claude_before_launch() {
     let env = TestEnv::new();
     setup_profiles_and_contexts(&env);
@@ -346,4 +373,102 @@ fn workspace_check_warn_mode_allows_launch() {
         .assert()
         .success()
         .stderr(contains("Workspace guard warning"));
+}
+
+#[test]
+fn workspace_check_prompt_warns_and_strict_without_tool_uses_agent_label() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["workspace", "guard", "--mode", "strict"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "claude", "personal-claude"])
+        .assert()
+        .success();
+
+    env.cmd()
+        .current_dir(repo.join("api"))
+        .args(["workspace", "check", "--prompt"])
+        .assert()
+        .success()
+        .stderr(contains("Workspace guard: expected context"));
+
+    env.cmd()
+        .current_dir(repo.join("api"))
+        .args(["workspace", "check"])
+        .assert()
+        .failure()
+        .stderr(contains("workspace guard refused to launch agent"));
+}
+
+#[test]
+fn workspace_status_human_and_doctor_json_cover_match_and_fail_states() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--default",
+            "--context",
+            "missing-context",
+        ])
+        .assert()
+        .failure();
+
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "use", "client-acme"])
+        .assert()
+        .success();
+
+    env.cmd()
+        .current_dir(repo.join("api"))
+        .args(["workspace", "status"])
+        .assert()
+        .success()
+        .stdout(contains("Active context"))
+        .stdout(contains("Status"))
+        .stdout(contains("match"));
+
+    let doctor_json = env
+        .cmd()
+        .current_dir(repo.join("api"))
+        .args(["workspace", "doctor", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&doctor_json).unwrap();
+    assert!(json["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|check| { check["name"] == "current workspace" && check["status"] == "pass" }));
 }

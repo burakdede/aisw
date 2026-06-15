@@ -592,6 +592,9 @@ pub fn validate_context_exists(config: &Config, name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{ContextEntry, ContextProfiles};
+    use std::env;
+    use tempfile::TempDir;
 
     #[test]
     fn normalize_remote_variants() {
@@ -625,5 +628,142 @@ mod tests {
             Path::new("/tmp/work"),
             Path::new("/tmp/workbench")
         ));
+    }
+
+    #[test]
+    fn remote_rule_prefers_more_specific_pattern_then_first_defined() {
+        let rules = vec![
+            GitRemoteRule {
+                pattern: "github.com/acme/*".to_owned(),
+                context: "broad".to_owned(),
+            },
+            GitRemoteRule {
+                pattern: "github.com/acme/api".to_owned(),
+                context: "specific".to_owned(),
+            },
+            GitRemoteRule {
+                pattern: "github.com/acme/api".to_owned(),
+                context: "same-specificity-later".to_owned(),
+            },
+        ];
+
+        let matched = find_matching_remote_rule(&rules, &[String::from("github.com/acme/api")])
+            .expect("rule should match");
+        assert_eq!(matched.context, "specific");
+    }
+
+    #[test]
+    fn load_git_remotes_ignores_non_remote_urls_and_missing_config() {
+        let temp = TempDir::new().unwrap();
+        let git_dir = temp.path().join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+        assert!(load_git_remotes(&git_dir).unwrap().is_empty());
+
+        fs::write(
+            git_dir.join("config"),
+            "[core]\n\trepositoryformatversion = 0\nurl = https://example.com/ignored.git\n[remote \"origin\"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n\turl = git@github.com:acme/api.git\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_git_remotes(&git_dir).unwrap(),
+            vec![String::from("github.com/acme/api")]
+        );
+    }
+
+    #[test]
+    fn resolve_gitdir_pointer_supports_relative_and_absolute_paths() {
+        let temp = TempDir::new().unwrap();
+        let repo_root = temp.path().join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+
+        let dot_git = repo_root.join(".git");
+        fs::write(&dot_git, "gitdir: ../actual.git\n").unwrap();
+        assert_eq!(
+            resolve_gitdir_pointer(&dot_git).unwrap(),
+            repo_root.join("../actual.git")
+        );
+
+        let absolute = temp.path().join("absolute.git");
+        fs::write(&dot_git, format!("gitdir: {}\n", absolute.display())).unwrap();
+        assert_eq!(resolve_gitdir_pointer(&dot_git).unwrap(), absolute);
+    }
+
+    #[test]
+    fn expand_tilde_expands_home_and_leaves_plain_paths_unchanged() {
+        let temp = TempDir::new().unwrap();
+        let original_home = env::var_os("HOME");
+        env::set_var("HOME", temp.path());
+
+        let expanded = expand_tilde(Path::new("~/clients/acme")).unwrap();
+        assert_eq!(expanded, temp.path().join("clients").join("acme"));
+        assert_eq!(
+            expand_tilde(Path::new("relative/path")).unwrap(),
+            PathBuf::from("relative/path")
+        );
+
+        match original_home {
+            Some(value) => env::set_var("HOME", value),
+            None => env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn classify_workspace_state_covers_invalid_ambiguous_and_unmanaged() {
+        let mut config = Config::default();
+        let mut profiles = ContextProfiles::default();
+        profiles.insert(Tool::Claude, "work");
+        config.contexts.entries_mut().insert(
+            "client-acme".to_owned(),
+            ContextEntry::new(profiles, chrono::Utc::now()),
+        );
+
+        let invalid_binding = WorkspaceBinding {
+            workspace: PathBuf::from("/tmp/project"),
+            repo_root: None,
+            expected_context: Some("missing".to_owned()),
+            matched_rule: None,
+        };
+        let empty_profiles = HashMap::from([
+            (Tool::Claude, None),
+            (Tool::Codex, None),
+            (Tool::Gemini, None),
+        ]);
+        let ambiguous = DerivedContextStatus {
+            status: "ambiguous",
+            active: Some("other".to_owned()),
+            matches: vec!["client-acme".to_owned()],
+            drift_candidates: vec![],
+            mapped_profiles: None,
+            unmanaged_tools: vec![],
+        };
+        assert_eq!(
+            classify_workspace_state(&config, &invalid_binding, &empty_profiles, &ambiguous),
+            WorkspaceState::InvalidContext
+        );
+
+        let valid_binding = WorkspaceBinding {
+            workspace: PathBuf::from("/tmp/project"),
+            repo_root: None,
+            expected_context: Some("client-acme".to_owned()),
+            matched_rule: None,
+        };
+        assert_eq!(
+            classify_workspace_state(&config, &valid_binding, &empty_profiles, &ambiguous),
+            WorkspaceState::AmbiguousActive
+        );
+
+        let unmanaged = DerivedContextStatus {
+            status: "unmanaged",
+            active: None,
+            matches: vec![],
+            drift_candidates: vec![],
+            mapped_profiles: None,
+            unmanaged_tools: vec![],
+        };
+        assert_eq!(
+            classify_workspace_state(&config, &valid_binding, &empty_profiles, &unmanaged),
+            WorkspaceState::Unmanaged
+        );
     }
 }
