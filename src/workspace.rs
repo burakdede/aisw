@@ -62,6 +62,15 @@ impl GuardMode {
     }
 }
 
+impl From<crate::cli::WorkspaceGuardMode> for GuardMode {
+    fn from(mode: crate::cli::WorkspaceGuardMode) -> Self {
+        match mode {
+            crate::cli::WorkspaceGuardMode::Warn => GuardMode::Warn,
+            crate::cli::WorkspaceGuardMode::Strict => GuardMode::Strict,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoInfo {
     pub root: PathBuf,
@@ -362,7 +371,7 @@ fn classify_workspace_state(
     if context_matches_active(config, expected_context, active_profiles) {
         return WorkspaceState::Match;
     }
-    if context_status.status == "ambiguous" {
+    if context_status.is_ambiguous() {
         return WorkspaceState::AmbiguousActive;
     }
     if active_profiles.values().all(|profile| profile.is_none()) {
@@ -487,18 +496,15 @@ fn load_git_remotes(git_dir: &Path) -> Result<Vec<String>> {
     }
     let contents = fs::read_to_string(&config_path)
         .with_context(|| format!("could not read {}", config_path.display()))?;
-    let mut current_remote: Option<String> = None;
+    let mut in_remote_section = false;
     let mut remotes = Vec::new();
     for line in contents.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("[remote \"") && trimmed.ends_with("\"]") {
-            current_remote = Some(trimmed.to_owned());
+        if trimmed.starts_with('[') {
+            in_remote_section = trimmed.starts_with("[remote \"") && trimmed.ends_with("\"]");
             continue;
         }
-        if !trimmed.starts_with("url") {
-            continue;
-        }
-        if current_remote.is_none() {
+        if !in_remote_section || !trimmed.starts_with("url") {
             continue;
         }
         let Some((_, value)) = trimmed.split_once('=') else {
@@ -661,6 +667,28 @@ mod tests {
         fs::write(
             git_dir.join("config"),
             "[core]\n\trepositoryformatversion = 0\nurl = https://example.com/ignored.git\n[remote \"origin\"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n\turl = git@github.com:acme/api.git\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_git_remotes(&git_dir).unwrap(),
+            vec![String::from("github.com/acme/api")]
+        );
+    }
+
+    #[test]
+    fn load_git_remotes_does_not_leak_url_from_non_remote_section_after_remote() {
+        let temp = TempDir::new().unwrap();
+        let git_dir = temp.path().join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::write(
+            git_dir.join("config"),
+            concat!(
+                "[remote \"origin\"]\n",
+                "\turl = git@github.com:acme/api.git\n",
+                "[branch \"main\"]\n",
+                "\turl = https://should-be-ignored.example.com/repo.git\n",
+            ),
         )
         .unwrap();
 

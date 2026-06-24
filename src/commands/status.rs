@@ -41,6 +41,12 @@ pub(crate) struct DerivedContextStatus {
     pub(crate) unmanaged_tools: Vec<(Tool, Option<String>)>,
 }
 
+impl DerivedContextStatus {
+    pub(crate) fn is_ambiguous(&self) -> bool {
+        self.status == "ambiguous"
+    }
+}
+
 pub fn run(args: StatusArgs, home: &Path) -> Result<()> {
     let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
     run_in(

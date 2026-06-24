@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::cli::{
     WorkspaceArgs, WorkspaceBindArgs, WorkspaceCheckArgs, WorkspaceCommand, WorkspaceDoctorArgs,
-    WorkspaceGuardArgs, WorkspaceGuardMode, WorkspaceStatusArgs,
+    WorkspaceGuardArgs, WorkspaceStatusArgs,
 };
 use crate::config::ConfigStore;
 use crate::output;
@@ -263,10 +263,7 @@ fn doctor(args: WorkspaceDoctorArgs, home: &Path) -> Result<()> {
 fn guard(args: WorkspaceGuardArgs, home: &Path) -> Result<()> {
     let store = WorkspaceStore::new(home);
     let mut config = store.load()?;
-    config.guard_mode = match args.mode {
-        WorkspaceGuardMode::Warn => GuardMode::Warn,
-        WorkspaceGuardMode::Strict => GuardMode::Strict,
-    };
+    config.guard_mode = GuardMode::from(args.mode);
     store.save(&config)?;
 
     output::print_title("Updated workspace guard");
