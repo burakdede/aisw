@@ -109,21 +109,28 @@ pub(crate) fn shell_single_quote(value: &str) -> String {
 /// We detect Fish by checking for `FISH_VERSION`, which Fish always exports into
 /// child-process environments.
 pub(crate) fn emit_export(key: &str, value: &str) {
-    if std::env::var_os("FISH_VERSION").is_some() {
-        println!("set -gx {} {}", key, shell_single_quote(value));
-    } else {
-        println!("export {}={}", key, shell_single_quote(value));
+    match std::env::var("AISW_SHELL").ok().as_deref() {
+        Some("pwsh") => println!("$env:{} = {}", key, powershell_single_quote(value)),
+        _ if std::env::var_os("FISH_VERSION").is_some() => {
+            println!("set -gx {} {}", key, shell_single_quote(value));
+        }
+        _ => println!("export {}={}", key, shell_single_quote(value)),
     }
 }
 
 /// Emit a shell unset statement for `key`, choosing the correct syntax for the
 /// active shell.
 pub(crate) fn emit_unset(key: &str) {
-    if std::env::var_os("FISH_VERSION").is_some() {
-        println!("set -e {}", key);
-    } else {
-        println!("unset {}", key);
+    match std::env::var("AISW_SHELL").ok().as_deref() {
+        Some("pwsh") => println!("Remove-Item Env:{} -ErrorAction SilentlyContinue", key),
+        _ if std::env::var_os("FISH_VERSION").is_some() => println!("set -e {}", key),
+        _ => println!("unset {}", key),
     }
+}
+
+fn powershell_single_quote(value: &str) -> String {
+    let escaped = value.replace('\'', "''");
+    format!("'{}'", escaped)
 }
 
 #[cfg(test)]
@@ -233,5 +240,10 @@ mod tests {
             shell_single_quote("/home/user/my profiles/codex"),
             "'/home/user/my profiles/codex'"
         );
+    }
+
+    #[test]
+    fn powershell_single_quote_escapes_embedded_single_quote() {
+        assert_eq!(powershell_single_quote("it's"), "'it''s'");
     }
 }

@@ -24,17 +24,36 @@ fn hook_output(shell: &str) -> Vec<u8> {
 }
 
 fn try_syntax_check(binary: &str, source: &[u8]) -> Option<bool> {
-    let mut child = Command::new(binary)
-        .arg(if binary == "fish" {
-            "--no-execute"
-        } else {
-            "-n"
-        })
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
+    let mut child = if binary == "fish" {
+        Command::new(binary)
+            .arg("--no-execute")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?
+    } else if binary == "pwsh" {
+        Command::new(binary)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$src = [Console]::In.ReadToEnd(); [scriptblock]::Create($src) | Out-Null",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?
+    } else {
+        Command::new(binary)
+            .arg("-n")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?
+    };
     child.stdin.take().unwrap().write_all(source).unwrap();
     Some(child.wait().unwrap().success())
 }
@@ -225,6 +244,83 @@ printf 'context_gemini=%s\n' "$GEMINI_API_KEY"
     );
 }
 
+fn assert_real_pwsh_shell_hook_behavior() {
+    let env = TestEnv::new();
+    add_codex_profile(&env, "work", VALID_CODEX_KEY);
+    add_codex_profile(&env, "oss", VALID_CODEX_KEY_ALT);
+    add_gemini_api_key_profile(&env, "api");
+    add_gemini_oauth_profile(&env, "oauth");
+
+    let script = r#"
+aisw shell-hook pwsh | Out-String | Invoke-Expression
+Write-Output "sentinel=$env:AISW_SHELL_HOOK"
+aisw use codex work *> $null
+Write-Output "codex_isolated=$env:CODEX_HOME"
+aisw use codex oss --state-mode shared *> $null
+if ($null -eq $env:CODEX_HOME) {
+    Write-Output "codex_shared=__unset__"
+} else {
+    Write-Output "codex_shared=$env:CODEX_HOME"
+}
+aisw use gemini api *> $null
+Write-Output "gemini_api=$env:GEMINI_API_KEY"
+aisw use gemini oauth *> $null
+if ($null -eq $env:GEMINI_API_KEY) {
+    Write-Output "gemini_oauth=__unset__"
+} else {
+    Write-Output "gemini_oauth=$env:GEMINI_API_KEY"
+}
+aisw context create workspace --codex work --gemini api *> $null
+aisw context use workspace *> $null
+Write-Output "context_codex=$env:CODEX_HOME"
+Write-Output "context_gemini=$env:GEMINI_API_KEY"
+"#;
+
+    let Some(output) = env.run_shell_script("pwsh", script) else {
+        return;
+    };
+    assert!(
+        output.status.success(),
+        "pwsh sourced hook script failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected_codex_home = env
+        .aisw_home
+        .join("profiles")
+        .join("codex")
+        .join("work")
+        .display()
+        .to_string();
+    assert!(stdout.contains("sentinel=1"), "stdout:\n{stdout}");
+    assert!(
+        stdout.contains(&format!("codex_isolated={expected_codex_home}")),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("codex_shared=__unset__"),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("gemini_api={VALID_GEMINI_KEY}")),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("gemini_oauth=__unset__"),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("context_codex={expected_codex_home}")),
+        "stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("context_gemini={VALID_GEMINI_KEY}")),
+        "stdout:\n{stdout}"
+    );
+}
+
 #[test]
 fn shell_hook_bash_exits_zero_with_expected_content() {
     TestEnv::new()
@@ -326,4 +422,29 @@ fn shell_hook_fish_is_valid_syntax() {
 #[test]
 fn shell_hook_fish_updates_environment_in_real_shell() {
     assert_real_fish_shell_hook_behavior();
+}
+
+#[test]
+fn shell_hook_pwsh_exits_zero_with_expected_content() {
+    TestEnv::new()
+        .cmd()
+        .args(["shell-hook", "pwsh"])
+        .assert()
+        .success()
+        .stdout(contains("AISW_SHELL_HOOK"))
+        .stdout(contains("function global:aisw"))
+        .stdout(contains("--emit-env"));
+}
+
+#[test]
+fn shell_hook_pwsh_is_valid_syntax() {
+    let output = hook_output("pwsh");
+    if let Some(ok) = try_syntax_check("pwsh", &output) {
+        assert!(ok, "pwsh reported syntax errors in the hook");
+    }
+}
+
+#[test]
+fn shell_hook_pwsh_updates_environment_in_real_shell() {
+    assert_real_pwsh_shell_hook_behavior();
 }

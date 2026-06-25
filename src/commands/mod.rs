@@ -15,6 +15,7 @@ pub mod shell_hook;
 pub mod status;
 pub mod uninstall;
 pub mod use_;
+pub mod workspace;
 
 pub fn dispatch(cli: Cli) -> Result<()> {
     let home = ConfigStore::aisw_home()?;
@@ -28,7 +29,11 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Status(args) => status::run(args, &home)?,
         Command::Init(args) => {
             let user_home = dirs::home_dir().context("could not determine home directory")?;
-            let shell_env = std::env::var("SHELL").ok();
+            let shell_env = std::env::var("SHELL").ok().or_else(|| {
+                std::env::var("PSModulePath")
+                    .ok()
+                    .map(|_| "pwsh".to_owned())
+            });
             if crate::runtime::is_non_interactive() && !args.yes {
                 anyhow::bail!(
                     "init requires confirmation and prompt input.\n  \
@@ -49,6 +54,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Workspace(args) => workspace::run(args, &home)?,
     }
     Ok(())
 }

@@ -230,6 +230,7 @@ impl TestEnv {
                 cmd.arg("--no-config");
                 cmd
             }
+            "pwsh" => StdCommand::new("pwsh"),
             _ => panic!("unsupported shell: {shell}"),
         };
 
@@ -251,7 +252,13 @@ impl TestEnv {
 
     pub fn run_shell_script(&self, shell: &str, script: &str) -> Option<Output> {
         let mut cmd = self.shell_cmd(shell)?;
-        cmd.args(["-c", script]).output().ok()
+        match shell {
+            "pwsh" => cmd
+                .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .output()
+                .ok(),
+            _ => cmd.args(["-c", script]).output().ok(),
+        }
     }
 
     /// Convenience: path to a file inside AISW_HOME.
