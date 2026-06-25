@@ -29,6 +29,8 @@ The problem compounds across tools. If you maintain accounts for all three CLIs,
 
 **Automatic backups**  -  `aisw remove` and `aisw rename` create backups before changing state. Backups are timestamped and restorable.
 
+**Workspace guardrails**  -  `aisw workspace bind . --context client-acme` ties a repo to an expected context. The shell hook then checks the binding before each `claude`, `codex`, or `gemini` launch and warns or blocks when the active context does not match.
+
 ## Profiles vs contexts
 
 This distinction matters because the two features solve different problems.
@@ -83,7 +85,7 @@ Limits of contexts:
 
 **Developers with separate work and personal accounts.** Work uses a team API key; personal uses an OAuth account. One command to switch all tools when stepping away from work context.
 
-**Consultants and contractors.** Different client engagements use different provider accounts or API keys. Named profiles per client. Switching takes one command and leaves a clean audit trail via backups.
+**Consultants and contractors.** Different client engagements use different provider accounts or API keys. Named profiles per client, contexts to group them, and workspace guardrails to prevent launching the wrong account in the wrong repo. Switching takes one command and leaves a clean audit trail via backups.
 
 **Teams sharing accounts for specific tasks.** A shared team API key for CI or group work, individual OAuth accounts for everything else. `aisw` keeps both accessible without credential conflicts.
 
