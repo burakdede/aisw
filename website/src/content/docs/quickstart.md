@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, cli tooling, quickstart, getting-started
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, quickstart, getting-started
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Quickstart","headline":"Quickstart","description":"Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.","url":"https://burakdede.github.io/aisw/quickstart/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, quickstart, getting-started","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Quickstart","item":"https://burakdede.github.io/aisw/quickstart/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Quickstart","headline":"Quickstart","description":"Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.","url":"https://burakdede.github.io/aisw/quickstart/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, quickstart, getting-started","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Quickstart","item":"https://burakdede.github.io/aisw/quickstart/"}]}]}
 ---
 
 From install to switching accounts in five minutes.
@@ -173,7 +173,7 @@ aisw use claude work
 
 ## 7. Shell hook (optional but recommended)
 
-The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files.
+The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files. It also enforces workspace guardrails before each `claude`, `codex`, or `gemini` launch.
 
 ```sh
 # Zsh
@@ -186,10 +186,37 @@ source ~/.bashrc
 
 # Fish
 echo 'aisw shell-hook fish | source' >> ~/.config/fish/config.fish
+
+# PowerShell
+Add-Content $PROFILE "`naisw shell-hook pwsh | Out-String | Invoke-Expression"
+. $PROFILE
 ```
+
+## 8. Workspace guardrails (optional, for multi-repo or multi-client work)
+
+If you work on repos that each require a different account, bind them to the right context so you get a warning when the wrong account is active before launching an agent:
+
+```sh
+# Bind a repo to the context it should use
+cd ~/clients/acme-api
+aisw workspace bind . --context client-acme
+
+# Set a fallback for everything else
+aisw workspace bind --default --context personal
+
+# Warn on mismatch (default) or block entirely
+aisw workspace guard --mode warn
+aisw workspace guard --mode strict
+
+# Check what the current directory resolves to
+aisw workspace status
+```
+
+See [Workspace guardrails](/aisw/workspace/) for the full setup guide.
 
 ## Next steps
 
 - [Commands](/aisw/commands/)  -  full syntax for every command
+- [Workspace guardrails](/aisw/workspace/)  -  protect repos from wrong-account launches
 - [Automation and scripting](/aisw/automation/)  -  CI and non-interactive patterns
 - [How it works](/aisw/how-it-works/)  -  credential storage, platform details, design decisions

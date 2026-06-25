@@ -1,6 +1,6 @@
 ---
 title: Commands
-description: Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
+description: Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/commands.md
 head:
   - tag: meta
@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, cli tooling, commands, reference
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, commands, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Commands","headline":"Commands","description":"Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.","url":"https://burakdede.github.io/aisw/commands/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, commands, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Commands","item":"https://burakdede.github.io/aisw/commands/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Commands","headline":"Commands","description":"Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.","url":"https://burakdede.github.io/aisw/commands/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, commands, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Commands","item":"https://burakdede.github.io/aisw/commands/"}]}]}
 ---
 
 ## Global flags
@@ -41,13 +41,19 @@ aisw init [--yes]
 aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
 aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context list [--json]
-aisw context use <name> [--state-mode isolated|shared]
+aisw context use <name> [--state-mode isolated|shared] [--emit-env]
 aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context unset <name> [--claude] [--codex] [--gemini]
 aisw context remove <name> [--yes]
 aisw context rename <old> <new>
-aisw use <tool> <profile> [--state-mode isolated|shared]
-aisw use --all --profile <profile> [--state-mode isolated|shared]
+aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
+aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
+aisw workspace bind [PATH] --context <name>
+aisw workspace bind --git-remote <PATTERN> --context <name>
+aisw workspace bind --default --context <name>
+aisw workspace status [--json]
+aisw workspace doctor [--json]
+aisw workspace guard --mode warn|strict
 aisw list [tool] [--json]
 aisw status [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
@@ -55,7 +61,7 @@ aisw rename <tool> <old> <new>
 aisw backup list [--json]
 aisw backup restore <backup_id> [--yes]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
-aisw shell-hook <bash|zsh|fish>
+aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
 ```
 
@@ -139,8 +145,8 @@ aisw add codex work --from-live --yes
 ## `aisw use`
 
 ```text
-aisw use <tool> <profile> [--state-mode isolated|shared]
-aisw use --all --profile <profile> [--state-mode isolated|shared]
+aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
+aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
 ```
 
 Activate a stored profile as the live account.
@@ -151,16 +157,19 @@ Activate a stored profile as the live account.
 | `--state-mode shared` | Unset `CLAUDE_CONFIG_DIR` or `CODEX_HOME`; tool reads its standard config dir |
 | `--all` | Switch every tool that has a matching profile name |
 | `--profile NAME` | Profile name; required with `--all` |
+| `--emit-env` | Print shell export/unset lines to stdout instead of writing them to the session |
 
 Notes:
 - `--state-mode` applies to Claude Code and Codex CLI only. Gemini does not support it.
 - Switching is atomic: the previous live state is snapshotted before any write. A failed write triggers a full rollback.
 - With shell hook active, `aisw use` also emits the environment variable exports into the current shell session.
+- `--emit-env` is used internally by the shell hook. You can use it directly to apply exports in a subshell: `eval "$(aisw use claude work --emit-env)"`.
 
 ```sh
 aisw use claude work
 aisw use codex work --state-mode shared
 aisw use --all --profile personal
+eval "$(aisw use claude work --emit-env)"
 ```
 
 ---
@@ -201,10 +210,16 @@ aisw context list --json
 ### `aisw context use`
 
 ```text
-aisw context use <name> [--state-mode isolated|shared]
+aisw context use <name> [--state-mode isolated|shared] [--emit-env]
 ```
 
 Activate every mapped tool in a saved context as one transaction.
+
+| Flag | Effect |
+|---|---|
+| `--state-mode isolated` | Set `CLAUDE_CONFIG_DIR` and `CODEX_HOME` to profile directories (default) |
+| `--state-mode shared` | Unset `CLAUDE_CONFIG_DIR` and `CODEX_HOME` for Claude and Codex |
+| `--emit-env` | Print shell export/unset lines to stdout instead of writing them to the session |
 
 Notes:
 - Default state mode is `isolated`.
@@ -215,6 +230,7 @@ Notes:
 ```sh
 aisw context use acme
 aisw context use acme --state-mode shared
+eval "$(aisw context use acme --emit-env)"
 ```
 
 ### `aisw context set`
@@ -263,6 +279,82 @@ Rename a saved context. This does not change live credentials or active per-tool
 
 ```sh
 aisw context rename acme client-acme
+```
+
+---
+
+## `aisw workspace`
+
+Bind repos, directories, and git remotes to expected `aisw` contexts. The shell hook checks these bindings before launching `claude`, `codex`, or `gemini`, warning or blocking when the active context does not match.
+
+See [Workspace guardrails](/aisw/workspace/) for a full explanation of the feature, setup steps, and common patterns.
+
+### `aisw workspace bind`
+
+```text
+aisw workspace bind [PATH] --context <name>
+aisw workspace bind --git-remote <PATTERN> --context <name>
+aisw workspace bind --default --context <name>
+```
+
+Create or update a workspace binding. The context must already exist.
+
+| Flag | Effect |
+|---|---|
+| `PATH` | Path to bind. Defaults to `.`. Inside a git repo, writes `.git/info/aisw.json`. Outside a repo, writes a path rule to `~/.aisw/workspaces.json`. |
+| `--context NAME` | Expected context name for this location |
+| `--git-remote PATTERN` | Bind by git remote URL pattern. Supports `*` wildcards. |
+| `--default` | Set the fallback context for locations with no more specific rule. |
+
+```sh
+aisw workspace bind . --context client-acme
+aisw workspace bind --git-remote "github.com/acme/*" --context client-acme
+aisw workspace bind ~/clients --context client-acme
+aisw workspace bind --default --context personal
+```
+
+### `aisw workspace status`
+
+```text
+aisw workspace status [--json]
+```
+
+Show the resolved binding for the current directory: matched rule, expected context, active context/profiles, status, and recommended action.
+
+```sh
+aisw workspace status
+aisw workspace status --json
+```
+
+### `aisw workspace doctor`
+
+```text
+aisw workspace doctor [--json]
+```
+
+Validate all workspace rules. Checks that referenced context names still exist and reports the resolved state for the current directory.
+
+```sh
+aisw workspace doctor
+aisw workspace doctor --json
+```
+
+### `aisw workspace guard`
+
+```text
+aisw workspace guard --mode warn|strict
+```
+
+Set the default guard mode, saved to `~/.aisw/workspaces.json`.
+
+| Mode | Effect |
+|---|---|
+| `warn` | Print a warning before launching an agent. The launch proceeds. (Default) |
+| `strict` | Block the agent launch entirely and print a remediation command. |
+
+```sh
+aisw workspace guard --mode warn
+aisw workspace guard --mode strict
 ```
 
 ---
@@ -404,7 +496,7 @@ aisw uninstall --remove-data --yes
 ## `aisw shell-hook`
 
 ```text
-aisw shell-hook <bash|zsh|fish>
+aisw shell-hook <bash|zsh|fish|pwsh>
 ```
 
 Print the shell hook code for the given shell. Redirect into your shell config file:
@@ -413,7 +505,12 @@ Print the shell hook code for the given shell. Redirect into your shell config f
 aisw shell-hook zsh >> ~/.zshrc
 aisw shell-hook bash >> ~/.bashrc
 aisw shell-hook fish >> ~/.config/fish/conf.d/aisw.fish
+aisw shell-hook pwsh >> $PROFILE
 ```
+
+The hook does two things:
+1. Wraps `aisw use` and `aisw context use` so environment variable exports are applied into the current shell session automatically.
+2. Wraps `claude`, `codex`, and `gemini` to run `aisw workspace check` before each launch, enforcing any configured workspace guardrails.
 
 See [Shell integration](/aisw/shell-integration/) for details and completion setup.
 

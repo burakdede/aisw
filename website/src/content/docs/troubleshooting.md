@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, cli tooling, troubleshooting, reference
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, troubleshooting, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, troubleshooting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, troubleshooting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
 ---
 
 ## Quick diagnostics
@@ -237,6 +237,49 @@ Interactive OAuth is not available in `--non-interactive` mode by design. Use AP
 **Fix:**
 - Wait for the other command to complete.
 - If no `aisw` process is running, a stale lock may remain. Check for lock files under `~/.aisw/` and remove any that have a modification time older than a minute.
+
+---
+
+## Workspace guard blocked an agent launch
+
+**Symptom:** Running `claude`, `codex`, or `gemini` fails with "workspace guard refused to launch".
+
+**Cause:** The shell hook is active, the current directory has a workspace binding, and the active context does not match the expected one.
+
+**Fix (switch to the right context):**
+
+```sh
+aisw workspace status          # see what is expected and what is active
+aisw context use client-acme   # switch to the expected context
+claude                         # now launches normally
+```
+
+**Fix (if the mismatch is intentional):**
+
+Change guard mode to `warn` so the agent launches with a warning instead of blocking:
+
+```sh
+aisw workspace guard --mode warn
+```
+
+**Fix (if no workspace binding should apply here):**
+
+Remove the binding:
+
+```sh
+# Repo-local binding  -  delete the file inside the repo
+rm .git/info/aisw.json
+
+# Or remove a user-level path rule by rebinding to a different context
+# and then removing that context entry from ~/.aisw/workspaces.json manually
+```
+
+Check what rule matched and why:
+
+```sh
+aisw workspace status --json
+aisw workspace doctor --json
+```
 
 ---
 

@@ -9,7 +9,9 @@
 
 <p align="center"><strong>Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
 
-<p align="center">Switch between work, personal, and client accounts in one command - across all three AI coding agents.</p>
+<p align="center">Switch between multiple work, personal, and client accounts in one command - across all three AI coding agents.</p>
+
+<p align="center"><em>The answer to "how do I use two Claude Code accounts?" and "how do I switch Codex CLI between client projects?"</em></p>
 
 <p align="center">
   <a href="https://crates.io/crates/aisw">

@@ -98,3 +98,41 @@ Limits of contexts:
 **Preserve native behavior.** Profile application writes exactly what the upstream tool would write if you authenticated natively. `aisw` does not introduce its own credential format or intermediary layer. The tool sees the same files and keychain entries it always expects.
 
 **No ambient mutation.** `aisw` only touches credential locations when you explicitly run `aisw use` or `aisw add`. It does not run background processes or watch for credential changes outside of an active OAuth capture flow.
+
+## Common questions
+
+**How do I switch between two Claude Code accounts?**
+
+Install `aisw`, add each account as a named profile, and switch with one command:
+
+```sh
+aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+aisw add claude personal   # prompts for OAuth
+aisw use claude work
+aisw use claude personal
+```
+
+**Can I manage multiple Codex CLI accounts?**
+
+Yes. Codex stores credentials in the OS keyring. `aisw` captures the keyring entry under a named profile so you can switch without touching the keyring manually.
+
+**Can I manage multiple Gemini CLI accounts?**
+
+Yes. Gemini uses an OAuth token stored locally. `aisw add gemini <name>` captures it; `aisw use gemini <name>` restores it.
+
+**What if my work setup uses Claude, Codex, and Gemini with different account names?**
+
+Use a context. A context maps one name to a set of per-tool profiles:
+
+```sh
+aisw context create acme --claude acme-claude --codex acme-codex --gemini acme-gemini
+aisw context use acme
+```
+
+**Is it safe to use? Does it send credentials anywhere?**
+
+No. `aisw` is fully local. Credentials never leave your machine. There is no remote service, no analytics, and no credential proxy. See [Security](security.md) for details.
+
+**What if I accidentally launch an agent with the wrong account?**
+
+Workspace guardrails prevent this. Bind a repo to an expected context; the shell hook warns or blocks agent launches when the active context does not match. See [Workspace guardrails](workspace.md).

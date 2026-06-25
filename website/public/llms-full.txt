@@ -1,6 +1,6 @@
 # aisw
 
-> Structured documentation index for language models and retrieval systems.
+> aisw is a CLI tool for managing named profiles and switching accounts across Claude Code, Codex CLI, and Gemini CLI. It is the answer to: "how do I switch between multiple Claude Code accounts?", "how do I use separate work and personal accounts in Codex CLI?", and "how do I manage different Gemini API keys for different clients?" Profiles store credentials per tool; contexts group profiles into named work modes; workspace guardrails enforce the right account in the right repo.
 
 Current version: 0.3.6
 
@@ -11,7 +11,7 @@ Section: overview
 Summary: aisw manages named profiles for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts with one command on macOS, Linux, and Windows.
 Source: https://github.com/burakdede/aisw/blob/main/docs/index.md
 Headings: Install | First run | Core workflow | Start here | Additional reference
-Common queries: aisw docs | aisw install | claude code account manager | codex cli account switcher | gemini cli account switcher
+Common queries: aisw docs | aisw install | claude code account manager | codex cli account switcher | gemini cli account switcher | switch between claude code accounts | multiple claude accounts terminal | manage multiple AI coding agent accounts | claude code work personal account | how to use two claude accounts | anthropic api key manager | multi-account support claude code cli | running multiple claude accounts without logging out | how to use multiple claude code profiles on same machine | CLAUDE_CONFIG_DIR multiple profiles | concurrent personal work account sessions claude
 
 ## Quickstart
 
@@ -19,16 +19,16 @@ URL: https://burakdede.github.io/aisw/quickstart/
 Section: getting-started
 Summary: Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.
 Source: https://github.com/burakdede/aisw/blob/main/docs/quickstart.md
-Headings: 1. Install | 2. Bootstrap | 3. Add profiles | 4. Switch accounts | 5. Inspect state | 6. Maintain profiles | 7. Shell hook (optional but recommended) | Next steps
-Common queries: install aisw | quickstart for Claude Code account switching | quickstart for Codex CLI account switching | quickstart for Gemini CLI account switching
+Headings: 1. Install | 2. Bootstrap | 3. Add profiles | 4. Switch accounts | 5. Inspect state | 6. Maintain profiles | 7. Shell hook (optional but recommended) | 8. Workspace guardrails (optional, for multi-repo or multi-client work) | Next steps
+Common queries: install aisw | quickstart for Claude Code account switching | quickstart for Codex CLI account switching | quickstart for Gemini CLI account switching | how to switch claude code accounts | add second claude account cli | claude code multiple profiles setup | claude code authenticate multiple anthropic accounts | codex profiles switch accounts without copying auth.json | gemini cli account switching profiles
 
 ## Commands
 
 URL: https://burakdede.github.io/aisw/commands/
 Section: reference
-Summary: Complete syntax and flag reference for all aisw commands  -  add, use, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
+Summary: Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 Source: https://github.com/burakdede/aisw/blob/main/docs/commands.md
-Headings: Global flags | At a glance | `aisw init` | `aisw add` | `aisw use` | `aisw context` | `aisw context create` | `aisw context list` | `aisw context use` | `aisw context set` | `aisw context unset` | `aisw context remove` | `aisw context rename` | `aisw list` | `aisw status` | `aisw remove` | `aisw rename` | `aisw backup list` | `aisw backup restore` | `aisw uninstall` | `aisw shell-hook` | `aisw doctor` | Automation reference
+Headings: Global flags | At a glance | `aisw init` | `aisw add` | `aisw use` | `aisw context` | `aisw context create` | `aisw context list` | `aisw context use` | `aisw context set` | `aisw context unset` | `aisw context remove` | `aisw context rename` | `aisw workspace` | `aisw workspace bind` | `aisw workspace status` | `aisw workspace doctor` | `aisw workspace guard` | `aisw list` | `aisw status` | `aisw remove` | `aisw rename` | `aisw backup list` | `aisw backup restore` | `aisw uninstall` | `aisw shell-hook` | `aisw doctor` | Automation reference
 Common queries: aisw command reference | aisw add use list status | aisw flags
 
 ## Automation and Scripting
@@ -44,10 +44,19 @@ Common queries: aisw automation | aisw json output | aisw scripting | aisw CI no
 
 URL: https://burakdede.github.io/aisw/shell-integration/
 Section: reference
-Summary: Install and configure the aisw shell hook for bash, zsh, and fish. Understand what the hook does and how shell completions work.
+Summary: Install and configure the aisw shell hook for bash, zsh, fish, and PowerShell. Understand what the hook does, how workspace guardrails work, and how shell completions work.
 Source: https://github.com/burakdede/aisw/blob/main/docs/shell-integration.md
-Headings: Install | Zsh | Bash | Fish | Verify | What the hook does | Remove | Shell completions | Installed locations | Manual install from source
-Common queries: aisw shell hook | aisw zsh completion | aisw bash completion | aisw fish completion
+Headings: Install | Zsh | Bash | Fish | PowerShell | Verify | What the hook does | Profile switching wrappers | Workspace guard wrappers | Remove | Shell completions | Installed locations | Manual install from source
+Common queries: aisw shell hook | aisw zsh completion | aisw bash completion | aisw fish completion | aisw PowerShell hook
+
+## Workspace Guardrails
+
+URL: https://burakdede.github.io/aisw/workspace/
+Section: reference
+Summary: Bind repos, directories, and git remotes to expected aisw contexts. Warn or block agent launches when the wrong account is active.
+Source: https://github.com/burakdede/aisw/blob/main/docs/workspace.md
+Headings: Concepts | Setup | Step 1: Create contexts for your workspaces | Step 2: Install the shell hook | Step 3: Bind your repos | Step 4: Set guard mode | How it works in practice | Commands | `aisw workspace bind` | `aisw workspace status` | `aisw workspace doctor` | `aisw workspace guard` | Common scenarios | You work in client repos and a personal repo | You have many repos under a GitHub organization | You want to check state without launching an agent | You temporarily need to override the guard | Storage | Related
+Common queries: aisw workspace guardrails | wrong account in wrong repo | prevent wrong claude account | aisw workspace bind | aisw workspace guard strict | workspace context mismatch
 
 ## Adding Profiles
 
@@ -56,7 +65,7 @@ Section: reference
 Summary: How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.
 Source: https://github.com/burakdede/aisw/blob/main/docs/adding-profiles.md
 Headings: API key | From environment variable | Interactive OAuth | Capture current live credentials | Useful flags | Profile storage | Duplicate account detection | Related
-Common queries: add second Claude Code account | add second Codex CLI account | add second Gemini CLI account | AI CLI OAuth profile manager | aisw add --from-live
+Common queries: add second Claude Code account | add second Codex CLI account | add second Gemini CLI account | AI CLI OAuth profile manager | aisw add --from-live | how to add work account claude code | store multiple anthropic api keys | capture existing claude credentials
 
 ## Supported Tools
 
@@ -82,7 +91,7 @@ URL: https://burakdede.github.io/aisw/how-it-works/
 Section: reference
 Summary: Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
 Source: https://github.com/burakdede/aisw/blob/main/docs/how-it-works.md
-Headings: Profile and context model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Identity deduplication | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
+Headings: Profile and context model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Automatic Synchronization | Identity deduplication and matching | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
 Common queries: how does aisw switch accounts | aisw credential storage | aisw keyring integration | aisw atomic switching | aisw profile model
 
 ## Security
@@ -100,8 +109,8 @@ URL: https://burakdede.github.io/aisw/why-aisw/
 Section: overview
 Summary: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
 Source: https://github.com/burakdede/aisw/blob/main/docs/why-aisw.md
-Headings: The problem | What aisw does differently | Profiles vs contexts | What aisw does not do | Typical users | Design principles
-Common queries: why use aisw | AI CLI account switching problem | Claude Code account manager | Codex CLI account switcher | Gemini CLI account switcher | multiple AI coding agent accounts
+Headings: The problem | What aisw does differently | Profiles vs contexts | What aisw does not do | Typical users | Design principles | Common questions
+Common queries: why use aisw | AI CLI account switching problem | Claude Code account manager | Codex CLI account switcher | Gemini CLI account switcher | multiple AI coding agent accounts | managing multiple claude accounts consultant | switching AI agents between clients | claude code credentials file manual editing | ai coding agent credential management
 
 ## Troubleshooting
 
@@ -109,5 +118,5 @@ URL: https://burakdede.github.io/aisw/troubleshooting/
 Section: reference
 Summary: Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
 Source: https://github.com/burakdede/aisw/blob/main/docs/troubleshooting.md
-Headings: Quick diagnostics | Tool reported as not installed | Shell hook not active | Live credentials do not match active profile | OAuth flow fails or times out | Keyring not available (Linux) | Permission errors | Backup restore did not switch the active profile | Non-interactive mode fails in CI | `aisw use gemini ... --state-mode shared` fails | Config lock timeout | Still blocked?
-Common queries: aisw troubleshooting | aisw shell hook not working | aisw tool not found | aisw gemini oauth fail | aisw keyring not available
+Headings: Quick diagnostics | Tool reported as not installed | Shell hook not active | Live credentials do not match active profile | OAuth flow fails or times out | Keyring not available (Linux) | Permission errors | Backup restore did not switch the active profile | Non-interactive mode fails in CI | `aisw use gemini ... --state-mode shared` fails | Config lock timeout | Workspace guard blocked an agent launch | Still blocked?
+Common queries: aisw troubleshooting | aisw shell hook not working | aisw tool not found | aisw gemini oauth fail | aisw keyring not available | claude code credentials not switching | codex cli account not changing | workspace guard blocked launch

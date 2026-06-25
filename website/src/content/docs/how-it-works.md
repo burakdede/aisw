@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, cli tooling, how it works, reference
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
 ---
 
 This page explains the design decisions behind `aisw`, how credentials are stored and applied, and the per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
@@ -136,11 +136,26 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 
 **State mode:** Gemini is always `isolated`. Each profile carries its own complete `~/.gemini/` state.
 
-## Identity deduplication
+## Automatic Synchronization
 
-When OAuth credentials are captured, `aisw` extracts the authenticated account identity from the credential payload. For JWT-based tokens (Codex and Gemini), it decodes the `exp` claim for expiry and the `email` claim for identity. For Claude OAuth, it reads the `oauthAccount` metadata.
+To handle the fact that tools frequently refresh OAuth tokens in the background, `aisw` implements an automatic synchronization mechanism during profile switching.
 
-If you attempt to add a second profile for an account that is already stored under a different name, `aisw` rejects it with an error message identifying the existing profile. This prevents accumulating duplicate profiles for the same account.
+When you run `aisw use <tool> <new-profile>`, `aisw` performs a pre-switch check:
+1. It identifies the account currently active in the live tool using canonical identity logic.
+2. It compares this identity with the identity stored in the *currently active* `aisw` profile.
+3. If they match, `aisw` captures the latest live credentials and metadata into the stored profile before switching away.
+
+This ensures that your profiles stay fresh without manual intervention. Synchronization is an observational-only check during `aisw status`, and a mutational operation only during `aisw use`, aligning with the principle that `status` should be side-effect free.
+
+## Identity deduplication and matching
+
+When OAuth credentials are captured or synchronized, `aisw` extracts the authenticated account identity using a unified canonical logic. This logic:
+- Decodes JWT payloads (Codex and Gemini) to find `email` or `sub` claims.
+- Parses nested metadata (Claude) to find `emailAddress`.
+- Normalizes identifiers (lowercase, trim) and handles subject fallbacks.
+- Recursively searches JSON structures to find identity fields in varied schemas.
+
+If you attempt to add a second profile for an account that is already stored under a different name, `aisw` rejects it. During synchronization, this same logic ensures that tokens are only updated if they belong to the same account.
 
 ## Token expiry warnings
 
