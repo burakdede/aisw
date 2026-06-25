@@ -138,13 +138,19 @@ aisw init [--yes]
 aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active]
 aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context list [--json]
-aisw context use <name> [--state-mode isolated|shared]
+aisw context use <name> [--state-mode isolated|shared] [--emit-env]
 aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context unset <name> [--claude] [--codex] [--gemini]
 aisw context remove <name> [--yes]
 aisw context rename <old> <new>
-aisw use <tool> <profile> [--state-mode isolated|shared]
-aisw use --all --profile <profile>
+aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
+aisw use --all --profile <profile> [--emit-env]
+aisw workspace bind [PATH] --context <name>
+aisw workspace bind --git-remote <PATTERN> --context <name>
+aisw workspace bind --default --context <name>
+aisw workspace status [--json]
+aisw workspace doctor [--json]
+aisw workspace guard --mode warn|strict
 aisw list [tool] [--json]
 aisw status [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
@@ -152,7 +158,7 @@ aisw rename <tool> <old> <new>
 aisw backup list [--json]
 aisw backup restore <backup_id> [--yes]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
-aisw shell-hook <bash|zsh|fish>
+aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
 ```
 
@@ -164,6 +170,7 @@ Credentials never leave the local machine. There is no remote service, no teleme
 
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/)
 - [Commands](https://burakdede.github.io/aisw/commands/)
+- [Workspace guardrails](https://burakdede.github.io/aisw/workspace/)
 - [How it works](https://burakdede.github.io/aisw/how-it-works/)
 - [Security](https://burakdede.github.io/aisw/security/)
 - [Automation and scripting](https://burakdede.github.io/aisw/automation/)

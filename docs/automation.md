@@ -136,7 +136,7 @@ claude --print "summarize this file" < input.txt
 ### Verify active profile in a health check
 
 ```sh
-active=$(aisw status --json | jq -r '.tools.claude.active_profile')
+active=$(aisw status --json | jq -r '.[] | select(.tool == "claude") | .active_profile')
 if [ "$active" != "ci" ]; then
   echo "Expected profile 'ci', got '${active}'" >&2
   exit 1

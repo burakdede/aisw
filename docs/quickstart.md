@@ -156,7 +156,7 @@ aisw use claude work
 
 ## 7. Shell hook (optional but recommended)
 
-The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files.
+The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files. It also enforces workspace guardrails before each `claude`, `codex`, or `gemini` launch.
 
 ```sh
 # Zsh
@@ -169,10 +169,37 @@ source ~/.bashrc
 
 # Fish
 echo 'aisw shell-hook fish | source' >> ~/.config/fish/config.fish
+
+# PowerShell
+Add-Content $PROFILE "`naisw shell-hook pwsh | Out-String | Invoke-Expression"
+. $PROFILE
 ```
+
+## 8. Workspace guardrails (optional, for multi-repo or multi-client work)
+
+If you work on repos that each require a different account, bind them to the right context so you get a warning when the wrong account is active before launching an agent:
+
+```sh
+# Bind a repo to the context it should use
+cd ~/clients/acme-api
+aisw workspace bind . --context client-acme
+
+# Set a fallback for everything else
+aisw workspace bind --default --context personal
+
+# Warn on mismatch (default) or block entirely
+aisw workspace guard --mode warn
+aisw workspace guard --mode strict
+
+# Check what the current directory resolves to
+aisw workspace status
+```
+
+See [Workspace guardrails](workspace.md) for the full setup guide.
 
 ## Next steps
 
 - [Commands](commands.md)  -  full syntax for every command
+- [Workspace guardrails](workspace.md)  -  protect repos from wrong-account launches
 - [Automation and scripting](automation.md)  -  CI and non-interactive patterns
 - [How it works](how-it-works.md)  -  credential storage, platform details, design decisions

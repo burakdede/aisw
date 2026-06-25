@@ -67,6 +67,7 @@ aisw list
 
 - [Adding profiles](adding-profiles.md)
 - [Shell integration](shell-integration.md)
+- [Workspace guardrails](workspace.md)
 - [Supported tools](supported-tools.md)
 - [Configuration](config.md)
 - [Changelog](https://github.com/burakdede/aisw/releases)
