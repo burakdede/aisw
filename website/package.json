@@ -4,6 +4,10 @@
   "version": "0.0.1",
   "scripts": {
     "sync-docs": "node ./scripts/sync-docs.mjs",
+    "generate-demo": "node ./scripts/generate-demo-cast.mjs",
+    "generate-context-demo": "node ./scripts/generate-context-demo-cast.mjs",
+    "generate-workspace-demo": "node ./scripts/generate-workspace-demo-cast.mjs",
+    "generate-all-demos": "npm run generate-demo && npm run generate-context-demo && npm run generate-workspace-demo",
     "predev": "npm run sync-docs",
     "prebuild": "npm run sync-docs",
     "dev": "astro dev",

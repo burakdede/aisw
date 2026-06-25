@@ -223,6 +223,49 @@ Interactive OAuth is not available in `--non-interactive` mode by design. Use AP
 
 ---
 
+## Workspace guard blocked an agent launch
+
+**Symptom:** Running `claude`, `codex`, or `gemini` fails with "workspace guard refused to launch".
+
+**Cause:** The shell hook is active, the current directory has a workspace binding, and the active context does not match the expected one.
+
+**Fix (switch to the right context):**
+
+```sh
+aisw workspace status          # see what is expected and what is active
+aisw context use client-acme   # switch to the expected context
+claude                         # now launches normally
+```
+
+**Fix (if the mismatch is intentional):**
+
+Change guard mode to `warn` so the agent launches with a warning instead of blocking:
+
+```sh
+aisw workspace guard --mode warn
+```
+
+**Fix (if no workspace binding should apply here):**
+
+Remove the binding:
+
+```sh
+# Repo-local binding  -  delete the file inside the repo
+rm .git/info/aisw.json
+
+# Or remove a user-level path rule by rebinding to a different context
+# and then removing that context entry from ~/.aisw/workspaces.json manually
+```
+
+Check what rule matched and why:
+
+```sh
+aisw workspace status --json
+aisw workspace doctor --json
+```
+
+---
+
 ## Still blocked?
 
 Run these and include the output when opening an issue:

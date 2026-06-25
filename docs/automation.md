@@ -72,7 +72,7 @@ aisw list codex --json | jq -r '.profiles[].name'
 aisw context list --json | jq -r '.contexts[].name'
 
 # Find profiles with expired tokens
-aisw status --json | jq '.tools[] | select(.token_warning != null) | {tool, warning: .token_warning}'
+aisw status --json | jq '.[] | select(.token_warning != null) | {tool, warning: .token_warning}'
 
 # Get the most recent backup for a specific profile
 aisw backup list --json | jq '[.[] | select(.profile == "claude/work")] | sort_by(.created_at) | last'
@@ -136,7 +136,7 @@ claude --print "summarize this file" < input.txt
 ### Verify active profile in a health check
 
 ```sh
-active=$(aisw status --json | jq -r '.tools.claude.active_profile')
+active=$(aisw status --json | jq -r '.[] | select(.tool == "claude") | .active_profile')
 if [ "$active" != "ci" ]; then
   echo "Expected profile 'ci', got '${active}'" >&2
   exit 1

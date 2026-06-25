@@ -9,7 +9,9 @@
 
 <p align="center"><strong>Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
 
-<p align="center">Switch between work, personal, and client accounts in one command - across all three AI coding agents.</p>
+<p align="center">Switch between multiple work, personal, and client accounts in one command - across all three AI coding agents.</p>
+
+<p align="center"><em>The answer to "how do I use two Claude Code accounts?" and "how do I switch Codex CLI between client projects?"</em></p>
 
 <p align="center">
   <a href="https://crates.io/crates/aisw">
@@ -135,16 +137,22 @@ Credentials are stored in the native OS keyring where available (macOS Keychain,
 
 ```text
 aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active]
+aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
 aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
-aisw context list [--json]
-aisw context use <name> [--state-mode isolated|shared]
+aisw context list [--search TEXT] [--json]
+aisw context use <name> [--state-mode isolated|shared] [--emit-env]
 aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context unset <name> [--claude] [--codex] [--gemini]
 aisw context remove <name> [--yes]
 aisw context rename <old> <new>
-aisw use <tool> <profile> [--state-mode isolated|shared]
-aisw use --all --profile <profile>
+aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
+aisw use --all --profile <profile> [--emit-env]
+aisw workspace bind [PATH] --context <name>
+aisw workspace bind --git-remote <PATTERN> --context <name>
+aisw workspace bind --default --context <name>
+aisw workspace status [--json]
+aisw workspace doctor [--json]
+aisw workspace guard --mode warn|strict
 aisw list [tool] [--json]
 aisw status [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
@@ -152,7 +160,7 @@ aisw rename <tool> <old> <new>
 aisw backup list [--json]
 aisw backup restore <backup_id> [--yes]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
-aisw shell-hook <bash|zsh|fish>
+aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
 ```
 
@@ -164,6 +172,7 @@ Credentials never leave the local machine. There is no remote service, no teleme
 
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/)
 - [Commands](https://burakdede.github.io/aisw/commands/)
+- [Workspace guardrails](https://burakdede.github.io/aisw/workspace/)
 - [How it works](https://burakdede.github.io/aisw/how-it-works/)
 - [Security](https://burakdede.github.io/aisw/security/)
 - [Automation and scripting](https://burakdede.github.io/aisw/automation/)

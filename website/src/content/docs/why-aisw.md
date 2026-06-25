@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, cli tooling, why aisw?, overview
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, why aisw?, overview
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Why aisw?","headline":"Why aisw?","description":"Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.","url":"https://burakdede.github.io/aisw/why-aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, cli tooling, why aisw?, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Why aisw?","item":"https://burakdede.github.io/aisw/why-aisw/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Why aisw?","headline":"Why aisw?","description":"Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.","url":"https://burakdede.github.io/aisw/why-aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, why aisw?, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Why aisw?","item":"https://burakdede.github.io/aisw/why-aisw/"}]}]}
 ---
 
 ## The problem
@@ -45,6 +45,8 @@ The problem compounds across tools. If you maintain accounts for all three CLIs,
 **Saved contexts**  -  `aisw context create acme --claude acme-claude --codex acme-codex --gemini acme-gemini` captures a real-world mixed-account setup under one reusable name. `aisw context use acme` restores that whole work mode as one transaction, without forcing each tool to share the same profile name.
 
 **Automatic backups**  -  `aisw remove` and `aisw rename` create backups before changing state. Backups are timestamped and restorable.
+
+**Workspace guardrails**  -  `aisw workspace bind . --context client-acme` ties a repo to an expected context. The shell hook then checks the binding before each `claude`, `codex`, or `gemini` launch and warns or blocks when the active context does not match.
 
 ## Profiles vs contexts
 
@@ -100,7 +102,7 @@ Limits of contexts:
 
 **Developers with separate work and personal accounts.** Work uses a team API key; personal uses an OAuth account. One command to switch all tools when stepping away from work context.
 
-**Consultants and contractors.** Different client engagements use different provider accounts or API keys. Named profiles per client. Switching takes one command and leaves a clean audit trail via backups.
+**Consultants and contractors.** Different client engagements use different provider accounts or API keys. Named profiles per client, contexts to group them, and workspace guardrails to prevent launching the wrong account in the wrong repo. Switching takes one command and leaves a clean audit trail via backups.
 
 **Teams sharing accounts for specific tasks.** A shared team API key for CI or group work, individual OAuth accounts for everything else. `aisw` keeps both accessible without credential conflicts.
 
@@ -113,3 +115,41 @@ Limits of contexts:
 **Preserve native behavior.** Profile application writes exactly what the upstream tool would write if you authenticated natively. `aisw` does not introduce its own credential format or intermediary layer. The tool sees the same files and keychain entries it always expects.
 
 **No ambient mutation.** `aisw` only touches credential locations when you explicitly run `aisw use` or `aisw add`. It does not run background processes or watch for credential changes outside of an active OAuth capture flow.
+
+## Common questions
+
+**How do I switch between two Claude Code accounts?**
+
+Install `aisw`, add each account as a named profile, and switch with one command:
+
+```sh
+aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+aisw add claude personal   # prompts for OAuth
+aisw use claude work
+aisw use claude personal
+```
+
+**Can I manage multiple Codex CLI accounts?**
+
+Yes. Codex stores credentials in the OS keyring. `aisw` captures the keyring entry under a named profile so you can switch without touching the keyring manually.
+
+**Can I manage multiple Gemini CLI accounts?**
+
+Yes. Gemini uses an OAuth token stored locally. `aisw add gemini <name>` captures it; `aisw use gemini <name>` restores it.
+
+**What if my work setup uses Claude, Codex, and Gemini with different account names?**
+
+Use a context. A context maps one name to a set of per-tool profiles:
+
+```sh
+aisw context create acme --claude acme-claude --codex acme-codex --gemini acme-gemini
+aisw context use acme
+```
+
+**Is it safe to use? Does it send credentials anywhere?**
+
+No. `aisw` is fully local. Credentials never leave your machine. There is no remote service, no analytics, and no credential proxy. See [Security](/aisw/security/) for details.
+
+**What if I accidentally launch an agent with the wrong account?**
+
+Workspace guardrails prevent this. Bind a repo to an expected context; the shell hook warns or blocks agent launches when the active context does not match. See [Workspace guardrails](/aisw/workspace/).
