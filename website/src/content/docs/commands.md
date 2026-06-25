@@ -40,7 +40,7 @@ aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 aisw init [--yes]
 aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
 aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
-aisw context list [--json]
+aisw context list [--search TEXT] [--json]
 aisw context use <name> [--state-mode isolated|shared] [--emit-env]
 aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context unset <name> [--claude] [--codex] [--gemini]
@@ -54,11 +54,11 @@ aisw workspace bind --default --context <name>
 aisw workspace status [--json]
 aisw workspace doctor [--json]
 aisw workspace guard --mode warn|strict
-aisw list [tool] [--json]
-aisw status [--context] [--json]
+aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
+aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
 aisw rename <tool> <old> <new>
-aisw backup list [--json]
+aisw backup list [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 aisw backup restore <backup_id> [--yes]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
 aisw shell-hook <bash|zsh|fish|pwsh>
@@ -197,13 +197,19 @@ aisw context create acme --claude acme-claude --codex acme-codex
 ### `aisw context list`
 
 ```text
-aisw context list [--json]
+aisw context list [--search TEXT] [--json]
 ```
 
 List saved contexts.
 
+| Flag | Effect |
+|---|---|
+| `--search TEXT` | Filter by context name or mapped profile name |
+| `--json` | Output as JSON |
+
 ```sh
 aisw context list
+aisw context list --search acme
 aisw context list --json
 ```
 
@@ -362,15 +368,25 @@ aisw workspace guard --mode strict
 ## `aisw list`
 
 ```text
-aisw list [tool] [--json]
+aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 ```
 
-Show all stored profiles.
+Show all stored profiles. Pass a tool name as a positional argument or use `--tool` to filter to one tool.
+
+| Flag | Effect |
+|---|---|
+| `[tool]` or `--tool` | Filter to one tool: `claude`, `codex`, or `gemini` |
+| `--search TEXT` | Filter by profile name or label (substring match) |
+| `--sort name\|recent` | Sort by profile name or by most recently used |
+| `--active-only` | Show only tools that have an active profile |
+| `--json` | Output as JSON |
 
 ```sh
 aisw list
 aisw list claude
-aisw list --json
+aisw list --tool codex --search work
+aisw list --sort recent
+aisw list --active-only --json
 ```
 
 ---
@@ -378,21 +394,32 @@ aisw list --json
 ## `aisw status`
 
 ```text
-aisw status [--context] [--json]
+aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
 ```
 
 Show per-tool state: installed binary, active profile, credential backend, live-match status, and token expiry warnings.
 
+| Flag | Effect |
+|---|---|
+| `--tool` | Filter to one tool: `claude`, `codex`, or `gemini` |
+| `--search TEXT` | Filter by tool, profile, auth type, or backend text |
+| `--sort name\|recent` | Sort rows by name or most recently used |
+| `--active-only` | Show only tools that have an active profile |
+| `--context` | Add derived context matching information |
+| `--json` | Output as JSON |
+
 Notes:
 - "Live match" indicates whether the tool's current live credentials match the `aisw`-recorded active profile.
 - Token expiry warnings appear when an OAuth token is expired or expires within 24 hours.
-- `--context` adds derived context matching information without changing plain `status --json`.
-- `status --context --json` wraps the existing tool array in a `{ "tools": [...], "context": ... }` object.
+- `--context` does not change the shape of plain `status --json` output.
+- `status --context --json` wraps the tool array in a `{ "tools": [...], "context": ... }` object.
 
 ```sh
 aisw status
 aisw status --context
-aisw status --json
+aisw status --tool claude
+aisw status --active-only
+aisw status --search work --json
 aisw status --context --json
 ```
 
@@ -435,14 +462,24 @@ aisw rename claude default work
 ## `aisw backup list`
 
 ```text
-aisw backup list [--json]
+aisw backup list [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 ```
 
 List available backups with timestamps and associated profile names.
 
+| Flag | Effect |
+|---|---|
+| `--tool` | Filter to one tool: `claude`, `codex`, or `gemini` |
+| `--search TEXT` | Filter by backup id, tool, or profile name |
+| `--sort name\|recent` | Sort by name or by most recently created |
+| `--active-only` | Show only backups for currently active profiles |
+| `--json` | Output as JSON |
+
 ```sh
 aisw backup list
-aisw backup list --json
+aisw backup list --tool claude
+aisw backup list --search work --json
+aisw backup list --sort recent
 ```
 
 ---
