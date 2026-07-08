@@ -636,7 +636,7 @@ fn auth_label(method: AuthMethod) -> &'static str {
     }
 }
 
-fn backup_ids_for(home: &Path, tool: Option<Tool>) -> Result<Vec<String>> {
+pub(crate) fn backup_ids_for(home: &Path, tool: Option<Tool>) -> Result<Vec<String>> {
     let mut ids = BackupManager::new(home)
         .list()?
         .into_iter()
@@ -651,7 +651,7 @@ fn backup_ids_for(home: &Path, tool: Option<Tool>) -> Result<Vec<String>> {
     Ok(ids)
 }
 
-fn diff_backup_ids(before: &[String], after: &[String]) -> Vec<String> {
+pub(crate) fn diff_backup_ids(before: &[String], after: &[String]) -> Vec<String> {
     after
         .iter()
         .filter(|id| !before.iter().any(|existing| existing == *id))
@@ -659,7 +659,7 @@ fn diff_backup_ids(before: &[String], after: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn active_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
+pub(crate) fn active_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
     let config = ConfigStore::new(home).load()?;
     let mut map = serde_json::Map::new();
     for tool in tools {
@@ -674,7 +674,7 @@ fn active_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
     Ok(serde_json::Value::Object(map))
 }
 
-fn state_mode_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
+pub(crate) fn state_mode_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
     let config = ConfigStore::new(home).load()?;
     let mut map = serde_json::Map::new();
     for tool in tools {
@@ -690,7 +690,11 @@ fn state_mode_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
     Ok(serde_json::Value::Object(map))
 }
 
-fn live_match_map(home: &Path, user_home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
+pub(crate) fn live_match_map(
+    home: &Path,
+    user_home: &Path,
+    tools: &[Tool],
+) -> Result<serde_json::Value> {
     let statuses = crate::commands::status::collect_status(
         home,
         user_home,

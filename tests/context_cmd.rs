@@ -282,6 +282,59 @@ fn context_use_writes_live_files_and_updates_active_profiles() {
 }
 
 #[test]
+fn context_use_json_reports_machine_activation_state() {
+    let env = TestEnv::new();
+    setup_profiles(&env);
+
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "work",
+            "--claude",
+            "acme-claude",
+            "--codex",
+            "acme-codex",
+        ])
+        .assert()
+        .success();
+
+    let output = env.output(&["context", "use", "work", "--json"]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "context_use");
+    assert_eq!(json["result"]["context"], "work");
+    assert_eq!(json["result"]["active"]["claude"], "acme-claude");
+    assert_eq!(json["result"]["active"]["codex"], "acme-codex");
+    assert_eq!(json["result"]["active"]["gemini"], serde_json::Value::Null);
+}
+
+#[test]
+fn context_rename_json_reports_new_context_state() {
+    let env = TestEnv::new();
+    setup_profiles(&env);
+
+    env.cmd()
+        .args(["context", "create", "work", "--claude", "acme-claude"])
+        .assert()
+        .success();
+
+    let output = env.output(&["context", "rename", "work", "client-acme", "--json"]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "context_rename");
+    assert_eq!(json["result"]["old_name"], "work");
+    assert_eq!(json["result"]["new_name"], "client-acme");
+    assert_eq!(json["result"]["context"]["name"], "client-acme");
+}
+
+#[test]
 fn failed_context_use_rolls_back_live_state_and_active_profiles() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");

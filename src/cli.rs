@@ -389,6 +389,10 @@ pub struct ContextCreateArgs {
     /// Gemini profile to include
     #[arg(long, value_name = "PROFILE")]
     pub gemini: Option<String>,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -415,6 +419,10 @@ pub struct ContextUseArgs {
     /// Used internally by the shell hook — not intended for direct use.
     #[arg(long, hide = true)]
     pub emit_env: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -433,6 +441,10 @@ pub struct ContextSetArgs {
     /// Gemini profile to set
     #[arg(long, value_name = "PROFILE")]
     pub gemini: Option<String>,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -451,6 +463,10 @@ pub struct ContextUnsetArgs {
     /// Remove the Gemini mapping
     #[arg(long)]
     pub gemini: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -461,6 +477,10 @@ pub struct ContextRemoveArgs {
     /// Skip the confirmation prompt
     #[arg(long)]
     pub yes: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -470,6 +490,10 @@ pub struct ContextRenameArgs {
 
     /// New context name
     pub new_name: String,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -755,11 +779,12 @@ mod tests {
         assert_eq!(args.claude.as_deref(), Some("acme-claude"));
         assert_eq!(args.codex.as_deref(), Some("acme-codex"));
         assert_eq!(args.gemini, None);
+        assert!(!args.json);
     }
 
     #[test]
     fn context_use_emit_env_is_hidden_but_parseable() {
-        let cli = parse(&["context", "use", "work", "--emit-env"]).unwrap();
+        let cli = parse(&["context", "use", "work", "--emit-env", "--json"]).unwrap();
         let Command::Context(args) = cli.command else {
             panic!("wrong command")
         };
@@ -768,6 +793,7 @@ mod tests {
         };
         assert_eq!(args.context_name, "work");
         assert!(args.emit_env);
+        assert!(args.json);
     }
 
     #[test]
