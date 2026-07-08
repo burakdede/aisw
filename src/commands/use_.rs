@@ -1270,4 +1270,92 @@ mod tests {
             err
         );
     }
+
+    #[test]
+    fn diff_backup_ids_returns_only_new_ids() {
+        let before = vec!["b".to_owned(), "a".to_owned()];
+        let after = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        assert_eq!(diff_backup_ids(&before, &after), vec!["c".to_owned()]);
+    }
+
+    #[test]
+    fn active_and_state_mode_maps_reflect_current_config() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        setup_claude_api_key_profile(&home, "work");
+        setup_gemini_api_key_profile(&home, "personal");
+        let config_store = ConfigStore::new(&home);
+        config_store
+            .activate_profile(Tool::Claude, "work", Some(StateMode::Shared))
+            .unwrap();
+
+        let active = active_map(&home, &[Tool::Claude, Tool::Gemini]).unwrap();
+        assert_eq!(active["claude"], "work");
+        assert_eq!(active["gemini"], serde_json::Value::Null);
+
+        let state_modes = state_mode_map(&home, &[Tool::Claude, Tool::Gemini]).unwrap();
+        assert_eq!(state_modes["claude"], "shared");
+        assert_eq!(state_modes["gemini"], "isolated");
+    }
+
+    #[test]
+    fn backup_ids_for_returns_sorted_unique_ids() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(
+            home.join("backups")
+                .join("2026-01-01T00-00-00.000Z-0")
+                .join("claude")
+                .join("work"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(
+            home.join("backups")
+                .join("2026-01-02T00-00-00.000Z-0")
+                .join("claude")
+                .join("work"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(
+            home.join("backups")
+                .join("2026-01-02T00-00-00.000Z-0")
+                .join("codex")
+                .join("work"),
+        )
+        .unwrap();
+
+        let claude_ids = backup_ids_for(&home, Some(Tool::Claude)).unwrap();
+        assert_eq!(
+            claude_ids,
+            vec![
+                "2026-01-01T00-00-00.000Z-0".to_owned(),
+                "2026-01-02T00-00-00.000Z-0".to_owned()
+            ]
+        );
+
+        let all_ids = backup_ids_for(&home, None).unwrap();
+        assert_eq!(
+            all_ids,
+            vec![
+                "2026-01-01T00-00-00.000Z-0".to_owned(),
+                "2026-01-02T00-00-00.000Z-0".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn live_match_map_returns_null_for_inactive_tools() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+
+        let live = live_match_map(&home, &user_home, &[Tool::Claude, Tool::Gemini]).unwrap();
+        assert_eq!(live["claude"], serde_json::Value::Null);
+        assert_eq!(live["gemini"], serde_json::Value::Null);
+    }
 }
