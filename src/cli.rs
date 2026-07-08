@@ -118,6 +118,9 @@ pub enum Command {
     /// Verify that aisw-managed state and live tool state are coherent
     Verify(VerifyArgs),
 
+    /// Repair safe local aisw state issues such as missing home/config or broad permissions
+    Repair(RepairArgs),
+
     /// Bind workspaces to expected contexts and enforce guardrails
     Workspace(WorkspaceArgs),
 }
@@ -134,6 +137,31 @@ pub struct VerifyArgs {
     /// Output results as JSON
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RepairFix {
+    Home,
+    Permissions,
+}
+
+#[derive(Args, Debug)]
+pub struct RepairArgs {
+    /// Output results as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Preview safe repair actions without mutating files
+    #[arg(long, conflicts_with = "apply")]
+    pub dry_run: bool,
+
+    /// Apply the selected safe fixes
+    #[arg(long)]
+    pub apply: bool,
+
+    /// Limit repairs to one or more fix categories
+    #[arg(long, value_enum, value_delimiter = ',', num_args = 1..)]
+    pub fix: Vec<RepairFix>,
 }
 
 #[derive(Args, Debug)]
@@ -931,6 +959,17 @@ mod tests {
             panic!("wrong command")
         };
         assert!(args.json);
+    }
+
+    #[test]
+    fn repair_flags_parse() {
+        let cli = parse(&["repair", "--json", "--apply", "--fix", "home,permissions"]).unwrap();
+        let Command::Repair(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(args.json);
+        assert!(args.apply);
+        assert_eq!(args.fix, vec![RepairFix::Home, RepairFix::Permissions]);
     }
 
     #[test]

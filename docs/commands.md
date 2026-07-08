@@ -1,6 +1,6 @@
 ---
 title: Command reference
-description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, verify, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
+description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, verify, repair, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
 ---
 
 # Command reference
@@ -47,6 +47,7 @@ aisw uninstall [--dry-run] [--remove-data] [--yes]
 aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
 aisw verify [--json]
+aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
 ```
 
 `<tool>` is one of: `claude`, `codex`, `gemini`.
@@ -588,6 +589,38 @@ Notes:
 ```sh
 aisw verify
 aisw verify --json
+```
+
+---
+
+## `aisw repair`
+
+```text
+aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
+```
+
+Preview or apply safe local repairs for aisw-managed state.
+
+- `home`: create `AISW_HOME` and a default `config.json` when missing
+- `permissions`: normalize aisw-managed directories to `0700` and files to `0600` on Unix
+
+| Flag | Effect |
+|---|---|
+| `--json` | Output a machine-readable repair result envelope |
+| `--dry-run` | Preview repair actions without mutating files |
+| `--apply` | Apply the selected safe fixes |
+| `--fix` | Limit repairs to one or more fix categories; accepts comma-separated values |
+
+Notes:
+- If neither `--dry-run` nor `--apply` is provided, `repair` defaults to dry-run mode.
+- `repair` is explicit and cautious. It does not reapply live credentials, restore backups, or modify shell rc files.
+- `--fix` defaults to all currently safe repair categories.
+
+```sh
+aisw repair
+aisw repair --json --dry-run
+aisw repair --apply --fix home
+aisw repair --json --apply --fix home,permissions
 ```
 
 ---

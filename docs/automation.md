@@ -54,6 +54,7 @@ aisw remove claude work --yes --json
 aisw rename claude work personal --json
 aisw backup restore 20260325T114502Z-claude-ci --yes --json
 aisw verify --json
+aisw repair --json --dry-run
 aisw status --json
 aisw status --context --json
 aisw list --json
@@ -93,6 +94,9 @@ aisw status --json | jq '.[] | select(.tool == "claude") | .active_profile_appli
 
 # Get a one-shot pass/warn/fail verification verdict
 aisw verify --json | jq -r '.summary.status'
+
+# Preview safe local repairs and count remaining issues
+aisw repair --json --dry-run | jq -r '.result.summary.issues_remaining'
 
 # List all stored Codex profile names
 aisw list codex --json | jq -r '.profiles[].name'

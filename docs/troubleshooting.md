@@ -13,9 +13,10 @@ Run these first when something is wrong:
 aisw doctor
 aisw status --json
 aisw verify --json
+aisw repair --json --dry-run
 ```
 
-`doctor` checks binary detection, `~/.aisw/` permissions, shell hook status, and keyring availability. `status --json` shows the full state of every tool including live-match status and any credential warnings. `verify --json` combines both into a pass/warn/fail verdict with remediation hints.
+`doctor` checks binary detection, `~/.aisw/` permissions, shell hook status, and keyring availability. `status --json` shows the full state of every tool including live-match status and any credential warnings. `verify --json` combines both into a pass/warn/fail verdict with remediation hints. `repair --json --dry-run` previews safe local fixes for missing aisw state or broad permissions.
 
 ---
 

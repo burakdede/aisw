@@ -39,6 +39,7 @@ fn capabilities_json_reports_tool_capabilities() {
     assert_eq!(json["features"]["non_prompting_init"], true);
     assert_eq!(json["features"]["detect_live_init"], true);
     assert_eq!(json["features"]["verify"], true);
+    assert_eq!(json["features"]["repair"], true);
     assert_eq!(json["tools"]["gemini"]["state_modes"][0], "isolated");
     assert_eq!(json["tools"]["codex"]["fail_closed_keyring_identity"], true);
 }
@@ -89,6 +90,51 @@ fn verify_json_reports_failures_and_remediation() {
         .as_str()
         .unwrap()
         .contains("aisw use codex work"));
+}
+
+#[test]
+fn repair_json_dry_run_reports_planned_safe_fixes() {
+    let env = TestEnv::new();
+    let missing_home = env.dir.path().join("missing-aisw-home");
+
+    let output = env
+        .cmd()
+        .env("AISW_HOME", &missing_home)
+        .args(["repair", "--json", "--dry-run"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "repair");
+    assert_eq!(json["result"]["mode"], "dry_run");
+    assert_eq!(json["result"]["summary"]["status"], "warn");
+    assert_eq!(json["result"]["summary"]["issues_remaining"], 2);
+    assert_eq!(json["result"]["actions"][0]["kind"], "create_dir");
+    assert!(!missing_home.exists());
+}
+
+#[test]
+fn repair_json_apply_creates_home_and_config() {
+    let env = TestEnv::new();
+    let missing_home = env.dir.path().join("missing-aisw-home");
+
+    let output = env
+        .cmd()
+        .env("AISW_HOME", &missing_home)
+        .args(["repair", "--json", "--apply", "--fix", "home"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["result"]["mode"], "apply");
+    assert_eq!(json["result"]["summary"]["status"], "pass");
+    assert!(missing_home.join("config.json").exists());
 }
 
 #[test]
