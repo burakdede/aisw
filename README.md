@@ -162,6 +162,7 @@ aisw backup restore <backup_id> [--yes]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
 aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
+aisw verify [--json]
 ```
 
 ## Security

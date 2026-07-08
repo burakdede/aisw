@@ -16,6 +16,7 @@ pub mod shell_hook;
 pub mod status;
 pub mod uninstall;
 pub mod use_;
+pub mod verify;
 pub mod version;
 pub mod workspace;
 
@@ -58,6 +59,12 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Backup(args) => backup::run(args.command, &home)?,
         Command::Doctor(args) => {
             let passed = doctor::run(args, &home)?;
+            if !passed {
+                std::process::exit(1);
+            }
+        }
+        Command::Verify(args) => {
+            let passed = verify::run(args, &home)?;
             if !passed {
                 std::process::exit(1);
             }

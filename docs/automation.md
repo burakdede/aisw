@@ -53,6 +53,7 @@ aisw use claude work --json
 aisw remove claude work --yes --json
 aisw rename claude work personal --json
 aisw backup restore 20260325T114502Z-claude-ci --yes --json
+aisw verify --json
 aisw status --json
 aisw status --context --json
 aisw list --json
@@ -89,6 +90,9 @@ aisw status --context --json | jq -r '.context.active'
 
 # Check whether the live credentials match the active Claude profile
 aisw status --json | jq '.[] | select(.tool == "claude") | .active_profile_applied'
+
+# Get a one-shot pass/warn/fail verification verdict
+aisw verify --json | jq -r '.summary.status'
 
 # List all stored Codex profile names
 aisw list codex --json | jq -r '.profiles[].name'

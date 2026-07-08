@@ -115,12 +115,22 @@ pub enum Command {
     /// Run a health check on the aisw installation and tool environment
     Doctor(DoctorArgs),
 
+    /// Verify that aisw-managed state and live tool state are coherent
+    Verify(VerifyArgs),
+
     /// Bind workspaces to expected contexts and enforce guardrails
     Workspace(WorkspaceArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct DoctorArgs {
+    /// Output results as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct VerifyArgs {
     /// Output results as JSON
     #[arg(long)]
     pub json: bool,
@@ -912,6 +922,15 @@ mod tests {
             panic!("wrong command")
         };
         assert!(args.yes);
+    }
+
+    #[test]
+    fn verify_json_flag() {
+        let cli = parse(&["verify", "--json"]).unwrap();
+        let Command::Verify(args) = cli.command else {
+            panic!("wrong command")
+        };
+        assert!(args.json);
     }
 
     #[test]

@@ -38,8 +38,57 @@ fn capabilities_json_reports_tool_capabilities() {
     assert_eq!(json["features"]["progress_json"], true);
     assert_eq!(json["features"]["non_prompting_init"], true);
     assert_eq!(json["features"]["detect_live_init"], true);
+    assert_eq!(json["features"]["verify"], true);
     assert_eq!(json["tools"]["gemini"]["state_modes"][0], "isolated");
     assert_eq!(json["tools"]["codex"]["fail_closed_keyring_identity"], true);
+}
+
+#[test]
+fn verify_json_reports_failures_and_remediation() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.add_fake_tool("gemini", "gemini 0.9.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            "sk-codex-test-key-12345",
+        ])
+        .assert()
+        .success();
+    env.cmd().args(["use", "codex", "work"]).assert().success();
+
+    std::fs::write(
+        env.fake_home.join(".codex").join("auth.json"),
+        br#"{"token":"different"}"#,
+    )
+    .unwrap();
+
+    let output = env.output(&["verify", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["summary"]["status"], "fail");
+    assert!(json["doctor"].is_array());
+    let codex = json["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["tool"] == "codex")
+        .unwrap();
+    assert_eq!(codex["status"], "fail");
+    assert!(codex["issues"][0]
+        .as_str()
+        .unwrap()
+        .contains("live tool credentials do not match"));
+    assert!(codex["remediation"][0]
+        .as_str()
+        .unwrap()
+        .contains("aisw use codex work"));
 }
 
 #[test]
