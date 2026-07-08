@@ -50,8 +50,33 @@ pub fn preparse_no_color(args: &[OsString]) -> bool {
     args.iter().any(|arg| arg == OsStr::new("--no-color"))
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreparsedOutputMode {
+    Human,
+    Json,
+    ProgressJson,
+}
+
+#[allow(dead_code)]
+pub fn preparse_output_mode(args: &[OsString]) -> PreparsedOutputMode {
+    if args.iter().any(|arg| arg == OsStr::new("--progress-json")) {
+        PreparsedOutputMode::ProgressJson
+    } else if args.iter().any(|arg| arg == OsStr::new("--json")) {
+        PreparsedOutputMode::Json
+    } else {
+        PreparsedOutputMode::Human
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Show CLI version details
+    Version(VersionArgs),
+
+    /// Show supported machine-readable capabilities
+    Capabilities(CapabilitiesArgs),
+
     /// Add a new account profile for a tool
     Add(AddArgs),
 
@@ -191,6 +216,10 @@ pub struct AddArgs {
     #[arg(long, value_name = "KEY")]
     pub api_key: Option<String>,
 
+    /// API key read from stdin until EOF
+    #[arg(long, conflicts_with_all = ["api_key", "from_env", "from_live"])]
+    pub api_key_stdin: bool,
+
     /// Human-readable label for this profile
     #[arg(long, value_name = "TEXT")]
     pub label: Option<String>,
@@ -214,6 +243,28 @@ pub struct AddArgs {
     /// Overwrite an existing profile without prompting (only meaningful with --from-live)
     #[arg(long)]
     pub yes: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Stream progress as newline-delimited JSON
+    #[arg(long)]
+    pub progress_json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct VersionArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct CapabilitiesArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -248,6 +299,10 @@ pub struct UseArgs {
     /// Profile name when using --all
     #[arg(long = "profile", value_name = "PROFILE")]
     pub all_profile: Option<String>,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -420,6 +475,10 @@ pub struct RemoveArgs {
     /// Allow removing the currently active profile
     #[arg(long)]
     pub force: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -432,6 +491,10 @@ pub struct RenameArgs {
 
     /// New profile name. When old name is omitted, pass only this value.
     pub new_name: Option<String>,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -538,14 +601,21 @@ pub enum BackupCommand {
     List(BackupListArgs),
 
     /// Restore a backup by id
-    Restore {
-        /// Backup id to restore (from 'aisw backup list'; omit to choose interactively in TTY mode)
-        backup_id: Option<String>,
+    Restore(BackupRestoreArgs),
+}
 
-        /// Skip the confirmation prompt
-        #[arg(long)]
-        yes: bool,
-    },
+#[derive(Args, Debug)]
+pub struct BackupRestoreArgs {
+    /// Backup id to restore (from 'aisw backup list'; omit to choose interactively in TTY mode)
+    pub backup_id: Option<String>,
+
+    /// Skip the confirmation prompt
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[cfg(test)]
@@ -919,10 +989,13 @@ mod tests {
         let Command::Backup(args) = cli.command else {
             panic!("wrong command")
         };
-        let BackupCommand::Restore { backup_id, .. } = args.command else {
+        let BackupCommand::Restore(restore_args) = args.command else {
             panic!("wrong subcommand")
         };
-        assert_eq!(backup_id.as_deref(), Some("2026-03-25T10-00-00.123Z-0001"));
+        assert_eq!(
+            restore_args.backup_id.as_deref(),
+            Some("2026-03-25T10-00-00.123Z-0001")
+        );
     }
 
     #[test]

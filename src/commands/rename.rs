@@ -7,6 +7,7 @@ use std::io::IsTerminal;
 use crate::auth;
 use crate::cli::RenameArgs;
 use crate::config::ConfigStore;
+use crate::machine;
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
 
@@ -84,6 +85,21 @@ pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
             "rolled back profile directory rename after config update failed for {}",
             args.tool
         ));
+    }
+
+    if args.json {
+        let config = config_store.load()?;
+        machine::print_success(
+            "rename",
+            serde_json::json!({
+                "tool": args.tool.binary_name(),
+                "old_name": old_name,
+                "new_name": new_name,
+                "was_active": config.active_for(args.tool) == Some(new_name),
+                "backup_ids": Vec::<String>::new(),
+            }),
+        )?;
+        return Ok(());
     }
 
     output::print_title("Renamed profile");
@@ -272,6 +288,7 @@ mod tests {
             tool,
             old_name: Some(old_name.to_owned()),
             new_name: Some(new_name.to_owned()),
+            json: false,
         }
     }
 

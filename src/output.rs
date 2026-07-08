@@ -13,7 +13,7 @@ const KV_LABEL_WIDTH: usize = 14;
 /// Creates a spinner if stdout is a TTY and not quiet/non-interactive.
 /// Returns `None` when suppressed (tests, quiet mode, non-TTY).
 pub fn start_spinner(msg: &str) -> Option<ProgressBar> {
-    if runtime::is_quiet() || !console::Term::stdout().is_term() {
+    if runtime::is_quiet() || runtime::is_machine_mode() || !console::Term::stdout().is_term() {
         return None;
     }
     let pb = ProgressBar::new_spinner();
@@ -39,7 +39,7 @@ pub fn configure(no_color_flag: bool, quiet: bool) {
 }
 
 pub fn print_title(title: &str) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style(title).bold().cyan());
@@ -48,7 +48,7 @@ pub fn print_title(title: &str) {
 }
 
 pub fn print_section(title: &str) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style(title).bold());
@@ -59,7 +59,7 @@ pub fn print_tool_section(tool: Tool) {
 }
 
 pub fn print_profile_section(name: &str, active: bool) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     if active {
@@ -74,7 +74,7 @@ pub fn print_profile_section(name: &str, active: bool) {
 }
 
 pub fn print_kv(label: &str, value: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!(
@@ -85,14 +85,14 @@ pub fn print_kv(label: &str, value: impl AsRef<str>) {
 }
 
 pub fn print_blank_line() {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!();
 }
 
 pub fn print_next_step(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style("Next").bold().cyan());
@@ -120,7 +120,7 @@ pub fn next_step_after_restore(tool: Tool, profile_name: &str) -> String {
 }
 
 pub fn print_fix(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style("Fix").bold().yellow());
@@ -128,49 +128,49 @@ pub fn print_fix(message: impl AsRef<str>) {
 }
 
 pub fn print_info(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("  {}", style(message.as_ref()).dim());
 }
 
 pub fn print_effects_header() {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style("Effects").bold().green());
 }
 
 pub fn print_effect(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("  {}", style(message.as_ref()).green());
 }
 
 pub fn print_success(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style(message.as_ref()).green().bold());
 }
 
 pub fn print_warning(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style(message.as_ref()).yellow().bold());
 }
 
 pub fn print_empty_state(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     println!("{}", style(message.as_ref()).dim());
 }
 
 pub fn print_table_header(columns: &[(&str, usize)]) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
 
@@ -191,7 +191,7 @@ pub fn print_table_header(columns: &[(&str, usize)]) {
 }
 
 pub fn print_table_row(cells: &[(&str, usize)]) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
 
@@ -228,14 +228,14 @@ pub fn ellipsize(value: &str, max_chars: usize) -> String {
 }
 
 pub fn print_warning_stderr(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     eprintln!("{}", style(message.as_ref()).yellow().bold());
 }
 
 pub fn print_info_stderr(message: impl AsRef<str>) {
-    if runtime::is_quiet() {
+    if runtime::is_quiet() || runtime::is_machine_mode() {
         return;
     }
     eprintln!("  {}", style(message.as_ref()).dim());

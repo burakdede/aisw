@@ -5,8 +5,9 @@ use dialoguer::{theme::ColorfulTheme, Select};
 use std::io::IsTerminal;
 
 use crate::backup::BackupManager;
-use crate::cli::{BackupCommand, BackupListArgs};
+use crate::cli::{BackupCommand, BackupListArgs, BackupRestoreArgs};
 use crate::config::ConfigStore;
+use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::runtime;
@@ -14,7 +15,7 @@ use crate::runtime;
 pub fn run(command: BackupCommand, home: &Path) -> Result<()> {
     match command {
         BackupCommand::List(args) => run_list(args, home),
-        BackupCommand::Restore { backup_id, yes } => run_restore(backup_id, yes, home),
+        BackupCommand::Restore(args) => run_restore(args, home),
     }
 }
 
@@ -107,8 +108,8 @@ fn print_json(entries: &[crate::backup::BackupEntry]) -> Result<()> {
     Ok(())
 }
 
-fn run_restore(backup_id: Option<String>, yes: bool, home: &Path) -> Result<()> {
-    let backup_id = resolve_backup_id(backup_id, home)?;
+fn run_restore(args: BackupRestoreArgs, home: &Path) -> Result<()> {
+    let backup_id = resolve_backup_id(args.backup_id.clone(), home)?;
     let manager = BackupManager::new(home);
     let entries = manager.list()?;
     let matching: Vec<_> = entries
@@ -123,7 +124,7 @@ fn run_restore(backup_id: Option<String>, yes: bool, home: &Path) -> Result<()> 
         );
     }
 
-    if !yes {
+    if !args.yes {
         if runtime::is_non_interactive() {
             bail!(
                 "backup restore requires confirmation.\n  \
@@ -148,7 +149,24 @@ fn run_restore(backup_id: Option<String>, yes: bool, home: &Path) -> Result<()> 
         }
     }
 
-    run_restore_inner(&backup_id, home)
+    let restored = run_restore_inner(&backup_id, home)?;
+    if args.json {
+        machine::print_success(
+            "backup_restore",
+            serde_json::json!({
+                "backup_id": backup_id,
+                "restored": restored.iter().map(|entry| {
+                    serde_json::json!({
+                        "tool": entry.tool.binary_name(),
+                        "profile": entry.profile,
+                    })
+                }).collect::<Vec<_>>(),
+                "activated": false,
+                "next_action": restored.first().map(|entry| format!("aisw use {} {}", entry.tool, entry.profile)),
+            }),
+        )?;
+    }
+    Ok(())
 }
 
 fn resolve_backup_id(backup_id: Option<String>, home: &Path) -> Result<String> {
@@ -199,7 +217,10 @@ fn resolve_backup_id(backup_id: Option<String>, home: &Path) -> Result<String> {
     Ok(unique_ids[selection].clone())
 }
 
-pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
+pub(crate) fn run_restore_inner(
+    backup_id: &str,
+    home: &Path,
+) -> Result<Vec<crate::backup::BackupEntry>> {
     let manager = BackupManager::new(home);
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
@@ -219,6 +240,9 @@ pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
 
     manager.restore(backup_id, &profile_store, &config_store)?;
     for e in &matching {
+        if crate::runtime::is_json() {
+            continue;
+        }
         output::print_title("Restored backup");
         output::print_kv("Tool", e.tool.display_name());
         output::print_kv("Profile", &e.profile);
@@ -230,7 +254,7 @@ pub(crate) fn run_restore_inner(backup_id: &str, home: &Path) -> Result<()> {
         output::print_blank_line();
         output::print_next_step(output::next_step_after_restore(e.tool, &e.profile));
     }
-    Ok(())
+    Ok(matching.into_iter().cloned().collect())
 }
 
 #[cfg(test)]

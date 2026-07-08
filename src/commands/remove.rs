@@ -8,6 +8,7 @@ use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::RemoveArgs;
 use crate::config::{Config, ConfigStore};
+use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::runtime;
@@ -112,7 +113,14 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     profile_meta
         .credential_backend
         .validate_for_tool(args.tool)?;
-    BackupManager::new(home).snapshot(args.tool, profile_name, &profile_dir, profile_meta)?;
+    let backup_path =
+        BackupManager::new(home).snapshot(args.tool, profile_name, &profile_dir, profile_meta)?;
+    let backup_id = backup_path
+        .ancestors()
+        .nth(2)
+        .and_then(|path| path.file_name())
+        .and_then(|name| name.to_str())
+        .map(str::to_owned);
 
     if profile_meta.credential_backend == crate::config::CredentialBackend::SystemKeyring {
         auth::secure_store::delete_profile_secret(args.tool, profile_name)?;
@@ -122,6 +130,20 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
 
     if is_active {
         config_store.clear_active(args.tool)?;
+    }
+
+    if args.json {
+        machine::print_success(
+            "remove",
+            serde_json::json!({
+                "tool": args.tool.binary_name(),
+                "removed_profile": profile_name,
+                "was_active": is_active,
+                "backup_ids": backup_id.into_iter().collect::<Vec<_>>(),
+                "remaining_profiles": remaining_profiles(home, args.tool)?,
+            }),
+        )?;
+        return Ok(());
     }
 
     output::print_title("Removed profile");
@@ -138,6 +160,17 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     output::print_blank_line();
     output::print_next_step("Run 'aisw list' to review remaining profiles.");
     Ok(())
+}
+
+fn remaining_profiles(home: &Path, tool: Tool) -> Result<Vec<String>> {
+    let config = ConfigStore::new(home).load()?;
+    let mut names = config
+        .profiles_for(tool)
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    names.sort();
+    Ok(names)
 }
 
 fn precheck(args: &RemoveArgs, home: &Path) -> Result<()> {
@@ -342,6 +375,7 @@ mod tests {
             profile_name: Some(name.to_owned()),
             yes,
             force,
+            json: false,
         }
     }
 

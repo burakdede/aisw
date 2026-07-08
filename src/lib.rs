@@ -5,6 +5,7 @@ pub mod commands;
 pub mod config;
 pub mod error;
 pub mod live_apply;
+pub mod machine;
 pub mod output;
 pub mod profile;
 pub mod runtime;
@@ -33,9 +34,28 @@ use anyhow::Result;
 pub fn run() -> Result<()> {
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let clap_no_color = cli::preparse_no_color(&argv);
-    let cli = cli::parse_from(argv, clap_no_color).unwrap_or_else(|err| err.exit());
+    let output_mode = match cli::preparse_output_mode(&argv) {
+        cli::PreparsedOutputMode::Human => runtime::OutputMode::Human,
+        cli::PreparsedOutputMode::Json => runtime::OutputMode::Json,
+        cli::PreparsedOutputMode::ProgressJson => runtime::OutputMode::ProgressJson,
+    };
+    let cli = match cli::parse_from(argv, clap_no_color) {
+        Ok(cli) => cli,
+        Err(err) => {
+            if !matches!(output_mode, runtime::OutputMode::Human) {
+                let failure = machine::parse_error(None, &err);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&failure)
+                        .unwrap_or_else(|_| "{\"ok\":false}".to_owned())
+                );
+                std::process::exit(err.exit_code());
+            }
+            err.exit()
+        }
+    };
     let _terminal_guard = terminal::TerminalGuard::capture();
-    runtime::configure(cli.non_interactive, cli.quiet);
+    runtime::configure(cli.non_interactive, cli.quiet, output_mode);
     output::configure(cli.no_color, cli.quiet);
     commands::dispatch(cli)
 }
