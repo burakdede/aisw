@@ -1,6 +1,6 @@
 ---
 title: Command reference
-description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
+description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, verify, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
 ---
 
 # Command reference
@@ -46,6 +46,7 @@ aisw backup restore <backup_id> [--yes]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
 aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
+aisw verify [--json]
 ```
 
 `<tool>` is one of: `claude`, `codex`, `gemini`.
@@ -559,6 +560,34 @@ Check install and environment health: binary locations, `~/.aisw/` permissions, 
 ```sh
 aisw doctor
 aisw doctor --json
+```
+
+---
+
+## `aisw verify`
+
+```text
+aisw verify [--json]
+```
+
+Read-only confidence check that combines installation health with live profile coherence.
+
+- Reuses `doctor` checks for binaries, config, shell hook, keyring, and permissions.
+- Verifies whether each active tool's live credentials still match the profile `aisw` records as active.
+- Returns non-zero when concrete failures are found, such as live mismatch, missing managed credentials, or missing binaries.
+
+| Flag | Effect |
+|---|---|
+| `--json` | Output a machine-readable verification report |
+
+Notes:
+- `verify` is stricter than `status --json`: it adds an overall pass/warn/fail verdict and remediation hints.
+- `verify` is read-only. It never reapplies credentials or modifies shell files.
+- On macOS, Claude file-backed live verification can remain observational because the live Keychain state is not always inspectable.
+
+```sh
+aisw verify
+aisw verify --json
 ```
 
 ---

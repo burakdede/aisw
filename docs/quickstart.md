@@ -144,6 +144,7 @@ aisw status --context
 # Machine-readable (for scripts)
 aisw status --json
 aisw status --context --json
+aisw verify --json
 
 # List all stored profiles
 aisw list

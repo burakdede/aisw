@@ -12,9 +12,10 @@ Run these first when something is wrong:
 ```sh
 aisw doctor
 aisw status --json
+aisw verify --json
 ```
 
-`doctor` checks binary detection, `~/.aisw/` permissions, shell hook status, and keyring availability. `status --json` shows the full state of every tool including live-match status and any credential warnings.
+`doctor` checks binary detection, `~/.aisw/` permissions, shell hook status, and keyring availability. `status --json` shows the full state of every tool including live-match status and any credential warnings. `verify --json` combines both into a pass/warn/fail verdict with remediation hints.
 
 ---
 

@@ -56,7 +56,7 @@ pub fn run(args: CapabilitiesArgs) -> Result<()> {
             progress_json: true,
             non_prompting_init: true,
             detect_live_init: true,
-            verify: false,
+            verify: true,
             repair: false,
             contexts: true,
             workspace_bindings: true,
