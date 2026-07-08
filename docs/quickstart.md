@@ -145,6 +145,7 @@ aisw status --context
 aisw status --json
 aisw status --context --json
 aisw verify --json
+aisw repair --json --dry-run
 
 # List all stored profiles
 aisw list

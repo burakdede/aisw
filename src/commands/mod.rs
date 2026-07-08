@@ -12,6 +12,7 @@ pub mod init;
 pub mod list;
 pub mod remove;
 pub mod rename;
+pub mod repair;
 pub mod shell_hook;
 pub mod status;
 pub mod uninstall;
@@ -69,6 +70,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Repair(args) => repair::run(args, &home)?,
         Command::Workspace(args) => workspace::run(args, &home)?,
     }
     Ok(())
