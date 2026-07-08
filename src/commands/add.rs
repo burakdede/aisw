@@ -26,6 +26,15 @@ pub fn run(args: AddArgs, home: &Path) -> Result<()> {
 }
 
 pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<()> {
+    let mut progress = machine::ProgressReporter::new(
+        "add",
+        Some(args.tool.binary_name()),
+        Some(args.profile_name.clone()),
+    );
+    if let Some(progress) = progress.as_mut() {
+        progress.started()?;
+    }
+
     let requested_backend = args.credential_backend.map(map_cli_backend);
     validate_requested_backend(args.tool, requested_backend)?;
 
@@ -112,7 +121,13 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         if args.set_active {
             config_store.set_active(args.tool, &args.profile_name)?;
         }
-        emit_add_result(&args, backend, Some(env_var), AuthMethod::ApiKey)?;
+        emit_add_result(
+            &args,
+            backend,
+            Some(env_var),
+            AuthMethod::ApiKey,
+            progress.as_mut(),
+        )?;
         return Ok(());
     } else if let Some(api_key) = api_key_arg.as_deref() {
         let backend = resolved_api_key_backend(&args);
@@ -150,6 +165,14 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                  Re-run without --non-interactive, or pass --api-key.",
                 args.tool.display_name()
             );
+        }
+        if let Some(progress) = progress.as_mut() {
+            progress.info("starting_upstream_auth", "Starting upstream OAuth flow")?;
+            progress.waiting_for_user(
+                "waiting_for_user",
+                "Complete login in the browser or terminal",
+                true,
+            )?;
         }
         match args.tool {
             Tool::Claude => {
@@ -220,11 +243,14 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         }
     };
 
+    if let Some(progress) = progress.as_mut() {
+        progress.info("applying_changes", "Applying captured credentials")?;
+    }
     if args.set_active {
         config_store.set_active(args.tool, &args.profile_name)?;
     }
 
-    emit_add_result(&args, backend, source, auth_method)?;
+    emit_add_result(&args, backend, source, auth_method, progress.as_mut())?;
 
     Ok(())
 }
@@ -946,19 +972,28 @@ fn finalize_from_live(
     backend: CredentialBackend,
     auth_method: AuthMethod,
 ) -> Result<()> {
-    if args.json {
-        machine::print_success(
+    let result = serde_json::json!({
+        "tool": tool.binary_name(),
+        "profile": args.profile_name,
+        "auth_method": auth_label(auth_method),
+        "credential_backend": backend.display_name(),
+        "active": true,
+        "source": "from_live",
+        "warnings": Vec::<String>::new(),
+    });
+    if runtime::is_progress_json() {
+        if let Some(mut progress) = machine::ProgressReporter::new(
             "add",
-            serde_json::json!({
-                "tool": tool.binary_name(),
-                "profile": args.profile_name,
-                "auth_method": auth_label(auth_method),
-                "credential_backend": backend.display_name(),
-                "active": true,
-                "source": "from_live",
-                "warnings": Vec::<String>::new(),
-            }),
-        )?;
+            Some(tool.binary_name()),
+            Some(args.profile_name.clone()),
+        ) {
+            progress.started()?;
+            progress.info("applying_changes", "Applying captured credentials")?;
+            progress.result(true, result)?;
+            return Ok(());
+        }
+    } else if args.json {
+        machine::print_success("add", result)?;
         return Ok(());
     }
     output::print_title("Added profile");
@@ -1041,20 +1076,22 @@ fn emit_add_result(
     backend: CredentialBackend,
     source: Option<&str>,
     auth_method: AuthMethod,
+    progress: Option<&mut machine::ProgressReporter>,
 ) -> Result<()> {
-    if args.json {
-        machine::print_success(
-            "add",
-            serde_json::json!({
-                "tool": args.tool.binary_name(),
-                "profile": args.profile_name,
-                "auth_method": auth_label(auth_method),
-                "credential_backend": backend.display_name(),
-                "active": args.set_active || args.from_live,
-                "source": source,
-                "warnings": Vec::<String>::new(),
-            }),
-        )?;
+    let result = serde_json::json!({
+        "tool": args.tool.binary_name(),
+        "profile": args.profile_name,
+        "auth_method": auth_label(auth_method),
+        "credential_backend": backend.display_name(),
+        "active": args.set_active || args.from_live,
+        "source": source,
+        "warnings": Vec::<String>::new(),
+    });
+    if let Some(progress) = progress {
+        progress.result(true, result)?;
+        return Ok(());
+    } else if args.json {
+        machine::print_success("add", result)?;
         return Ok(());
     }
 

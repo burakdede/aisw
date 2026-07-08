@@ -35,6 +35,12 @@ aisw init
 
 This creates `~/.aisw/`, offers to install the optional shell hook (recommended), and detects any accounts you are already logged into. If you are already signed into Claude Code, Codex, or Gemini, `init` will offer to import those credentials as named profiles so you start without re-authenticating.
 
+For GUI or other machine-driven onboarding, use the non-prompting bootstrap path instead:
+
+```sh
+aisw init --json --no-shell-hook --detect-live
+```
+
 ## 3. Add profiles
 
 **API key:**
@@ -43,6 +49,12 @@ This creates `~/.aisw/`, offers to install the optional shell hook (recommended)
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
 aisw add codex work --api-key "$OPENAI_API_KEY"
 aisw add gemini work --api-key "$GEMINI_API_KEY"
+```
+
+**API key from stdin** (safer for GUIs and subprocess clients):
+
+```sh
+printf '%s' "$ANTHROPIC_API_KEY" | aisw add claude work --api-key-stdin --json
 ```
 
 **From the current environment variable** (useful in CI or when the key is already exported):
@@ -57,6 +69,12 @@ aisw add codex ci --from-env
 aisw add claude personal
 aisw add codex personal
 aisw add gemini personal
+```
+
+If you want machine-readable OAuth progress for a GUI:
+
+```sh
+aisw add claude personal --progress-json
 ```
 
 **Capture the currently logged-in account** (no re-login):

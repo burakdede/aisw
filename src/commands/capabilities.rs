@@ -19,6 +19,8 @@ struct FeatureFlags {
     api_key_stdin: bool,
     mutation_json: bool,
     progress_json: bool,
+    non_prompting_init: bool,
+    detect_live_init: bool,
     verify: bool,
     repair: bool,
     contexts: bool,
@@ -51,7 +53,9 @@ pub fn run(args: CapabilitiesArgs) -> Result<()> {
         features: FeatureFlags {
             api_key_stdin: true,
             mutation_json: true,
-            progress_json: false,
+            progress_json: true,
+            non_prompting_init: true,
+            detect_live_init: true,
             verify: false,
             repair: false,
             contexts: true,
@@ -71,7 +75,7 @@ pub fn run(args: CapabilitiesArgs) -> Result<()> {
         println!("machine features");
         println!("  api_key_stdin: true");
         println!("  mutation_json: true");
-        println!("  progress_json: false");
+        println!("  progress_json: true");
     }
 
     Ok(())

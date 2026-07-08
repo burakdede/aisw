@@ -35,8 +35,42 @@ fn capabilities_json_reports_tool_capabilities() {
     let json = json_output(&env, &["capabilities", "--json"]);
     assert_eq!(json["features"]["api_key_stdin"], true);
     assert_eq!(json["features"]["mutation_json"], true);
+    assert_eq!(json["features"]["progress_json"], true);
+    assert_eq!(json["features"]["non_prompting_init"], true);
+    assert_eq!(json["features"]["detect_live_init"], true);
     assert_eq!(json["tools"]["gemini"]["state_modes"][0], "isolated");
     assert_eq!(json["tools"]["codex"]["fail_closed_keyring_identity"], true);
+}
+
+#[test]
+fn init_json_detect_live_returns_machine_bootstrap_state() {
+    let env = TestEnv::new();
+    std::fs::create_dir_all(env.fake_home.join(".claude")).unwrap();
+    std::fs::write(
+        env.fake_home.join(".claude").join(".credentials.json"),
+        br#"{"oauthToken":"tok"}"#,
+    )
+    .unwrap();
+
+    let output = env
+        .cmd()
+        .args(["init", "--json", "--no-shell-hook", "--detect-live"])
+        .env("SHELL", "/bin/zsh")
+        .env("AISW_CLAUDE_AUTH_STORAGE", "file")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "init");
+    assert_eq!(json["result"]["shell"]["action"], "skipped");
+    assert_eq!(json["result"]["shell"]["detected"], "zsh");
+    assert_eq!(json["result"]["live_accounts"][0]["tool"], "claude");
+    assert_eq!(json["result"]["live_accounts"][0]["outcome"], "detected");
+    assert_eq!(json["result"]["live_accounts"][0]["auth_method"], "oauth");
+    assert!(!env.fake_home.join(".zshrc").exists());
 }
 
 #[test]
@@ -182,4 +216,49 @@ fn backup_restore_json_reports_non_activation() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["result"]["backup_id"], backup_id);
     assert_eq!(json["result"]["activated"], false);
+}
+
+#[test]
+fn add_oauth_progress_json_streams_ndjson_events() {
+    let env = TestEnv::new();
+    env.add_script_tool(
+        "claude",
+        "#!/bin/sh\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"login\" ]; then\n  /bin/mkdir -p \"$HOME/.claude\"\n  printf '%s' '{\"oauthToken\":\"tok\"}' > \"$HOME/.claude/.credentials.json\"\n  exit 0\nfi\necho 'claude 2.3.0'\n",
+    );
+    env.cmd().args(["init", "--yes"]).assert().success();
+
+    let events = {
+        let output = env
+            .cmd()
+            .args(["add", "claude", "work", "--progress-json"])
+            .env("AISW_CLAUDE_AUTH_STORAGE", "file")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(events[0]["type"], "started");
+    assert_eq!(events[0]["tool"], "claude");
+    assert_eq!(events[1]["phase"], "starting_upstream_auth");
+    assert_eq!(events[2]["type"], "waiting_for_user");
+    assert_eq!(events[2]["safe_to_cancel"], true);
+    assert_eq!(events[3]["phase"], "applying_changes");
+    assert_eq!(events.last().unwrap()["type"], "result");
+    assert_eq!(events.last().unwrap()["ok"], true);
+    assert_eq!(events.last().unwrap()["result"]["profile"], "work");
 }

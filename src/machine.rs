@@ -1,6 +1,8 @@
 use anyhow::Error;
 use serde::Serialize;
 
+use crate::runtime;
+
 use crate::error::AiswError;
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,13 +35,114 @@ pub struct MachineFailureEnvelope {
     pub error: MachineError,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ProgressEvent<T: Serialize> {
+    #[serde(rename = "type")]
+    pub event_type: &'static str,
+    pub seq: u64,
+    pub command: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safe_to_cancel: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ok: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<T>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProgressReporter {
+    command: &'static str,
+    tool: Option<&'static str>,
+    profile: Option<String>,
+    seq: u64,
+}
+
+impl ProgressReporter {
+    pub fn new(
+        command: &'static str,
+        tool: Option<&'static str>,
+        profile: Option<String>,
+    ) -> Option<Self> {
+        runtime::is_progress_json().then_some(Self {
+            command,
+            tool,
+            profile,
+            seq: 0,
+        })
+    }
+
+    pub fn started(&mut self) -> anyhow::Result<()> {
+        self.emit::<serde_json::Value>("started", None, None, None, None, None)
+    }
+
+    pub fn info(&mut self, phase: &'static str, message: impl Into<String>) -> anyhow::Result<()> {
+        self.emit::<serde_json::Value>("info", Some(phase), None, Some(message.into()), None, None)
+    }
+
+    pub fn waiting_for_user(
+        &mut self,
+        phase: &'static str,
+        message: impl Into<String>,
+        safe_to_cancel: bool,
+    ) -> anyhow::Result<()> {
+        self.emit::<serde_json::Value>(
+            "waiting_for_user",
+            Some(phase),
+            Some(safe_to_cancel),
+            Some(message.into()),
+            None,
+            None,
+        )
+    }
+
+    pub fn result<T: Serialize>(&mut self, ok: bool, result: T) -> anyhow::Result<()> {
+        self.emit("result", None, None, None, Some(ok), Some(result))
+    }
+
+    fn emit<T: Serialize>(
+        &mut self,
+        event_type: &'static str,
+        phase: Option<&'static str>,
+        safe_to_cancel: Option<bool>,
+        message: Option<String>,
+        ok: Option<bool>,
+        result: Option<T>,
+    ) -> anyhow::Result<()> {
+        self.seq += 1;
+        println!(
+            "{}",
+            serialize_json(&ProgressEvent {
+                event_type,
+                seq: self.seq,
+                command: self.command,
+                tool: self.tool,
+                profile: self.profile.clone(),
+                phase,
+                safe_to_cancel,
+                message,
+                ok,
+                result,
+            })?
+        );
+        Ok(())
+    }
+}
+
 pub fn print_success<T: Serialize>(command: &'static str, result: T) -> anyhow::Result<()> {
     println!(
         "{}",
-        serde_json::to_string_pretty(&MachineEnvelope {
+        serialize_json(&MachineEnvelope {
             ok: true,
             command,
-            result,
+            result
         })?
     );
     Ok(())
@@ -52,7 +155,7 @@ pub fn print_failure(command: Option<&str>, err: &Error, exit_code: i32) {
         error: machine_error(err, exit_code),
     };
 
-    if let Ok(json) = serde_json::to_string_pretty(&failure) {
+    if let Ok(json) = serialize_json(&failure) {
         println!("{json}");
     } else {
         println!(
@@ -60,6 +163,14 @@ pub fn print_failure(command: Option<&str>, err: &Error, exit_code: i32) {
             command.unwrap_or("unknown"),
             exit_code
         );
+    }
+}
+
+pub fn serialize_json<T: Serialize>(value: &T) -> anyhow::Result<String> {
+    if runtime::is_progress_json() {
+        Ok(serde_json::to_string(value)?)
+    } else {
+        Ok(serde_json::to_string_pretty(value)?)
     }
 }
 

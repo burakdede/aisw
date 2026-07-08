@@ -25,6 +25,9 @@ aisw --non-interactive --quiet <command>
 # Add an API key profile without any prompts
 aisw --non-interactive add claude ci --api-key "$ANTHROPIC_API_KEY"
 
+# Or avoid passing the secret in argv
+printf '%s' "$ANTHROPIC_API_KEY" | aisw --non-interactive add claude ci --api-key-stdin --json
+
 # Add from an already-exported environment variable
 aisw --non-interactive add codex ci --from-env
 
@@ -39,9 +42,17 @@ Interactive OAuth flows (`aisw add claude personal` without flags) are not avail
 
 ## Machine-readable output
 
-All inventory and status commands support `--json`:
+Read commands support `--json`, and core mutation commands now expose machine envelopes as well:
 
 ```sh
+aisw version --json
+aisw capabilities --json
+aisw init --json --no-shell-hook --detect-live
+aisw add claude work --api-key-stdin --json
+aisw use claude work --json
+aisw remove claude work --yes --json
+aisw rename claude work personal --json
+aisw backup restore 20260325T114502Z-claude-ci --yes --json
 aisw status --json
 aisw status --context --json
 aisw list --json
@@ -51,7 +62,21 @@ aisw backup list --json
 aisw doctor --json
 ```
 
-JSON output goes to stdout. Errors always go to stderr with a non-zero exit code.
+With `--json`, success and expected command failures are emitted as structured JSON on stdout. Human-oriented stdout/stderr output is suppressed. The process still exits non-zero on failure.
+
+For OAuth-based `add`, use `--progress-json` to stream newline-delimited JSON progress events:
+
+```sh
+aisw add claude personal --progress-json
+```
+
+Example event stream:
+
+```json
+{"type":"started","seq":1,"command":"add","tool":"claude","profile":"personal"}
+{"type":"waiting_for_user","seq":3,"command":"add","tool":"claude","profile":"personal","phase":"waiting_for_user","safe_to_cancel":true,"message":"Complete login in the browser or terminal"}
+{"type":"result","seq":5,"command":"add","tool":"claude","profile":"personal","ok":true,"result":{"tool":"claude","profile":"personal","auth_method":"oauth","credential_backend":"file","active":false,"source":null,"warnings":[]}}
+```
 
 ### Useful JSON patterns
 
@@ -83,11 +108,13 @@ aisw backup list --json | jq '[.[] | select(.profile == "claude/work")] | sort_b
 | Output | Destination | Notes |
 |---|---|---|
 | Human-readable tables and status | stdout | Suppressed by `--quiet` |
-| Errors | stderr + non-zero exit | Always present, never suppressed |
+| Errors in human mode | stderr + non-zero exit | Always present, never suppressed |
+| Errors in machine mode (`--json`, `--progress-json`) | stdout + non-zero exit | Structured JSON envelope |
 | Prompts | stderr or tty | Only shown without `--non-interactive` and without `--yes` |
 | `aisw use --emit-env` / `aisw context use --emit-env` | stdout | Shell variable exports; not affected by `--quiet` |
 | `aisw shell-hook` | stdout | Shell hook code; not affected by `--quiet` |
 | JSON output (`--json`) | stdout | Not affected by `--quiet` |
+| Progress JSON (`--progress-json`) | stdout | One JSON object per line, intended for GUI/OAuth flows |
 
 Exit code `0` means success. Any non-zero exit code means failure; the error message is on stderr.
 

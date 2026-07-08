@@ -20,8 +20,8 @@ aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 ## At a glance
 
 ```text
-aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
+aisw init [--yes] [--json --no-shell-hook [--detect-live]]
+aisw add <tool> <profile> [--api-key KEY|--api-key-stdin] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes] [--json|--progress-json]
 aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
 aisw context list [--search TEXT] [--json]
 aisw context use <name> [--state-mode isolated|shared] [--emit-env]
@@ -56,6 +56,7 @@ aisw doctor [--json]
 
 ```text
 aisw init [--yes]
+aisw init --json --no-shell-hook [--detect-live]
 ```
 
 Bootstrap command. Run once after install.
@@ -68,9 +69,13 @@ Bootstrap command. Run once after install.
 | Flag | Effect |
 |---|---|
 | `--yes` | Accept all prompts without confirmation |
+| `--json` | Return a machine-readable bootstrap payload instead of interactive output |
+| `--no-shell-hook` | Skip shell hook installation or modification; required with `--json` |
+| `--detect-live` | Include live credential detection results in the machine payload |
 
 Notes:
 - `init` is safe to re-run. If `~/.aisw/` already exists, it skips creation and proceeds to detection.
+- `init --json` is non-prompting by design. It creates `~/.aisw/config.json`, never edits shell rc files, and can report live credentials without importing them.
 - For Gemini, when both `~/.gemini/.env` and OAuth cache files are present, import uses the `.env` file first.
 - For Claude Code on macOS, `init` checks the Keychain before checking the credentials file.
 - `init` will not import a duplicate if the OAuth identity matches an already-stored profile.
@@ -78,6 +83,7 @@ Notes:
 ```sh
 aisw init
 aisw init --yes
+aisw init --json --no-shell-hook --detect-live
 ```
 
 ---
@@ -85,7 +91,7 @@ aisw init --yes
 ## `aisw add`
 
 ```text
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
+aisw add <tool> <profile> [--api-key KEY|--api-key-stdin] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes] [--json|--progress-json]
 ```
 
 Create a named profile.
@@ -93,16 +99,20 @@ Create a named profile.
 | Flag | Effect |
 |---|---|
 | `--api-key KEY` | Store the given API key |
+| `--api-key-stdin` | Read the API key from stdin until EOF |
 | `--from-env` | Read the key from the tool's env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) |
 | `--from-live` | Capture the tool's current live credentials without launching login |
 | `--label TEXT` | Human-readable description, shown in `list` and `status` |
 | `--credential-backend file|system-keyring` | Override where `aisw` stores the managed profile secret |
 | `--set-active` | Activate the profile immediately after adding |
 | `--yes` | Overwrite an existing profile when used with `--from-live` |
+| `--json` | Return a single machine-readable result envelope |
+| `--progress-json` | Stream newline-delimited JSON progress events, then a final result event |
 
 Notes:
 - Without `--api-key`, `--from-env`, or `--from-live`, `add` runs the interactive OAuth flow for the tool.
 - In `--non-interactive` mode, interactive OAuth is not available and the command fails.
+- `--api-key-stdin` is intended for GUI and automation integrations that should not expose secrets in process arguments.
 - `--from-live` captures what the tool is currently using; it does not launch a browser or auth flow.
 - `--from-live` always activates the profile because those credentials are already live.
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
@@ -117,7 +127,9 @@ Live credential locations by tool:
 
 ```sh
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+printf '%s' "$ANTHROPIC_API_KEY" | aisw add claude work --api-key-stdin --json
 aisw add codex ci --from-env
+aisw add claude personal --progress-json
 aisw add gemini personal --label "Personal account" --set-active
 aisw add claude work --from-live
 aisw add codex work --from-live --yes

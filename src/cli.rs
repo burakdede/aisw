@@ -529,6 +529,18 @@ pub struct InitArgs {
     /// Answer yes to all confirmation prompts
     #[arg(long)]
     pub yes: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Do not install or modify shell hook files
+    #[arg(long)]
+    pub no_shell_hook: bool,
+
+    /// Detect existing live upstream credentials without importing them
+    #[arg(long)]
+    pub detect_live: bool,
 }
 
 #[derive(Args, Debug)]
