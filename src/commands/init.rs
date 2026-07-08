@@ -7,9 +7,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input};
+use serde::Serialize;
 
 use crate::auth;
+use crate::cli::InitArgs;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend, ProfileMeta};
+use crate::machine;
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
 use crate::runtime;
@@ -18,6 +21,51 @@ use crate::types::Tool;
 
 // Marker written by shell_hook.rs — must match.
 pub(crate) const HOOK_MARKER: &str = "# Added by aisw";
+
+#[derive(Serialize)]
+struct InitMachinePayload {
+    aisw_home: String,
+    created_home: bool,
+    created_config: bool,
+    shell: InitShellStatus,
+    detected_tools: Vec<DetectedToolStatus>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    live_accounts: Vec<LiveAccountStatus>,
+}
+
+#[derive(Serialize)]
+struct InitShellStatus {
+    detected: Option<String>,
+    action: &'static str,
+    rc_file: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DetectedToolStatus {
+    tool: &'static str,
+    detected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+}
+
+#[derive(Serialize)]
+struct LiveAccountStatus {
+    tool: &'static str,
+    detected: bool,
+    outcome: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth_method: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    existing_profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+}
 
 pub(crate) fn run_inner(
     aisw_home: &Path,
@@ -70,11 +118,102 @@ pub(crate) fn run_inner(
     Ok(())
 }
 
+pub(crate) fn run_machine(
+    aisw_home: &Path,
+    user_home: &Path,
+    shell_env: Option<&str>,
+    args: &InitArgs,
+) -> Result<()> {
+    if !args.no_shell_hook {
+        anyhow::bail!(
+            "init --json requires --no-shell-hook to avoid shell file mutation.\n  \
+             Re-run with 'aisw init --json --no-shell-hook', or use interactive init."
+        );
+    }
+
+    let (created_home, created_config) = ensure_aisw_home(aisw_home)?;
+    let detected_tools = detect_supported_tools();
+    let shell_name = normalized_shell_name(shell_env);
+    let live_accounts = if args.detect_live {
+        detect_live_accounts(aisw_home, user_home, &detected_tools)?
+    } else {
+        Vec::new()
+    };
+
+    machine::print_success(
+        "init",
+        InitMachinePayload {
+            aisw_home: aisw_home.display().to_string(),
+            created_home,
+            created_config,
+            shell: InitShellStatus {
+                rc_file: shell_name
+                    .as_deref()
+                    .map(|shell| rc_file(user_home, shell).display().to_string()),
+                detected: shell_name,
+                action: "skipped",
+            },
+            detected_tools: Tool::ALL
+                .into_iter()
+                .map(|tool| {
+                    detected_tool_status(
+                        tool,
+                        detected_tools.get(&tool).and_then(|entry| entry.as_ref()),
+                    )
+                })
+                .collect(),
+            live_accounts,
+        },
+    )
+}
+
+fn ensure_aisw_home(aisw_home: &Path) -> Result<(bool, bool)> {
+    let created_home = !aisw_home.exists();
+    let created_config = !aisw_home.join("config.json").exists();
+    fs::create_dir_all(aisw_home)
+        .with_context(|| format!("could not create {}", aisw_home.display()))?;
+    ConfigStore::new(aisw_home).load()?;
+    Ok((created_home, created_config))
+}
+
 fn detect_supported_tools() -> HashMap<Tool, Option<DetectedTool>> {
     Tool::ALL
         .into_iter()
         .map(|tool| (tool, tool_detection::detect(tool)))
         .collect()
+}
+
+fn detected_tool_status(tool: Tool, detected: Option<&DetectedTool>) -> DetectedToolStatus {
+    DetectedToolStatus {
+        tool: tool.binary_name(),
+        detected: detected.is_some(),
+        version: detected.and_then(|entry| entry.version.clone()),
+        path: detected.map(|entry| entry.binary_path.display().to_string()),
+    }
+}
+
+fn detect_live_accounts(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: &HashMap<Tool, Option<DetectedTool>>,
+) -> Result<Vec<LiveAccountStatus>> {
+    Ok(vec![
+        detect_live_claude(
+            aisw_home,
+            user_home,
+            detected.get(&Tool::Claude).and_then(|entry| entry.as_ref()),
+        )?,
+        detect_live_codex(
+            aisw_home,
+            user_home,
+            detected.get(&Tool::Codex).and_then(|entry| entry.as_ref()),
+        )?,
+        detect_live_gemini(
+            aisw_home,
+            user_home,
+            detected.get(&Tool::Gemini).and_then(|entry| entry.as_ref()),
+        )?,
+    ])
 }
 
 fn print_detected_tools(detected: &HashMap<Tool, Option<DetectedTool>>) {
@@ -444,6 +583,252 @@ fn extract_gemini_api_key(bytes: &[u8]) -> Option<String> {
         .ok()?
         .lines()
         .find_map(|line| line.strip_prefix("GEMINI_API_KEY=").map(ToOwned::to_owned))
+}
+
+fn detect_live_claude(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: Option<&DetectedTool>,
+) -> Result<LiveAccountStatus> {
+    let profile_store = ProfileStore::new(aisw_home);
+    let config_store = ConfigStore::new(aisw_home);
+    let local_state =
+        auth::claude::live_local_state_dir(user_home).map(|path| path.display().to_string());
+    let maybe_snapshot = auth::claude::live_credentials_snapshot_for_import(user_home)?;
+
+    let Some(snapshot) = maybe_snapshot else {
+        let (outcome, note) = if auth::claude::keychain_import_supported() && local_state.is_some()
+        {
+            (
+                "local_state_without_importable_auth",
+                Some(
+                    "Claude local state exists, but aisw could not find importable auth in ~/.claude/.credentials.json or the system keyring."
+                        .to_owned(),
+                ),
+            )
+        } else {
+            ("no_live_auth", None)
+        };
+        return Ok(LiveAccountStatus {
+            tool: Tool::Claude.binary_name(),
+            detected: detected.is_some(),
+            outcome,
+            auth_method: None,
+            source_description: None,
+            existing_profile: None,
+            local_state,
+            note,
+        });
+    };
+
+    let (source_description, source_bytes) = match snapshot.source {
+        auth::claude::LiveCredentialSource::File(path) => {
+            (format!("found {}", path.display()), snapshot.bytes)
+        }
+        auth::claude::LiveCredentialSource::Keychain => (
+            format!("found {}", auth::system_keyring::display_name()),
+            snapshot.bytes,
+        ),
+    };
+    let auth_method = if extract_json_string_field(&source_bytes, "apiKey").is_some() {
+        "api_key"
+    } else {
+        "oauth"
+    };
+    let account_bytes = auth::claude::read_live_oauth_account_metadata_for_import(user_home)?;
+    let existing_profile = if auth_method == "oauth" {
+        existing_claude_profile_for_exact_credentials(
+            &profile_store,
+            &config_store,
+            &source_bytes,
+            account_bytes.as_deref(),
+        )?
+        .or_else(|| {
+            auth::identity::existing_claude_oauth_profile_for_live_state(
+                &profile_store,
+                &config_store,
+                &source_bytes,
+                account_bytes.as_deref(),
+            )
+            .ok()
+            .flatten()
+        })
+    } else if let Some(api_key) = extract_json_string_field(&source_bytes, "apiKey") {
+        auth::identity::existing_api_key_profile_for_secret(
+            &profile_store,
+            &config_store,
+            Tool::Claude,
+            &api_key,
+        )?
+    } else {
+        None
+    };
+
+    Ok(LiveAccountStatus {
+        tool: Tool::Claude.binary_name(),
+        detected: detected.is_some(),
+        outcome: if existing_profile.is_some() {
+            "already_managed"
+        } else {
+            "detected"
+        },
+        auth_method: Some(auth_method),
+        source_description: Some(source_description),
+        existing_profile,
+        local_state,
+        note: None,
+    })
+}
+
+fn detect_live_codex(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: Option<&DetectedTool>,
+) -> Result<LiveAccountStatus> {
+    let profile_store = ProfileStore::new(aisw_home);
+    let config_store = ConfigStore::new(aisw_home);
+    let local_state =
+        auth::codex::live_local_state_dir(user_home).map(|path| path.display().to_string());
+    let maybe_snapshot = auth::codex::live_credentials_snapshot_for_import(user_home)?;
+
+    let Some(snapshot) = maybe_snapshot else {
+        let note = if local_state.is_some() {
+            let storage = auth::codex::live_auth_storage(user_home)?
+                .unwrap_or(auth::codex::LiveAuthStorage::Auto);
+            Some(match storage {
+                auth::codex::LiveAuthStorage::Keyring => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json or the system keyring.".to_owned(),
+                auth::codex::LiveAuthStorage::Auto => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json. Codex may be using the system keyring instead of a file backend.".to_owned(),
+                auth::codex::LiveAuthStorage::File => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json even though the configured backend is file.".to_owned(),
+                auth::codex::LiveAuthStorage::Unknown => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json. The configured auth backend is not recognized.".to_owned(),
+            })
+        } else {
+            None
+        };
+        return Ok(LiveAccountStatus {
+            tool: Tool::Codex.binary_name(),
+            detected: detected.is_some(),
+            outcome: if local_state.is_some() {
+                "local_state_without_importable_auth"
+            } else {
+                "no_live_auth"
+            },
+            auth_method: None,
+            source_description: None,
+            existing_profile: None,
+            local_state,
+            note,
+        });
+    };
+
+    let source_description = format!("found {}", snapshot.source_path.display());
+    let source_bytes = snapshot.bytes;
+    let auth_method = if extract_json_string_field(&source_bytes, "token").is_some() {
+        "api_key"
+    } else {
+        "oauth"
+    };
+    let existing_profile = if auth_method == "api_key" {
+        let secret = extract_json_string_field(&source_bytes, "token")
+            .context("Codex auth.json is missing token field for API-key detection")?;
+        auth::identity::existing_api_key_profile_for_secret(
+            &profile_store,
+            &config_store,
+            Tool::Codex,
+            &secret,
+        )?
+    } else {
+        auth::identity::existing_oauth_profile_for_json_bytes(
+            &profile_store,
+            &config_store,
+            Tool::Codex,
+            &source_bytes,
+        )?
+    };
+
+    Ok(LiveAccountStatus {
+        tool: Tool::Codex.binary_name(),
+        detected: detected.is_some(),
+        outcome: if existing_profile.is_some() {
+            "already_managed"
+        } else {
+            "detected"
+        },
+        auth_method: Some(auth_method),
+        source_description: Some(source_description),
+        existing_profile,
+        local_state,
+        note: None,
+    })
+}
+
+fn detect_live_gemini(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: Option<&DetectedTool>,
+) -> Result<LiveAccountStatus> {
+    let profile_store = ProfileStore::new(aisw_home);
+    let config_store = ConfigStore::new(aisw_home);
+    let local_state = auth::gemini::live_dir(user_home)
+        .exists()
+        .then(|| auth::gemini::live_dir(user_home).display().to_string());
+    let Some(selection) = auth::gemini::detect_live_import_selection(user_home)? else {
+        return Ok(LiveAccountStatus {
+            tool: Tool::Gemini.binary_name(),
+            detected: detected.is_some(),
+            outcome: if local_state.is_some() {
+                "local_state_without_importable_auth"
+            } else {
+                "no_live_auth"
+            },
+            auth_method: None,
+            source_description: None,
+            existing_profile: None,
+            local_state,
+            note: None,
+        });
+    };
+
+    let auth_method = match selection.method {
+        AuthMethod::ApiKey => "api_key",
+        AuthMethod::OAuth => "oauth",
+    };
+    let existing_profile = match selection.method {
+        AuthMethod::ApiKey => {
+            let key_bytes = fs::read(&selection.env_file)
+                .with_context(|| format!("could not read {}", selection.env_file.display()))?;
+            let key = extract_gemini_api_key(&key_bytes)
+                .context("Gemini .env is missing GEMINI_API_KEY entry")?;
+            auth::identity::existing_api_key_profile_for_secret(
+                &profile_store,
+                &config_store,
+                Tool::Gemini,
+                &key,
+            )?
+        }
+        AuthMethod::OAuth => auth::gemini::existing_oauth_profile_for_live_files(
+            &profile_store,
+            &config_store,
+            &selection.oauth_files,
+        )?,
+    };
+
+    Ok(LiveAccountStatus {
+        tool: Tool::Gemini.binary_name(),
+        detected: detected.is_some(),
+        outcome: if existing_profile.is_some() {
+            "already_managed"
+        } else {
+            "detected"
+        },
+        auth_method: Some(auth_method),
+        source_description: Some(selection.source_description),
+        existing_profile,
+        local_state,
+        note: selection.has_both_sources.then_some(
+            "Both Gemini API key (.env) and OAuth cache were found. Detection follows .env precedence."
+                .to_owned(),
+        ),
+    })
 }
 
 fn import_claude(
@@ -954,6 +1339,64 @@ mod tests {
 
     fn run(aisw_home: &Path, user_home: &Path, shell: Option<&str>) -> Result<()> {
         run_inner(aisw_home, user_home, shell, true)
+    }
+
+    #[test]
+    fn ensure_aisw_home_reports_created_flags() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+
+        let (created_home, created_config) = ensure_aisw_home(&aisw_home).unwrap();
+        assert!(created_home);
+        assert!(created_config);
+
+        let (created_home, created_config) = ensure_aisw_home(&aisw_home).unwrap();
+        assert!(!created_home);
+        assert!(!created_config);
+    }
+
+    #[test]
+    fn detect_live_claude_reports_detected_oauth() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(".credentials.json"),
+            br#"{"oauthToken":"tok"}"#,
+        )
+        .unwrap();
+        std::env::set_var("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        let status = detect_live_claude(&aisw_home, &user_home, None).unwrap();
+        std::env::remove_var("AISW_CLAUDE_AUTH_STORAGE");
+
+        assert_eq!(status.tool, "claude");
+        assert_eq!(status.outcome, "detected");
+        assert_eq!(status.auth_method, Some("oauth"));
+        assert!(status
+            .source_description
+            .unwrap()
+            .contains(".credentials.json"));
+    }
+
+    #[test]
+    fn detect_live_gemini_prefers_env_when_both_sources_exist() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        fs::create_dir_all(&gemini_dir).unwrap();
+        fs::write(gemini_dir.join(".env"), b"GEMINI_API_KEY=AIza-priority\n").unwrap();
+        fs::write(gemini_dir.join("oauth_creds.json"), br#"{"token":"oauth"}"#).unwrap();
+
+        let status = detect_live_gemini(&aisw_home, &user_home, None).unwrap();
+
+        assert_eq!(status.tool, "gemini");
+        assert_eq!(status.outcome, "detected");
+        assert_eq!(status.auth_method, Some("api_key"));
+        assert!(status.note.unwrap().contains(".env precedence"));
     }
 
     #[test]

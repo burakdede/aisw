@@ -38,6 +38,10 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                     .ok()
                     .map(|_| "pwsh".to_owned())
             });
+            if args.json {
+                init::run_machine(&home, &user_home, shell_env.as_deref(), &args)?;
+                return Ok(());
+            }
             if crate::runtime::is_non_interactive() && !args.yes {
                 anyhow::bail!(
                     "init requires confirmation and prompt input.\n  \

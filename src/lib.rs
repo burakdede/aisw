@@ -46,7 +46,7 @@ pub fn run() -> Result<()> {
                 let failure = machine::parse_error(None, &err);
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&failure)
+                    machine::serialize_json(&failure)
                         .unwrap_or_else(|_| "{\"ok\":false}".to_owned())
                 );
                 std::process::exit(err.exit_code());
