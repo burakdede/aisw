@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -9,6 +10,7 @@ use crate::auth;
 use crate::auth::identity;
 use crate::cli::{AddArgs, AddCredentialBackend};
 use crate::config::{AuthMethod, Config, ConfigStore, CredentialBackend, ProfileMeta};
+use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::runtime;
@@ -63,6 +65,13 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
     // Guard: tool binary must be on PATH before we create any profile state.
     let detected = tool_detection::require_in(args.tool, tool_path)?;
 
+    let stdin_api_key = if args.api_key_stdin {
+        Some(read_api_key_from_stdin()?)
+    } else {
+        None
+    };
+    let api_key_arg = args.api_key.clone().or(stdin_api_key);
+
     let (backend, auth_method, source) = if args.from_env {
         let backend = resolved_api_key_backend(&args);
         let env_var = match args.tool {
@@ -103,9 +112,9 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         if args.set_active {
             config_store.set_active(args.tool, &args.profile_name)?;
         }
-        print_add_summary(&args, backend, Some(env_var), AuthMethod::ApiKey);
+        emit_add_result(&args, backend, Some(env_var), AuthMethod::ApiKey)?;
         return Ok(());
-    } else if let Some(ref api_key) = args.api_key {
+    } else if let Some(api_key) = api_key_arg.as_deref() {
         let backend = resolved_api_key_backend(&args);
         match args.tool {
             Tool::Claude => auth::claude::add_api_key_with_backend(
@@ -215,7 +224,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         config_store.set_active(args.tool, &args.profile_name)?;
     }
 
-    print_add_summary(&args, backend, source, auth_method);
+    emit_add_result(&args, backend, source, auth_method)?;
 
     Ok(())
 }
@@ -937,16 +946,25 @@ fn finalize_from_live(
     backend: CredentialBackend,
     auth_method: AuthMethod,
 ) -> Result<()> {
+    if args.json {
+        machine::print_success(
+            "add",
+            serde_json::json!({
+                "tool": tool.binary_name(),
+                "profile": args.profile_name,
+                "auth_method": auth_label(auth_method),
+                "credential_backend": backend.display_name(),
+                "active": true,
+                "source": "from_live",
+                "warnings": Vec::<String>::new(),
+            }),
+        )?;
+        return Ok(());
+    }
     output::print_title("Added profile");
     output::print_kv("Tool", tool.display_name());
     output::print_kv("Profile", &args.profile_name);
-    output::print_kv(
-        "Auth",
-        match auth_method {
-            AuthMethod::OAuth => "oauth",
-            AuthMethod::ApiKey => "api_key",
-        },
-    );
+    output::print_kv("Auth", auth_label(auth_method));
     output::print_kv("Backend", backend.display_name());
     output::print_kv("Activation", "active");
     output::print_blank_line();
@@ -1016,6 +1034,59 @@ fn print_add_summary(
         &args.profile_name,
         args.set_active,
     ));
+}
+
+fn emit_add_result(
+    args: &AddArgs,
+    backend: CredentialBackend,
+    source: Option<&str>,
+    auth_method: AuthMethod,
+) -> Result<()> {
+    if args.json {
+        machine::print_success(
+            "add",
+            serde_json::json!({
+                "tool": args.tool.binary_name(),
+                "profile": args.profile_name,
+                "auth_method": auth_label(auth_method),
+                "credential_backend": backend.display_name(),
+                "active": args.set_active || args.from_live,
+                "source": source,
+                "warnings": Vec::<String>::new(),
+            }),
+        )?;
+        return Ok(());
+    }
+
+    print_add_summary(args, backend, source, auth_method);
+    Ok(())
+}
+
+fn auth_label(auth_method: AuthMethod) -> &'static str {
+    match auth_method {
+        AuthMethod::OAuth => "oauth",
+        AuthMethod::ApiKey => "api_key",
+    }
+}
+
+fn read_api_key_from_stdin() -> Result<String> {
+    let mut secret = String::new();
+    std::io::stdin()
+        .read_to_string(&mut secret)
+        .context("could not read API key from stdin")?;
+
+    if secret.ends_with("\r\n") {
+        let new_len = secret.len() - 2;
+        secret.truncate(new_len);
+    } else if secret.ends_with('\n') {
+        secret.pop();
+    }
+
+    if secret.is_empty() {
+        bail!("API key stdin input was empty after trimming trailing newline.");
+    }
+
+    Ok(secret)
 }
 
 fn requested_backend(args: &AddArgs) -> Option<CredentialBackend> {
@@ -1106,14 +1177,18 @@ mod tests {
                 non_interactive: crate::runtime::is_non_interactive(),
                 quiet: crate::runtime::is_quiet(),
             };
-            crate::runtime::configure(non_interactive, quiet);
+            crate::runtime::configure(non_interactive, quiet, crate::runtime::OutputMode::Human);
             previous
         }
     }
 
     impl Drop for RuntimeGuard {
         fn drop(&mut self) {
-            crate::runtime::configure(self.non_interactive, self.quiet);
+            crate::runtime::configure(
+                self.non_interactive,
+                self.quiet,
+                crate::runtime::OutputMode::Human,
+            );
         }
     }
 
@@ -1156,12 +1231,15 @@ mod tests {
             tool,
             profile_name: name.to_owned(),
             api_key: Some(api_key.to_owned()),
+            api_key_stdin: false,
             label: None,
             credential_backend: None,
             set_active: false,
             from_env: false,
             from_live: false,
             yes: false,
+            json: false,
+            progress_json: false,
         }
     }
 
@@ -1170,12 +1248,15 @@ mod tests {
             tool,
             profile_name: name.to_owned(),
             api_key: None,
+            api_key_stdin: false,
             label: None,
             credential_backend: None,
             set_active: false,
             from_env: false,
             from_live: true,
             yes: true,
+            json: false,
+            progress_json: false,
         }
     }
 
@@ -1306,12 +1387,15 @@ mod tests {
             tool,
             profile_name: name.to_owned(),
             api_key: None,
+            api_key_stdin: false,
             label: None,
             credential_backend: None,
             set_active: false,
             from_env: true,
             from_live: false,
             yes: false,
+            json: false,
+            progress_json: false,
         }
     }
 
@@ -1446,12 +1530,15 @@ mod tests {
                 tool: Tool::Claude,
                 profile_name: "work".to_owned(),
                 api_key: None,
+                api_key_stdin: false,
                 label: None,
                 credential_backend: None,
                 set_active: false,
                 from_env: false,
                 from_live: false,
                 yes: false,
+                json: false,
+                progress_json: false,
             };
             run_in(args, &aisw_home, path_of(&bin_dir)).unwrap();
 

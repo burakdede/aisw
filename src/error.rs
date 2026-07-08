@@ -18,6 +18,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::machine::MachineRemediation;
 use crate::types::Tool;
 
 /// Exit code for all errors not mapped to a specific `AiswError` variant.
@@ -73,6 +74,32 @@ impl AiswError {
             AiswError::ProfileNotFound { .. } => 2,
             // All other structured errors use the standard error exit code.
             _ => EXIT_GENERAL_ERROR,
+        }
+    }
+
+    pub fn remediation(&self) -> Option<MachineRemediation> {
+        match self {
+            AiswError::ProfileNotFound { tool, .. } => Some(MachineRemediation {
+                kind: "run_command",
+                command: format!("aisw list {tool}"),
+                safe: true,
+            }),
+            AiswError::ProfileAlreadyExists { tool, .. } => Some(MachineRemediation {
+                kind: "run_command",
+                command: format!("aisw list {tool}"),
+                safe: true,
+            }),
+            AiswError::ToolNotInstalled { tool: _ } => Some(MachineRemediation {
+                kind: "run_command",
+                command: "aisw doctor --json".to_owned(),
+                safe: true,
+            }),
+            AiswError::BackupNotFound { .. } => Some(MachineRemediation {
+                kind: "run_command",
+                command: "aisw backup list --json".to_owned(),
+                safe: true,
+            }),
+            _ => None,
         }
     }
 }

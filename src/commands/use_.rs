@@ -9,6 +9,7 @@ use crate::backup::BackupManager;
 use crate::cli::UseArgs;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::error::AiswError;
+use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
@@ -29,7 +30,7 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
         if profile_name.is_empty() {
             anyhow::bail!("--all requires --profile <name>");
         }
-        run_all_in(profile_name, home, &user_home)
+        run_all_in(profile_name, args.json, home, &user_home)
     } else {
         let tool = args
             .tool
@@ -39,17 +40,25 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
             args.profile_name.as_deref(),
             args.state_mode,
             args.emit_env,
+            args.json,
             home,
             &user_home,
         )
     }
 }
 
-pub(crate) fn run_all_in(profile_name: &str, home: &Path, user_home: &Path) -> Result<()> {
+pub(crate) fn run_all_in(
+    profile_name: &str,
+    json: bool,
+    home: &Path,
+    user_home: &Path,
+) -> Result<()> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
     let mut switched = 0usize;
     let mut errors = Vec::new();
+    let before_backup_ids = backup_ids_for(home, None)?;
+    let mut affected_tools = Vec::new();
 
     for tool in Tool::ALL {
         let profiles = config.profiles_for(tool);
@@ -60,8 +69,19 @@ pub(crate) fn run_all_in(profile_name: &str, home: &Path, user_home: &Path) -> R
             ));
             continue;
         }
-        match run_for_tool(tool, Some(profile_name), None, false, home, user_home) {
-            Ok(()) => switched += 1,
+        match run_for_tool(
+            tool,
+            Some(profile_name),
+            None,
+            false,
+            false,
+            home,
+            user_home,
+        ) {
+            Ok(()) => {
+                switched += 1;
+                affected_tools.push(tool);
+            }
             Err(e) => errors.push(format!("{}: {}", tool, e)),
         }
     }
@@ -69,8 +89,23 @@ pub(crate) fn run_all_in(profile_name: &str, home: &Path, user_home: &Path) -> R
     if switched == 0 && errors.is_empty() {
         anyhow::bail!("no tool has a profile named '{}'", profile_name);
     }
-    for e in &errors {
-        output::print_warning(e);
+    if json {
+        let after_backup_ids = backup_ids_for(home, None)?;
+        machine::print_success(
+            "use",
+            serde_json::json!({
+                "affected_tools": affected_tools.iter().map(|tool| tool.binary_name()).collect::<Vec<_>>(),
+                "active": active_map(home, &affected_tools)?,
+                "state_mode": state_mode_map(home, &affected_tools)?,
+                "live_match": live_match_map(home, user_home, &affected_tools)?,
+                "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
+                "warnings": errors,
+            }),
+        )?;
+    } else {
+        for e in &errors {
+            output::print_warning(e);
+        }
     }
     Ok(())
 }
@@ -85,6 +120,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         args.profile_name.as_deref(),
         args.state_mode,
         args.emit_env,
+        false,
         home,
         user_home,
     )
@@ -95,9 +131,11 @@ fn run_for_tool(
     requested_profile_name: Option<&str>,
     state_mode_override: Option<StateMode>,
     emit_env: bool,
+    json: bool,
     home: &Path,
     user_home: &Path,
 ) -> Result<()> {
+    let before_backup_ids = backup_ids_for(home, Some(tool))?;
     let resolved = resolve_profile_switch_request(
         tool,
         requested_profile_name,
@@ -113,7 +151,20 @@ fn run_for_tool(
         tool.supports_state_mode().then_some(resolved.state_mode),
     )?;
 
-    if !emit_env {
+    if json {
+        let after_backup_ids = backup_ids_for(home, Some(tool))?;
+        machine::print_success(
+            "use",
+            serde_json::json!({
+                "affected_tools": [tool.binary_name()],
+                "active": active_map(home, &[tool])?,
+                "state_mode": state_mode_map(home, &[tool])?,
+                "live_match": live_match_map(home, user_home, &[tool])?,
+                "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
+                "warnings": Vec::<String>::new(),
+            }),
+        )?;
+    } else if !emit_env {
         print_switch_summary(&resolved, home);
     }
 
@@ -585,6 +636,79 @@ fn auth_label(method: AuthMethod) -> &'static str {
     }
 }
 
+fn backup_ids_for(home: &Path, tool: Option<Tool>) -> Result<Vec<String>> {
+    let mut ids = BackupManager::new(home)
+        .list()?
+        .into_iter()
+        .filter(|entry| match tool {
+            Some(selected) => entry.tool == selected,
+            None => true,
+        })
+        .map(|entry| entry.backup_id)
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+fn diff_backup_ids(before: &[String], after: &[String]) -> Vec<String> {
+    after
+        .iter()
+        .filter(|id| !before.iter().any(|existing| existing == *id))
+        .cloned()
+        .collect()
+}
+
+fn active_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
+    let config = ConfigStore::new(home).load()?;
+    let mut map = serde_json::Map::new();
+    for tool in tools {
+        map.insert(
+            tool.binary_name().to_owned(),
+            config
+                .active_for(*tool)
+                .map(|value| serde_json::Value::String(value.to_owned()))
+                .unwrap_or(serde_json::Value::Null),
+        );
+    }
+    Ok(serde_json::Value::Object(map))
+}
+
+fn state_mode_map(home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
+    let config = ConfigStore::new(home).load()?;
+    let mut map = serde_json::Map::new();
+    for tool in tools {
+        map.insert(
+            tool.binary_name().to_owned(),
+            if tool.supports_state_mode() {
+                serde_json::Value::String(config.state_mode_for(*tool).display_name().to_owned())
+            } else {
+                serde_json::Value::String(StateMode::Isolated.display_name().to_owned())
+            },
+        );
+    }
+    Ok(serde_json::Value::Object(map))
+}
+
+fn live_match_map(home: &Path, user_home: &Path, tools: &[Tool]) -> Result<serde_json::Value> {
+    let statuses = crate::commands::status::collect_status(
+        home,
+        user_home,
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )?;
+    let mut map = serde_json::Map::new();
+    for tool in tools {
+        let value = statuses
+            .iter()
+            .find(|status| status.tool == *tool)
+            .and_then(|status| status.active_profile_applied)
+            .map(serde_json::Value::Bool)
+            .unwrap_or(serde_json::Value::Null);
+        map.insert(tool.binary_name().to_owned(), value);
+    }
+    Ok(serde_json::Value::Object(map))
+}
+
 /// Best-effort: extract a human-readable account identity from stored credentials.
 /// Returns `None` silently when no identity is parseable — never fails the switch.
 fn extract_switch_identity(profile_store: &ProfileStore, tool: Tool, name: &str) -> Option<String> {
@@ -673,14 +797,18 @@ mod tests {
                 non_interactive: crate::runtime::is_non_interactive(),
                 quiet: crate::runtime::is_quiet(),
             };
-            crate::runtime::configure(non_interactive, quiet);
+            crate::runtime::configure(non_interactive, quiet, crate::runtime::OutputMode::Human);
             guard
         }
     }
 
     impl Drop for RuntimeModeGuard {
         fn drop(&mut self) {
-            crate::runtime::configure(self.non_interactive, self.quiet);
+            crate::runtime::configure(
+                self.non_interactive,
+                self.quiet,
+                crate::runtime::OutputMode::Human,
+            );
         }
     }
 
@@ -731,6 +859,7 @@ mod tests {
             emit_env,
             all: false,
             all_profile: None,
+            json: false,
         }
     }
 
@@ -742,6 +871,7 @@ mod tests {
             emit_env,
             all: false,
             all_profile: None,
+            json: false,
         }
     }
 
@@ -1099,7 +1229,7 @@ mod tests {
         setup_codex_api_key_profile(&home, "work");
         setup_gemini_api_key_profile(&home, "work");
 
-        run_all_in("work", &home, &user_home).unwrap();
+        run_all_in("work", false, &home, &user_home).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
@@ -1118,7 +1248,7 @@ mod tests {
         setup_claude_api_key_profile(&home, "work");
         // Only Claude has "work"
 
-        run_all_in("work", &home, &user_home).unwrap();
+        run_all_in("work", false, &home, &user_home).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
@@ -1133,11 +1263,99 @@ mod tests {
         let user_home = tmp.path().join("uhome");
         std::fs::create_dir_all(&home).unwrap();
 
-        let err = run_all_in("work", &home, &user_home).unwrap_err();
+        let err = run_all_in("work", false, &home, &user_home).unwrap_err();
         assert!(
             err.to_string().contains("no tool has a profile"),
             "unexpected: {}",
             err
         );
+    }
+
+    #[test]
+    fn diff_backup_ids_returns_only_new_ids() {
+        let before = vec!["b".to_owned(), "a".to_owned()];
+        let after = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        assert_eq!(diff_backup_ids(&before, &after), vec!["c".to_owned()]);
+    }
+
+    #[test]
+    fn active_and_state_mode_maps_reflect_current_config() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+
+        setup_claude_api_key_profile(&home, "work");
+        setup_gemini_api_key_profile(&home, "personal");
+        let config_store = ConfigStore::new(&home);
+        config_store
+            .activate_profile(Tool::Claude, "work", Some(StateMode::Shared))
+            .unwrap();
+
+        let active = active_map(&home, &[Tool::Claude, Tool::Gemini]).unwrap();
+        assert_eq!(active["claude"], "work");
+        assert_eq!(active["gemini"], serde_json::Value::Null);
+
+        let state_modes = state_mode_map(&home, &[Tool::Claude, Tool::Gemini]).unwrap();
+        assert_eq!(state_modes["claude"], "shared");
+        assert_eq!(state_modes["gemini"], "isolated");
+    }
+
+    #[test]
+    fn backup_ids_for_returns_sorted_unique_ids() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(
+            home.join("backups")
+                .join("2026-01-01T00-00-00.000Z-0")
+                .join("claude")
+                .join("work"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(
+            home.join("backups")
+                .join("2026-01-02T00-00-00.000Z-0")
+                .join("claude")
+                .join("work"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(
+            home.join("backups")
+                .join("2026-01-02T00-00-00.000Z-0")
+                .join("codex")
+                .join("work"),
+        )
+        .unwrap();
+
+        let claude_ids = backup_ids_for(&home, Some(Tool::Claude)).unwrap();
+        assert_eq!(
+            claude_ids,
+            vec![
+                "2026-01-01T00-00-00.000Z-0".to_owned(),
+                "2026-01-02T00-00-00.000Z-0".to_owned()
+            ]
+        );
+
+        let all_ids = backup_ids_for(&home, None).unwrap();
+        assert_eq!(
+            all_ids,
+            vec![
+                "2026-01-01T00-00-00.000Z-0".to_owned(),
+                "2026-01-02T00-00-00.000Z-0".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn live_match_map_returns_null_for_inactive_tools() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+
+        let live = live_match_map(&home, &user_home, &[Tool::Claude, Tool::Gemini]).unwrap();
+        assert_eq!(live["claude"], serde_json::Value::Null);
+        assert_eq!(live["gemini"], serde_json::Value::Null);
     }
 }
