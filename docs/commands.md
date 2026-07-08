@@ -22,13 +22,13 @@ aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 ```text
 aisw init [--yes] [--json --no-shell-hook [--detect-live]]
 aisw add <tool> <profile> [--api-key KEY|--api-key-stdin] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes] [--json|--progress-json]
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
 aisw context list [--search TEXT] [--json]
-aisw context use <name> [--state-mode isolated|shared] [--emit-env]
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
-aisw context unset <name> [--claude] [--codex] [--gemini]
-aisw context remove <name> [--yes]
-aisw context rename <old> <new>
+aisw context use <name> [--state-mode isolated|shared] [--emit-env] [--json]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
+aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
+aisw context remove <name> [--yes] [--json]
+aisw context rename <old> <new> [--json]
 aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
 aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
 aisw workspace bind [PATH] --context <name>
@@ -182,13 +182,14 @@ Practical framing:
 ### `aisw context create`
 
 ```text
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
 ```
 
 Create a saved context. At least one tool mapping is required.
 
 ```sh
 aisw context create acme --claude acme-claude --codex acme-codex
+aisw context create acme --claude acme-claude --json
 ```
 
 ### `aisw context list`
@@ -213,7 +214,7 @@ aisw context list --json
 ### `aisw context use`
 
 ```text
-aisw context use <name> [--state-mode isolated|shared] [--emit-env]
+aisw context use <name> [--state-mode isolated|shared] [--emit-env] [--json]
 ```
 
 Activate every mapped tool in a saved context as one transaction.
@@ -223,6 +224,7 @@ Activate every mapped tool in a saved context as one transaction.
 | `--state-mode isolated` | Set `CLAUDE_CONFIG_DIR` and `CODEX_HOME` to profile directories (default) |
 | `--state-mode shared` | Unset `CLAUDE_CONFIG_DIR` and `CODEX_HOME` for Claude and Codex |
 | `--emit-env` | Print shell export/unset lines to stdout instead of writing them to the session |
+| `--json` | Output a machine-readable activation result envelope |
 
 Notes:
 - Default state mode is `isolated`.
@@ -233,55 +235,60 @@ Notes:
 ```sh
 aisw context use acme
 aisw context use acme --state-mode shared
+aisw context use acme --json
 eval "$(aisw context use acme --emit-env)"
 ```
 
 ### `aisw context set`
 
 ```text
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
 ```
 
 Update one or more mappings without disturbing the others.
 
 ```sh
 aisw context set acme --gemini acme-gemini
+aisw context set acme --gemini acme-gemini --json
 ```
 
 ### `aisw context unset`
 
 ```text
-aisw context unset <name> [--claude] [--codex] [--gemini]
+aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
 ```
 
 Remove one or more mappings from a context. The command fails if it would leave the context empty.
 
 ```sh
 aisw context unset acme --codex
+aisw context unset acme --codex --json
 ```
 
 ### `aisw context remove`
 
 ```text
-aisw context remove <name> [--yes]
+aisw context remove <name> [--yes] [--json]
 ```
 
 Delete a saved context. This does not change live credentials or active per-tool profiles.
 
 ```sh
 aisw context remove acme --yes
+aisw context remove acme --yes --json
 ```
 
 ### `aisw context rename`
 
 ```text
-aisw context rename <old> <new>
+aisw context rename <old> <new> [--json]
 ```
 
 Rename a saved context. This does not change live credentials or active per-tool profiles.
 
 ```sh
 aisw context rename acme client-acme
+aisw context rename acme client-acme --json
 ```
 
 ---

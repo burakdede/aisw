@@ -138,13 +138,13 @@ Credentials are stored in the native OS keyring where available (macOS Keychain,
 ```text
 aisw init [--yes]
 aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
 aisw context list [--search TEXT] [--json]
-aisw context use <name> [--state-mode isolated|shared] [--emit-env]
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
-aisw context unset <name> [--claude] [--codex] [--gemini]
-aisw context remove <name> [--yes]
-aisw context rename <old> <new>
+aisw context use <name> [--state-mode isolated|shared] [--emit-env] [--json]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
+aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
+aisw context remove <name> [--yes] [--json]
+aisw context rename <old> <new> [--json]
 aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
 aisw use --all --profile <profile> [--emit-env]
 aisw workspace bind [PATH] --context <name>

@@ -50,6 +50,10 @@ aisw capabilities --json
 aisw init --json --no-shell-hook --detect-live
 aisw add claude work --api-key-stdin --json
 aisw use claude work --json
+aisw context create work --claude work-claude --codex work-codex --json
+aisw context use work --json
+aisw context rename work client-acme --json
+aisw context remove client-acme --yes --json
 aisw remove claude work --yes --json
 aisw rename claude work personal --json
 aisw backup restore 20260325T114502Z-claude-ci --yes --json
@@ -103,6 +107,9 @@ aisw list codex --json | jq -r '.profiles[].name'
 
 # List all saved contexts
 aisw context list --json | jq -r '.contexts[].name'
+
+# Activate a saved context and read the refreshed active profile map
+aisw context use work --json | jq '.result.active'
 
 # Find profiles with expired tokens
 aisw status --json | jq '.[] | select(.token_warning != null) | {tool, warning: .token_warning}'

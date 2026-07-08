@@ -314,6 +314,117 @@ fn backup_restore_json_reports_non_activation() {
 }
 
 #[test]
+fn context_create_json_returns_saved_mapping() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let json = json_output(
+        &env,
+        &[
+            "context",
+            "create",
+            "client-acme",
+            "--claude",
+            "work",
+            "--json",
+        ],
+    );
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "context_create");
+    assert_eq!(json["result"]["context"]["name"], "client-acme");
+    assert_eq!(json["result"]["context"]["profiles"]["claude"], "work");
+}
+
+#[test]
+fn context_use_json_returns_active_state_and_context_name() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work-claude",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "add",
+            "codex",
+            "work-codex",
+            "--api-key",
+            "sk-codex-test-key-12345",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "work",
+            "--claude",
+            "work-claude",
+            "--codex",
+            "work-codex",
+        ])
+        .assert()
+        .success();
+
+    let json = json_output(&env, &["context", "use", "work", "--json"]);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "context_use");
+    assert_eq!(json["result"]["context"], "work");
+    assert_eq!(json["result"]["active"]["claude"], "work-claude");
+    assert_eq!(json["result"]["active"]["codex"], "work-codex");
+    assert!(json["result"]["backup_ids"].as_array().is_some());
+}
+
+#[test]
+fn context_remove_json_returns_remaining_contexts() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "create", "client-acme", "--claude", "work"])
+        .assert()
+        .success();
+
+    let json = json_output(
+        &env,
+        &["context", "remove", "client-acme", "--yes", "--json"],
+    );
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "context_remove");
+    assert_eq!(json["result"]["removed_context"], "client-acme");
+    assert_eq!(json["result"]["remaining_contexts"], serde_json::json!([]));
+}
+
+#[test]
 fn add_oauth_progress_json_streams_ndjson_events() {
     let env = TestEnv::new();
     env.add_script_tool(

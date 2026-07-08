@@ -10,9 +10,13 @@ use crate::cli::{
     ContextArgs, ContextCommand, ContextCreateArgs, ContextListArgs, ContextRemoveArgs,
     ContextRenameArgs, ContextSetArgs, ContextUnsetArgs, ContextUseArgs,
 };
-use crate::commands::use_::{apply_resolved_profile_switch, ResolvedProfileSwitch};
+use crate::commands::use_::{
+    active_map, apply_resolved_profile_switch, backup_ids_for, diff_backup_ids, live_match_map,
+    state_mode_map, ResolvedProfileSwitch,
+};
 use crate::config::{Config, ConfigStore, ContextEntry, ContextProfiles};
 use crate::live_apply::LiveFileChange;
+use crate::machine;
 use crate::output;
 use crate::profile::validate_profile_name;
 use crate::types::{StateMode, Tool};
@@ -48,10 +52,24 @@ fn create(args: ContextCreateArgs, home: &Path) -> Result<()> {
         context_profiles.insert(tool, profile);
     }
 
-    store.create_context(
+    let config = store.create_context(
         &args.context_name,
         ContextEntry::new(context_profiles, Utc::now()),
     )?;
+
+    if args.json {
+        let entry = config
+            .context(&args.context_name)
+            .context("created context missing from config")?;
+        machine::print_success(
+            "context_create",
+            serde_json::json!({
+                "context": context_json(&args.context_name, entry),
+                "context_count": config.contexts().len(),
+            }),
+        )?;
+        return Ok(());
+    }
 
     output::print_title("Created context");
     output::print_kv("Context", &args.context_name);
@@ -144,7 +162,21 @@ fn set(args: ContextSetArgs, home: &Path) -> Result<()> {
         created_at: existing.created_at,
         updated_at: Utc::now(),
     };
-    store.upsert_context(&args.context_name, updated)?;
+    let config = store.upsert_context(&args.context_name, updated)?;
+
+    if args.json {
+        let entry = config
+            .context(&args.context_name)
+            .context("updated context missing from config")?;
+        machine::print_success(
+            "context_set",
+            serde_json::json!({
+                "context": context_json(&args.context_name, entry),
+                "context_count": config.contexts().len(),
+            }),
+        )?;
+        return Ok(());
+    }
 
     output::print_title("Updated context");
     output::print_kv("Context", &args.context_name);
@@ -194,7 +226,21 @@ fn unset(args: ContextUnsetArgs, home: &Path) -> Result<()> {
         created_at: existing.created_at,
         updated_at: Utc::now(),
     };
-    store.upsert_context(&args.context_name, updated)?;
+    let config = store.upsert_context(&args.context_name, updated)?;
+
+    if args.json {
+        let entry = config
+            .context(&args.context_name)
+            .context("updated context missing from config")?;
+        machine::print_success(
+            "context_unset",
+            serde_json::json!({
+                "context": context_json(&args.context_name, entry),
+                "context_count": config.contexts().len(),
+            }),
+        )?;
+        return Ok(());
+    }
 
     output::print_title("Updated context");
     output::print_kv("Context", &args.context_name);
@@ -211,7 +257,18 @@ fn remove(args: ContextRemoveArgs, home: &Path) -> Result<()> {
              Re-run with --yes."
         );
     }
-    ConfigStore::new(home).remove_context(&args.context_name)?;
+    let config = ConfigStore::new(home).remove_context(&args.context_name)?;
+
+    if args.json {
+        machine::print_success(
+            "context_remove",
+            serde_json::json!({
+                "removed_context": args.context_name,
+                "remaining_contexts": remaining_context_names(&config),
+            }),
+        )?;
+        return Ok(());
+    }
 
     output::print_title("Removed context");
     output::print_kv("Context", &args.context_name);
@@ -223,7 +280,22 @@ fn remove(args: ContextRemoveArgs, home: &Path) -> Result<()> {
 
 fn rename(args: ContextRenameArgs, home: &Path) -> Result<()> {
     validate_profile_name(&args.new_name)?;
-    ConfigStore::new(home).rename_context(&args.old_name, &args.new_name)?;
+    let config = ConfigStore::new(home).rename_context(&args.old_name, &args.new_name)?;
+
+    if args.json {
+        let entry = config
+            .context(&args.new_name)
+            .context("renamed context missing from config")?;
+        machine::print_success(
+            "context_rename",
+            serde_json::json!({
+                "old_name": args.old_name,
+                "new_name": args.new_name,
+                "context": context_json(&args.new_name, entry),
+            }),
+        )?;
+        return Ok(());
+    }
 
     output::print_title("Renamed context");
     output::print_kv("Previous", &args.old_name);
@@ -269,6 +341,7 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let before_backup_ids = backup_ids_for(home, None)?;
     let snapshots = snapshot_live_state_for_context(&switches, &user_home)?;
     let activations = switches
         .iter()
@@ -295,6 +368,23 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
     if let Err(err) = apply_result {
         restore_live_state_for_context(&snapshots, &user_home)?;
         return Err(err);
+    }
+
+    if args.json {
+        let after_backup_ids = backup_ids_for(home, None)?;
+        machine::print_success(
+            "context_use",
+            serde_json::json!({
+                "context": args.context_name,
+                "affected_tools": switches.iter().map(|switch| switch.tool.binary_name()).collect::<Vec<_>>(),
+                "active": active_map(home, &Tool::ALL)?,
+                "state_mode": state_mode_map(home, &Tool::ALL)?,
+                "live_match": live_match_map(home, &user_home, &Tool::ALL)?,
+                "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
+                "warnings": Vec::<String>::new(),
+            }),
+        )?;
+        return Ok(());
     }
 
     output::print_title("Activated context");
@@ -536,4 +626,19 @@ fn normalized_profiles_json(profiles: &ContextProfiles) -> serde_json::Value {
         "codex": profiles.get(Tool::Codex),
         "gemini": profiles.get(Tool::Gemini),
     })
+}
+
+fn context_json(name: &str, entry: &ContextEntry) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "profiles": normalized_profiles_json(&entry.profiles),
+        "created_at": entry.created_at,
+        "updated_at": entry.updated_at,
+    })
+}
+
+fn remaining_context_names(config: &Config) -> Vec<String> {
+    let mut names = config.contexts().keys().cloned().collect::<Vec<_>>();
+    names.sort();
+    names
 }
