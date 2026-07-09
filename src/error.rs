@@ -26,6 +26,10 @@ pub const EXIT_GENERAL_ERROR: i32 = 1;
 
 #[derive(Debug)]
 pub enum AiswError {
+    /// A named context was not found in the config.
+    ContextNotFound { name: String },
+    /// A context with the given name already exists.
+    ContextAlreadyExists { name: String },
     /// A named profile was not found in the config for the given tool.
     ProfileNotFound { tool: Tool, name: String },
     /// A profile with the given name already exists for the tool.
@@ -52,6 +56,8 @@ impl AiswError {
     /// A stable, snake_case identifier for machine-readable output (`--json`).
     pub fn code(&self) -> &'static str {
         match self {
+            AiswError::ContextNotFound { .. } => "context_not_found",
+            AiswError::ContextAlreadyExists { .. } => "context_already_exists",
             AiswError::ProfileNotFound { .. } => "profile_not_found",
             AiswError::ProfileAlreadyExists { .. } => "profile_already_exists",
             AiswError::ToolNotInstalled { .. } => "tool_not_installed",
@@ -79,6 +85,16 @@ impl AiswError {
 
     pub fn remediation(&self) -> Option<MachineRemediation> {
         match self {
+            AiswError::ContextNotFound { .. } => Some(MachineRemediation {
+                kind: "run_command",
+                command: "aisw context list --json".to_owned(),
+                safe: true,
+            }),
+            AiswError::ContextAlreadyExists { .. } => Some(MachineRemediation {
+                kind: "run_command",
+                command: "aisw context list --json".to_owned(),
+                safe: true,
+            }),
             AiswError::ProfileNotFound { tool, .. } => Some(MachineRemediation {
                 kind: "run_command",
                 command: format!("aisw list {tool}"),
@@ -107,6 +123,16 @@ impl AiswError {
 impl fmt::Display for AiswError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            AiswError::ContextNotFound { name } => write!(
+                f,
+                "context '{name}' not found.\n  \
+                 Run 'aisw context list' to see available contexts."
+            ),
+            AiswError::ContextAlreadyExists { name } => write!(
+                f,
+                "context '{name}' already exists.\n  \
+                 Use 'aisw context list' to review saved contexts."
+            ),
             AiswError::ProfileNotFound { tool, name } => write!(
                 f,
                 "profile '{name}' not found for {tool}.\n  \
@@ -176,6 +202,22 @@ mod tests {
             name: "work".into(),
         };
         assert_eq!(e.code(), "profile_not_found");
+    }
+
+    #[test]
+    fn context_not_found_code() {
+        let e = AiswError::ContextNotFound {
+            name: "work".into(),
+        };
+        assert_eq!(e.code(), "context_not_found");
+    }
+
+    #[test]
+    fn context_already_exists_code() {
+        let e = AiswError::ContextAlreadyExists {
+            name: "work".into(),
+        };
+        assert_eq!(e.code(), "context_already_exists");
     }
 
     #[test]
@@ -270,6 +312,8 @@ mod tests {
     #[test]
     fn all_other_variants_exit_1() {
         let cases: &[AiswError] = &[
+            AiswError::ContextNotFound { name: "x".into() },
+            AiswError::ContextAlreadyExists { name: "x".into() },
             AiswError::ProfileAlreadyExists {
                 tool: Tool::Claude,
                 name: "x".into(),
@@ -313,6 +357,26 @@ mod tests {
         assert!(s.contains("work"), "missing name: {s}");
         assert!(s.contains("claude"), "missing tool: {s}");
         assert!(s.contains("not found"), "missing 'not found': {s}");
+    }
+
+    #[test]
+    fn context_not_found_display_contains_name() {
+        let e = AiswError::ContextNotFound {
+            name: "work".into(),
+        };
+        let s = e.to_string();
+        assert!(s.contains("work"), "missing name: {s}");
+        assert!(s.contains("context list"), "missing remediation hint: {s}");
+    }
+
+    #[test]
+    fn context_already_exists_display_contains_name() {
+        let e = AiswError::ContextAlreadyExists {
+            name: "work".into(),
+        };
+        let s = e.to_string();
+        assert!(s.contains("work"), "missing name: {s}");
+        assert!(s.contains("already exists"), "missing status: {s}");
     }
 
     #[test]
