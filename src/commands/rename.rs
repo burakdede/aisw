@@ -7,9 +7,11 @@ use std::io::IsTerminal;
 use crate::auth;
 use crate::cli::RenameArgs;
 use crate::config::ConfigStore;
+use crate::error::AiswError;
 use crate::machine;
 use crate::output;
 use crate::profile::{validate_profile_name, ProfileStore};
+use crate::runtime;
 
 pub fn run(args: RenameArgs, home: &Path) -> Result<()> {
     let (old_name, new_name) = resolve_names(&args, home)?;
@@ -48,15 +50,17 @@ pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
         None => {
             let profile_names: Vec<&str> = profiles.keys().map(String::as_str).collect();
             let suggestion = crate::util::edit_distance::closest_match(old_name, &profile_names, 2);
+            let err = AiswError::ProfileNotFound {
+                tool: args.tool,
+                name: old_name.to_owned(),
+            };
+            if runtime::is_machine_mode() {
+                return Err(err.into());
+            }
             if let Some(hint) = suggestion {
-                anyhow::bail!(
-                    "profile '{}' not found for {}.\n  Did you mean '{}'?",
-                    old_name,
-                    args.tool,
-                    hint
-                );
+                anyhow::bail!("{}\n  Did you mean '{}'?", err, hint);
             } else {
-                anyhow::bail!("profile '{}' not found for {}.", old_name, args.tool);
+                return Err(err.into());
             }
         }
     };

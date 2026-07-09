@@ -8,6 +8,7 @@ use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::RemoveArgs;
 use crate::config::{Config, ConfigStore};
+use crate::error::AiswError;
 use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
@@ -66,23 +67,17 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
             .map(String::as_str)
             .collect();
         let suggestion = crate::util::edit_distance::closest_match(profile_name, &profile_names, 2);
+        let err = AiswError::ProfileNotFound {
+            tool: args.tool,
+            name: profile_name.to_owned(),
+        };
+        if runtime::is_machine_mode() {
+            return Err(err.into());
+        }
         if let Some(hint) = suggestion {
-            bail!(
-                "profile '{}' not found for {}.\n  Did you mean '{}'?\n  \
-                 Run 'aisw list {}' to see available profiles.",
-                profile_name,
-                args.tool,
-                hint,
-                args.tool
-            );
+            bail!("{}\n  Did you mean '{}'?", err, hint);
         } else {
-            bail!(
-                "profile '{}' not found for {}.\n  \
-                 Run 'aisw list {}' to see available profiles.",
-                profile_name,
-                args.tool,
-                args.tool
-            );
+            return Err(err.into());
         }
     }
 
@@ -180,13 +175,11 @@ fn precheck(args: &RemoveArgs, home: &Path) -> Result<()> {
         .context("remove requires a profile name")?;
     let profile_store = ProfileStore::new(home);
     if !profile_store.exists(args.tool, profile_name) {
-        bail!(
-            "profile '{}' not found for {}.\n  \
-             Run 'aisw list {}' to see available profiles.",
-            profile_name,
-            args.tool,
-            args.tool
-        );
+        return Err(AiswError::ProfileNotFound {
+            tool: args.tool,
+            name: profile_name.to_owned(),
+        }
+        .into());
     }
     let config = ConfigStore::new(home).load()?;
     let is_active = active_for(&config, args.tool) == Some(profile_name);
