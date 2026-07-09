@@ -46,6 +46,62 @@ fn capabilities_json_reports_tool_capabilities() {
 }
 
 #[test]
+fn workspace_bind_json_returns_binding_and_snapshot() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "create", "client-acme", "--claude", "work"])
+        .assert()
+        .success();
+
+    let json = json_output(
+        &env,
+        &[
+            "workspace",
+            "bind",
+            "--git-remote",
+            "git@github.com:acme/*",
+            "--context",
+            "client-acme",
+            "--json",
+        ],
+    );
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "workspace_bind");
+    assert_eq!(json["result"]["binding"]["scope"], "git_remote");
+    assert_eq!(json["result"]["binding"]["pattern"], "github.com/acme/*");
+    assert_eq!(
+        json["result"]["project_bindings"]["user_bindings"]["guard_mode"],
+        "warn"
+    );
+}
+
+#[test]
+fn workspace_guard_json_returns_updated_mode_and_snapshot() {
+    let env = TestEnv::new();
+
+    let json = json_output(&env, &["workspace", "guard", "--mode", "strict", "--json"]);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "workspace_guard");
+    assert_eq!(json["result"]["guard_mode"], "strict");
+    assert_eq!(
+        json["result"]["project_bindings"]["user_bindings"]["guard_mode"],
+        "strict"
+    );
+}
+
+#[test]
 fn verify_json_reports_failures_and_remediation() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");

@@ -7,7 +7,9 @@ use crate::cli::{
     WorkspaceArgs, WorkspaceBindArgs, WorkspaceCheckArgs, WorkspaceCommand, WorkspaceDoctorArgs,
     WorkspaceGuardArgs, WorkspaceStatusArgs,
 };
+use crate::commands::project_bindings::snapshot as project_bindings_snapshot;
 use crate::config::ConfigStore;
+use crate::machine;
 use crate::output;
 use crate::types::Tool;
 use crate::workspace::{
@@ -30,12 +32,27 @@ pub fn run(args: WorkspaceArgs, home: &Path) -> Result<()> {
 fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
     let config = ConfigStore::new(home).load()?;
     validate_context_exists(&config, &args.context)?;
+    let cwd = std::env::current_dir().context("could not determine current directory")?;
 
     if args.default {
         let store = WorkspaceStore::new(home);
         let mut workspace_config = store.load()?;
         workspace_config.default_context = Some(args.context.clone());
         store.save(&workspace_config)?;
+
+        if args.json {
+            machine::print_success(
+                "workspace_bind",
+                json!({
+                    "binding": {
+                        "scope": "default",
+                        "context": args.context,
+                    },
+                    "project_bindings": project_bindings_snapshot(home, &cwd)?,
+                }),
+            )?;
+            return Ok(());
+        }
 
         output::print_title("Updated workspace default");
         output::print_kv("Context", &args.context);
@@ -51,6 +68,21 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
         upsert_git_remote_rule(&mut workspace_config, &normalized, &args.context);
         store.save(&workspace_config)?;
 
+        if args.json {
+            machine::print_success(
+                "workspace_bind",
+                json!({
+                    "binding": {
+                        "scope": "git_remote",
+                        "pattern": normalized,
+                        "context": args.context,
+                    },
+                    "project_bindings": project_bindings_snapshot(home, &cwd)?,
+                }),
+            )?;
+            return Ok(());
+        }
+
         output::print_title("Bound workspace remote");
         output::print_kv("Pattern", &normalized);
         output::print_kv("Context", &args.context);
@@ -63,6 +95,23 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
     let path = resolve_target_path(target)?;
     if let Some(repo) = detect_repo(&path)? {
         save_repo_local_config(&repo, &args.context)?;
+
+        if args.json {
+            machine::print_success(
+                "workspace_bind",
+                json!({
+                    "binding": {
+                        "scope": "repo_local",
+                        "repo_root": repo.root.display().to_string(),
+                        "config_path": repo_local_config_path(&repo).display().to_string(),
+                        "context": args.context,
+                    },
+                    "project_bindings": project_bindings_snapshot(home, &cwd)?,
+                }),
+            )?;
+            return Ok(());
+        }
+
         output::print_title("Bound workspace repo");
         output::print_kv("Repo", repo.root.display().to_string());
         output::print_kv(
@@ -83,6 +132,21 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
         &args.context,
     );
     store.save(&workspace_config)?;
+
+    if args.json {
+        machine::print_success(
+            "workspace_bind",
+            json!({
+                "binding": {
+                    "scope": "path",
+                    "path": path.display().to_string(),
+                    "context": args.context,
+                },
+                "project_bindings": project_bindings_snapshot(home, &cwd)?,
+            }),
+        )?;
+        return Ok(());
+    }
 
     output::print_title("Bound workspace path");
     output::print_kv("Path", path.display().to_string());
@@ -265,6 +329,18 @@ fn guard(args: WorkspaceGuardArgs, home: &Path) -> Result<()> {
     let mut config = store.load()?;
     config.guard_mode = GuardMode::from(args.mode);
     store.save(&config)?;
+
+    if args.json {
+        let cwd = std::env::current_dir().context("could not determine current directory")?;
+        machine::print_success(
+            "workspace_guard",
+            json!({
+                "guard_mode": config.guard_mode.display_name(),
+                "project_bindings": project_bindings_snapshot(home, &cwd)?,
+            }),
+        )?;
+        return Ok(());
+    }
 
     output::print_title("Updated workspace guard");
     output::print_kv("Mode", config.guard_mode.display_name());

@@ -31,12 +31,12 @@ aisw context remove <name> [--yes] [--json]
 aisw context rename <old> <new> [--json]
 aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
 aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
-aisw workspace bind [PATH] --context <name>
-aisw workspace bind --git-remote <PATTERN> --context <name>
-aisw workspace bind --default --context <name>
+aisw workspace bind [PATH] --context <name> [--json]
+aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
+aisw workspace bind --default --context <name> [--json]
 aisw workspace status [--json]
 aisw workspace doctor [--json]
-aisw workspace guard --mode warn|strict
+aisw workspace guard --mode warn|strict [--json]
 aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
@@ -303,9 +303,9 @@ See [Workspace guardrails](workspace.md) for a full explanation of the feature, 
 ### `aisw workspace bind`
 
 ```text
-aisw workspace bind [PATH] --context <name>
-aisw workspace bind --git-remote <PATTERN> --context <name>
-aisw workspace bind --default --context <name>
+aisw workspace bind [PATH] --context <name> [--json]
+aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
+aisw workspace bind --default --context <name> [--json]
 ```
 
 Create or update a workspace binding. The context must already exist.
@@ -316,12 +316,14 @@ Create or update a workspace binding. The context must already exist.
 | `--context NAME` | Expected context name for this location |
 | `--git-remote PATTERN` | Bind by git remote URL pattern. Supports `*` wildcards. |
 | `--default` | Set the fallback context for locations with no more specific rule. |
+| `--json` | Output a machine-readable mutation envelope with the refreshed bindings snapshot |
 
 ```sh
 aisw workspace bind . --context client-acme
 aisw workspace bind --git-remote "github.com/acme/*" --context client-acme
 aisw workspace bind ~/clients --context client-acme
 aisw workspace bind --default --context personal
+aisw workspace bind --default --context personal --json
 ```
 
 ### `aisw workspace status`
@@ -353,10 +355,12 @@ aisw workspace doctor --json
 ### `aisw workspace guard`
 
 ```text
-aisw workspace guard --mode warn|strict
+aisw workspace guard --mode warn|strict [--json]
 ```
 
 Set the default guard mode, saved to `~/.aisw/workspaces.json`.
+
+With `--json`, the success envelope includes the updated `guard_mode` and the same bindings snapshot returned by `aisw project-bindings list --json`.
 
 | Mode | Effect |
 |---|---|
@@ -366,6 +370,7 @@ Set the default guard mode, saved to `~/.aisw/workspaces.json`.
 ```sh
 aisw workspace guard --mode warn
 aisw workspace guard --mode strict
+aisw workspace guard --mode strict --json
 ```
 
 ---
@@ -641,6 +646,7 @@ aisw project-bindings list [--json]
 
 List workspace binding rules that matter to GUI/project-aware flows.
 
+- Includes saved `guard_mode`
 - Includes user-level workspace rules from `~/.aisw/workspaces.json`
 - Includes the current repo-local binding from `.git/info/aisw.json` when the current directory is inside a repo
 - Does not scan the filesystem for arbitrary repo-local binding files outside the current repo

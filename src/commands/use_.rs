@@ -441,7 +441,7 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
     let title = format!(
         "{} \u{2192} {}",
         resolved.tool.display_name(),
-        &resolved.profile_name
+        resolved.profile_name
     );
     output::print_title(&title);
     output::print_kv("Auth", auth_label(resolved.profile_meta.auth_method));

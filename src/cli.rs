@@ -227,6 +227,10 @@ pub struct WorkspaceBindArgs {
     /// Set the default context when no workspace-specific rule matches
     #[arg(long, conflicts_with_all = ["path", "git_remote"])]
     pub default: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -248,6 +252,10 @@ pub struct WorkspaceGuardArgs {
     /// Default workspace guard mode
     #[arg(long, value_enum)]
     pub mode: WorkspaceGuardMode,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -832,6 +840,42 @@ mod tests {
         assert!(args.claude);
         assert!(!args.codex);
         assert!(args.gemini);
+    }
+
+    #[test]
+    fn workspace_bind_json_parse() {
+        let cli = parse(&[
+            "workspace",
+            "bind",
+            "--git-remote",
+            "github.com/acme/*",
+            "--context",
+            "client-acme",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Workspace(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let WorkspaceCommand::Bind(args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert_eq!(args.git_remote.as_deref(), Some("github.com/acme/*"));
+        assert_eq!(args.context, "client-acme");
+        assert!(args.json);
+    }
+
+    #[test]
+    fn workspace_guard_json_parse() {
+        let cli = parse(&["workspace", "guard", "--mode", "strict", "--json"]).unwrap();
+        let Command::Workspace(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let WorkspaceCommand::Guard(args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert_eq!(args.mode, WorkspaceGuardMode::Strict);
+        assert!(args.json);
     }
 
     #[test]
