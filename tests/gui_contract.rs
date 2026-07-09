@@ -408,6 +408,39 @@ fn add_api_key_stdin_empty_is_structured_failure() {
 }
 
 #[test]
+fn add_duplicate_profile_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let output = env.output(&[
+        "add",
+        "claude",
+        "work",
+        "--api-key",
+        "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "--json",
+    ]);
+
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"]["kind"], "profile_already_exists");
+    assert_eq!(json["error"]["remediation"]["command"], "aisw list claude");
+}
+
+#[test]
 fn use_json_returns_active_state_and_backup() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -427,6 +460,31 @@ fn use_json_returns_active_state_and_backup() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["result"]["active"]["claude"], "work");
     assert!(json["result"]["backup_ids"].as_array().is_some());
+}
+
+#[test]
+fn use_missing_profile_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let output = env.output(&["use", "claude", "wrok", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"]["kind"], "profile_not_found");
+    assert_eq!(json["error"]["remediation"]["command"], "aisw list claude");
 }
 
 #[test]
@@ -452,6 +510,31 @@ fn remove_json_returns_remaining_profiles() {
 }
 
 #[test]
+fn remove_missing_profile_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let output = env.output(&["remove", "claude", "wrok", "--yes", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"]["kind"], "profile_not_found");
+    assert_eq!(json["error"]["remediation"]["command"], "aisw list claude");
+}
+
+#[test]
 fn rename_json_returns_new_name() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -470,6 +553,31 @@ fn rename_json_returns_new_name() {
     let json = json_output(&env, &["rename", "claude", "work", "personal", "--json"]);
     assert_eq!(json["ok"], true);
     assert_eq!(json["result"]["new_name"], "personal");
+}
+
+#[test]
+fn rename_missing_profile_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+
+    let output = env.output(&["rename", "claude", "wrok", "personal", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"]["kind"], "profile_not_found");
+    assert_eq!(json["error"]["remediation"]["command"], "aisw list claude");
 }
 
 #[test]

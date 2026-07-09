@@ -12,6 +12,7 @@ use crate::error::AiswError;
 use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
+use crate::runtime;
 use crate::types::{StateMode, Tool};
 
 #[derive(Debug, Clone)]
@@ -217,6 +218,9 @@ pub(crate) fn resolve_profile_switch_request(
                 tool,
                 name: profile_name.clone(),
             };
+            if runtime::is_machine_mode() {
+                return Err(err.into());
+            }
             if let Some(hint) = suggestion {
                 anyhow::bail!("{}\n  Did you mean '{}'?", err, hint);
             } else {

@@ -10,6 +10,7 @@ use crate::auth;
 use crate::auth::identity;
 use crate::cli::{AddArgs, AddCredentialBackend};
 use crate::config::{AuthMethod, Config, ConfigStore, CredentialBackend, ProfileMeta};
+use crate::error::AiswError;
 use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
@@ -54,13 +55,14 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         .profiles_for(args.tool)
         .contains_key(&args.profile_name)
     {
-        bail!(
-            "profile '{}' already exists for {}.\n  \
-             Run 'aisw list {}' to see existing profiles, or choose a different name.",
-            args.profile_name,
-            args.tool,
-            args.tool
-        );
+        let err = AiswError::ProfileAlreadyExists {
+            tool: args.tool,
+            name: args.profile_name.clone(),
+        };
+        if runtime::is_machine_mode() {
+            return Err(err.into());
+        }
+        bail!("{}\n  Choose a different name.", err);
     }
 
     if profile_store.exists(args.tool, &args.profile_name)
