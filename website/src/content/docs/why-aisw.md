@@ -1,6 +1,6 @@
 ---
 title: Why aisw?
-description: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
+description: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and why named profiles, contexts, and guardrails fit those workflows better.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/why-aisw.md
 head:
   - tag: meta
@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, why aisw?, overview
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, why aisw?, overview
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Why aisw?","headline":"Why aisw?","description":"Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.","url":"https://burakdede.github.io/aisw/why-aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, why aisw?, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Why aisw?","item":"https://burakdede.github.io/aisw/why-aisw/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Why aisw?","headline":"Why aisw?","description":"Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and why named profiles, contexts, and guardrails fit those workflows better.","url":"https://burakdede.github.io/aisw/why-aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, why aisw?, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.7","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Why aisw?","item":"https://burakdede.github.io/aisw/why-aisw/"}]}]}
 ---
 
 ## The problem
@@ -29,6 +29,15 @@ Claude Code, Codex CLI, and Gemini CLI each store credentials in different forma
 Editing `~/.claude/.credentials.json` directly is fragile. Copying and swapping files is fragile. Managing multiple `ANTHROPIC_API_KEY` exports in shell profiles for different terminals is fragile. None of these approaches tell you what is currently active, and none of them recover cleanly when something goes wrong mid-switch.
 
 The problem compounds across tools. If you maintain accounts for all three CLIs, you are managing three separate hidden credential locations, three sets of manual procedures, and no unified view of what is active.
+
+That is why people usually discover `aisw` through a very concrete search, not an abstract architecture question. They search for things like:
+
+- "switch between two Claude Code accounts"
+- "multiple Codex CLI accounts on one machine"
+- "Gemini CLI work and personal profile switch"
+- "coding agent account per repo"
+
+Those are all versions of the same underlying need: make account state explicit, repeatable, and safe.
 
 ## What aisw does differently
 
@@ -47,6 +56,8 @@ The problem compounds across tools. If you maintain accounts for all three CLIs,
 **Automatic backups**  -  `aisw remove` and `aisw rename` create backups before changing state. Backups are timestamped and restorable.
 
 **Workspace guardrails**  -  `aisw workspace bind . --context client-acme` ties a repo to an expected context. The shell hook then checks the binding before each `claude`, `codex`, or `gemini` launch and warns or blocks when the active context does not match.
+
+**Machine-readable integration surface**  -  `aisw version --json`, `aisw capabilities --json`, mutation JSON output, `--api-key-stdin`, and `--progress-json` make `aisw` usable as the switching layer behind a GUI or another local automation client without changing the human CLI workflow.
 
 ## Profiles vs contexts
 
@@ -104,6 +115,8 @@ Limits of contexts:
 
 **Consultants and contractors.** Different client engagements use different provider accounts or API keys. Named profiles per client, contexts to group them, and workspace guardrails to prevent launching the wrong account in the wrong repo. Switching takes one command and leaves a clean audit trail via backups.
 
+**People building local GUI tooling on top of existing CLIs.** `aisw` already knows how to capture, store, switch, verify, and repair upstream credential state. A GUI can treat it as the local credential authority instead of re-implementing tool-specific auth behavior.
+
 **Teams sharing accounts for specific tasks.** A shared team API key for CI or group work, individual OAuth accounts for everything else. `aisw` keeps both accessible without credential conflicts.
 
 **Open-source contributors using multiple providers.** Development work uses a Claude personal account; reviewing changes or testing integrations uses a different provider or key. Named profiles make context switches deliberate.
@@ -115,6 +128,8 @@ Limits of contexts:
 **Preserve native behavior.** Profile application writes exactly what the upstream tool would write if you authenticated natively. `aisw` does not introduce its own credential format or intermediary layer. The tool sees the same files and keychain entries it always expects.
 
 **No ambient mutation.** `aisw` only touches credential locations when you explicitly run `aisw use` or `aisw add`. It does not run background processes or watch for credential changes outside of an active OAuth capture flow.
+
+**Add machine interfaces without breaking terminal habits.** Human-readable CLI output stays human-readable. Structured JSON, typed errors, and progress streams are additive, explicit machine modes rather than a redesign of the interactive CLI.
 
 ## Common questions
 

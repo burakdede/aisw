@@ -18,7 +18,7 @@ const siteSchema = {
 			'@type': 'WebSite',
 			name: 'aisw  -  AI coding agent account manager',
 			url: siteUrl,
-			description: 'aisw is a named profile manager for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts in one command on macOS, Linux, and Windows.',
+			description: 'aisw is a named profile and context manager for Claude Code, Codex CLI, and Gemini CLI. Switch work, personal, and client accounts and keep the right coding agent profile active per repo.',
 			image: `${siteOrigin}${logoPath}`,
 			publisher: {
 				'@type': 'Organization',
@@ -35,7 +35,7 @@ const siteSchema = {
 			applicationCategory: 'DeveloperApplication',
 			operatingSystem: 'macOS, Linux, Windows',
 			softwareVersion: currentVersion,
-			description: 'Named profile manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch multiple accounts  -  work, personal, client  -  in one command. Supports OAuth, API keys, OS keychain, and CI automation.',
+			description: 'Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI. Store and switch work, personal, and client accounts, add repo guardrails, and support GUI-safe local automation.',
 			url: 'https://github.com/burakdede/aisw',
 			image: `${siteOrigin}${logoPath}`,
 			featureList: [
@@ -45,6 +45,8 @@ const siteSchema = {
 				'Manage multiple Claude Code accounts (work, personal, client)',
 				'Manage multiple Codex CLI accounts',
 				'Manage multiple Gemini CLI accounts',
+				'Coding agent account switching per repo',
+				'Coding agent profile switching for work and personal setups',
 				'Save named profiles per AI coding agent',
 				'Named contexts for cross-tool work modes',
 				'Workspace guardrails to enforce correct account per repo',
@@ -70,7 +72,7 @@ export default defineConfig({
 		sitemap(),
 		starlight({
 			title: 'aisw',
-			description: 'CLI docs for install, setup, commands, automation, and troubleshooting.',
+			description: 'Docs for switching Claude Code, Codex CLI, and Gemini CLI accounts across work, personal, and client setups.',
 			logo: {
 				light: './public/aisw-logo.png',
 				dark: './public/aisw-logo.png',
@@ -159,6 +161,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', slug: '' },
 						{ label: 'Quickstart', slug: 'quickstart' },
+						{ label: 'Common Switching Situations', slug: 'common-situations' },
 						{ label: 'Shell Integration', slug: 'shell-integration' },
 					],
 				},
@@ -176,9 +179,9 @@ export default defineConfig({
 				{
 					label: 'Guides',
 					items: [
+						{ label: 'Why aisw', slug: 'why-aisw' },
 						{ label: 'Automation and Scripting', slug: 'automation' },
 						{ label: 'Troubleshooting', slug: 'troubleshooting' },
-						{ label: 'Why aisw', slug: 'why-aisw' },
 					],
 				},
 			],

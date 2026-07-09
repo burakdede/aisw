@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, commands, reference
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, commands, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Commands","headline":"Commands","description":"Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.","url":"https://burakdede.github.io/aisw/commands/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, commands, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Commands","item":"https://burakdede.github.io/aisw/commands/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Commands","headline":"Commands","description":"Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.","url":"https://burakdede.github.io/aisw/commands/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, commands, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.7","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Commands","item":"https://burakdede.github.io/aisw/commands/"}]}]}
 ---
 
 ## Global flags
@@ -37,15 +37,15 @@ aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 ## At a glance
 
 ```text
-aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw init [--yes] [--json --no-shell-hook [--detect-live]]
+aisw add <tool> <profile> [--api-key KEY|--api-key-stdin] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes] [--json|--progress-json]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
 aisw context list [--search TEXT] [--json]
-aisw context use <name> [--state-mode isolated|shared] [--emit-env]
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
-aisw context unset <name> [--claude] [--codex] [--gemini]
-aisw context remove <name> [--yes]
-aisw context rename <old> <new>
+aisw context use <name> [--state-mode isolated|shared] [--emit-env] [--json]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
+aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
+aisw context remove <name> [--yes] [--json]
+aisw context rename <old> <new> [--json]
 aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
 aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
 aisw workspace bind [PATH] --context <name> [--json]
@@ -66,6 +66,9 @@ aisw backup restore <backup_id> [--yes]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
 aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
+aisw verify [--json]
+aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
+aisw project-bindings list [--json]
 ```
 
 `<tool>` is one of: `claude`, `codex`, `gemini`.
@@ -76,6 +79,7 @@ aisw doctor [--json]
 
 ```text
 aisw init [--yes]
+aisw init --json --no-shell-hook [--detect-live]
 ```
 
 Bootstrap command. Run once after install.
@@ -88,9 +92,13 @@ Bootstrap command. Run once after install.
 | Flag | Effect |
 |---|---|
 | `--yes` | Accept all prompts without confirmation |
+| `--json` | Return a machine-readable bootstrap payload instead of interactive output |
+| `--no-shell-hook` | Skip shell hook installation or modification; required with `--json` |
+| `--detect-live` | Include live credential detection results in the machine payload |
 
 Notes:
 - `init` is safe to re-run. If `~/.aisw/` already exists, it skips creation and proceeds to detection.
+- `init --json` is non-prompting by design. It creates `~/.aisw/config.json`, never edits shell rc files, and can report live credentials without importing them.
 - For Gemini, when both `~/.gemini/.env` and OAuth cache files are present, import uses the `.env` file first.
 - For Claude Code on macOS, `init` checks the Keychain before checking the credentials file.
 - `init` will not import a duplicate if the OAuth identity matches an already-stored profile.
@@ -98,6 +106,7 @@ Notes:
 ```sh
 aisw init
 aisw init --yes
+aisw init --json --no-shell-hook --detect-live
 ```
 
 ---
@@ -105,7 +114,7 @@ aisw init --yes
 ## `aisw add`
 
 ```text
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
+aisw add <tool> <profile> [--api-key KEY|--api-key-stdin] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes] [--json|--progress-json]
 ```
 
 Create a named profile.
@@ -113,16 +122,20 @@ Create a named profile.
 | Flag | Effect |
 |---|---|
 | `--api-key KEY` | Store the given API key |
+| `--api-key-stdin` | Read the API key from stdin until EOF |
 | `--from-env` | Read the key from the tool's env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) |
 | `--from-live` | Capture the tool's current live credentials without launching login |
 | `--label TEXT` | Human-readable description, shown in `list` and `status` |
 | `--credential-backend file|system-keyring` | Override where `aisw` stores the managed profile secret |
 | `--set-active` | Activate the profile immediately after adding |
 | `--yes` | Overwrite an existing profile when used with `--from-live` |
+| `--json` | Return a single machine-readable result envelope |
+| `--progress-json` | Stream newline-delimited JSON progress events, then a final result event |
 
 Notes:
 - Without `--api-key`, `--from-env`, or `--from-live`, `add` runs the interactive OAuth flow for the tool.
 - In `--non-interactive` mode, interactive OAuth is not available and the command fails.
+- `--api-key-stdin` is intended for GUI and automation integrations that should not expose secrets in process arguments.
 - `--from-live` captures what the tool is currently using; it does not launch a browser or auth flow.
 - `--from-live` always activates the profile because those credentials are already live.
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
@@ -137,7 +150,9 @@ Live credential locations by tool:
 
 ```sh
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+printf '%s' "$ANTHROPIC_API_KEY" | aisw add claude work --api-key-stdin --json
 aisw add codex ci --from-env
+aisw add claude personal --progress-json
 aisw add gemini personal --label "Personal account" --set-active
 aisw add claude work --from-live
 aisw add codex work --from-live --yes
@@ -188,13 +203,14 @@ Practical framing:
 ### `aisw context create`
 
 ```text
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
 ```
 
 Create a saved context. At least one tool mapping is required.
 
 ```sh
 aisw context create acme --claude acme-claude --codex acme-codex
+aisw context create acme --claude acme-claude --json
 ```
 
 ### `aisw context list`
@@ -219,7 +235,7 @@ aisw context list --json
 ### `aisw context use`
 
 ```text
-aisw context use <name> [--state-mode isolated|shared] [--emit-env]
+aisw context use <name> [--state-mode isolated|shared] [--emit-env] [--json]
 ```
 
 Activate every mapped tool in a saved context as one transaction.
@@ -229,6 +245,7 @@ Activate every mapped tool in a saved context as one transaction.
 | `--state-mode isolated` | Set `CLAUDE_CONFIG_DIR` and `CODEX_HOME` to profile directories (default) |
 | `--state-mode shared` | Unset `CLAUDE_CONFIG_DIR` and `CODEX_HOME` for Claude and Codex |
 | `--emit-env` | Print shell export/unset lines to stdout instead of writing them to the session |
+| `--json` | Output a machine-readable activation result envelope |
 
 Notes:
 - Default state mode is `isolated`.
@@ -239,55 +256,60 @@ Notes:
 ```sh
 aisw context use acme
 aisw context use acme --state-mode shared
+aisw context use acme --json
 eval "$(aisw context use acme --emit-env)"
 ```
 
 ### `aisw context set`
 
 ```text
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
 ```
 
 Update one or more mappings without disturbing the others.
 
 ```sh
 aisw context set acme --gemini acme-gemini
+aisw context set acme --gemini acme-gemini --json
 ```
 
 ### `aisw context unset`
 
 ```text
-aisw context unset <name> [--claude] [--codex] [--gemini]
+aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
 ```
 
 Remove one or more mappings from a context. The command fails if it would leave the context empty.
 
 ```sh
 aisw context unset acme --codex
+aisw context unset acme --codex --json
 ```
 
 ### `aisw context remove`
 
 ```text
-aisw context remove <name> [--yes]
+aisw context remove <name> [--yes] [--json]
 ```
 
 Delete a saved context. This does not change live credentials or active per-tool profiles.
 
 ```sh
 aisw context remove acme --yes
+aisw context remove acme --yes --json
 ```
 
 ### `aisw context rename`
 
 ```text
-aisw context rename <old> <new>
+aisw context rename <old> <new> [--json]
 ```
 
 Rename a saved context. This does not change live credentials or active per-tool profiles.
 
 ```sh
 aisw context rename acme client-acme
+aisw context rename acme client-acme --json
 ```
 
 ---
@@ -314,6 +336,7 @@ Create or update a workspace binding. The context must already exist.
 | `--context NAME` | Expected context name for this location |
 | `--git-remote PATTERN` | Bind by git remote URL pattern. Supports `*` wildcards. |
 | `--default` | Set the fallback context for locations with no more specific rule. |
+| `--json` | Output a machine-readable mutation envelope with the refreshed bindings snapshot |
 
 ```sh
 aisw workspace bind . --context client-acme
@@ -336,9 +359,13 @@ Remove an existing workspace binding.
 | Flag | Effect |
 |---|---|
 | `PATH` | Path to unbind. Defaults to `.`. Inside a git repo, removes `.git/info/aisw.json`. Outside a repo, removes the matching path rule from `~/.aisw/workspaces.json`. |
-| `--git-remote PATTERN` | Remove a git remote rule. Supports `*` wildcards. Cannot be combined with `PATH` or `--default`. |
-| `--default` | Clear the fallback context used when no more specific rule matches. Cannot be combined with `PATH` or `--git-remote`. |
-| `--json` | Emit a machine-readable success envelope including the removed binding and refreshed binding snapshot. |
+| `--git-remote PATTERN` | Remove a git remote rule. Supports the same normalization as `bind`, so `git@github.com:acme/*` and `github.com/acme/*` target the same rule. |
+| `--default` | Clear the fallback context for locations with no more specific rule. |
+| `--json` | Output a machine-readable mutation envelope with the refreshed bindings snapshot |
+
+Notes:
+- `unbind` errors if the targeted binding does not exist.
+- When invoked in a git repo without `PATH`, repo-local unbind removes `.git/info/aisw.json`.
 
 ```sh
 aisw workspace unbind .
@@ -380,6 +407,8 @@ aisw workspace guard --mode warn|strict [--json]
 ```
 
 Set the default guard mode, saved to `~/.aisw/workspaces.json`.
+
+With `--json`, the success envelope includes the updated `guard_mode` and the same bindings snapshot returned by `aisw project-bindings list --json`.
 
 | Mode | Effect |
 |---|---|
@@ -593,6 +622,86 @@ Check install and environment health: binary locations, `~/.aisw/` permissions, 
 ```sh
 aisw doctor
 aisw doctor --json
+```
+
+---
+
+## `aisw verify`
+
+```text
+aisw verify [--json]
+```
+
+Read-only confidence check that combines installation health with live profile coherence.
+
+- Reuses `doctor` checks for binaries, config, shell hook, keyring, and permissions.
+- Verifies whether each active tool's live credentials still match the profile `aisw` records as active.
+- Returns non-zero when concrete failures are found, such as live mismatch, missing managed credentials, or missing binaries.
+
+| Flag | Effect |
+|---|---|
+| `--json` | Output a machine-readable verification report |
+
+Notes:
+- `verify` is stricter than `status --json`: it adds an overall pass/warn/fail verdict and remediation hints.
+- `verify` is read-only. It never reapplies credentials or modifies shell files.
+- On macOS, Claude file-backed live verification can remain observational because the live Keychain state is not always inspectable.
+
+```sh
+aisw verify
+aisw verify --json
+```
+
+---
+
+## `aisw repair`
+
+```text
+aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
+```
+
+Preview or apply safe local repairs for aisw-managed state.
+
+- `home`: create `AISW_HOME` and a default `config.json` when missing
+- `permissions`: normalize aisw-managed directories to `0700` and files to `0600` on Unix
+
+| Flag | Effect |
+|---|---|
+| `--json` | Output a machine-readable repair result envelope |
+| `--dry-run` | Preview repair actions without mutating files |
+| `--apply` | Apply the selected safe fixes |
+| `--fix` | Limit repairs to one or more fix categories; accepts comma-separated values |
+
+Notes:
+- If neither `--dry-run` nor `--apply` is provided, `repair` defaults to dry-run mode.
+- `repair` is explicit and cautious. It does not reapply live credentials, restore backups, or modify shell rc files.
+- `--fix` defaults to all currently safe repair categories.
+
+```sh
+aisw repair
+aisw repair --json --dry-run
+aisw repair --apply --fix home
+aisw repair --json --apply --fix home,permissions
+```
+
+---
+
+## `aisw project-bindings list`
+
+```text
+aisw project-bindings list [--json]
+```
+
+List workspace binding rules that matter to GUI/project-aware flows.
+
+- Includes saved `guard_mode`
+- Includes user-level workspace rules from `~/.aisw/workspaces.json`
+- Includes the current repo-local binding from `.git/info/aisw.json` when the current directory is inside a repo
+- Does not scan the filesystem for arbitrary repo-local binding files outside the current repo
+
+```sh
+aisw project-bindings list
+aisw project-bindings list --json
 ```
 
 ---

@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Workspace Guardrails","headline":"Workspace Guardrails","description":"Bind repos, directories, and git remotes to expected aisw contexts. Warn or block agent launches when the wrong account is active.","url":"https://burakdede.github.io/aisw/workspace/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Workspace Guardrails","item":"https://burakdede.github.io/aisw/workspace/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Workspace Guardrails","headline":"Workspace Guardrails","description":"Bind repos, directories, and git remotes to expected aisw contexts. Warn or block agent launches when the wrong account is active.","url":"https://burakdede.github.io/aisw/workspace/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.7","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Workspace Guardrails","item":"https://burakdede.github.io/aisw/workspace/"}]}]}
 ---
 
 Workspace guardrails solve one specific problem: launching an AI coding agent in the wrong repo with the wrong account.
@@ -292,10 +292,12 @@ aisw workspace doctor --json
 ### `aisw workspace guard`
 
 ```text
-aisw workspace guard --mode warn|strict
+aisw workspace guard --mode warn|strict [--json]
 ```
 
 Set the default guard mode. The setting is saved to `~/.aisw/workspaces.json`.
+
+With `--json`, the success envelope includes the saved `guard_mode` and the refreshed project bindings snapshot.
 
 ```sh
 aisw workspace guard --mode warn    # warn but allow launch

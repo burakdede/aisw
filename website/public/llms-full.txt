@@ -2,16 +2,25 @@
 
 > aisw is a CLI tool for managing named profiles and switching accounts across Claude Code, Codex CLI, and Gemini CLI. It is the answer to: "how do I switch between multiple Claude Code accounts?", "how do I use separate work and personal accounts in Codex CLI?", and "how do I manage different Gemini API keys for different clients?" Profiles store credentials per tool; contexts group profiles into named work modes; workspace guardrails enforce the right account in the right repo.
 
-Current version: 0.3.6
+Current version: 0.3.7
 
 ## aisw documentation
 
 URL: https://burakdede.github.io/aisw/
 Section: overview
-Summary: aisw manages named profiles for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts with one command on macOS, Linux, and Windows.
+Summary: aisw manages named profiles and contexts for Claude Code, Codex CLI, and Gemini CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
 Source: https://github.com/burakdede/aisw/blob/main/docs/index.md
-Headings: Install | First run | Core workflow | Start here | Additional reference
-Common queries: aisw docs | aisw install | claude code account manager | codex cli account switcher | gemini cli account switcher | switch between claude code accounts | multiple claude accounts terminal | manage multiple AI coding agent accounts | claude code work personal account | how to use two claude accounts | anthropic api key manager | multi-account support claude code cli | running multiple claude accounts without logging out | how to use multiple claude code profiles on same machine | CLAUDE_CONFIG_DIR multiple profiles | concurrent personal work account sessions claude
+Headings: Install | First run | Core workflow | Common situations | Work and personal accounts for the same tool | Mixed client setup across Claude, Codex, and Gemini | Wrong-account protection per repo | Start here | Additional reference
+Common queries: aisw docs | aisw install | coding agent account switcher | coding agent profile switch | claude code account manager | codex cli account switcher | gemini cli account switcher | switch between claude code accounts | multiple claude accounts terminal | manage multiple AI coding agent accounts | multiple coding agent accounts on one machine | claude code work personal account | how to use two claude accounts | how to switch between coding agent profiles | anthropic api key manager | multi-account support claude code cli | running multiple claude accounts without logging out | how to use multiple claude code profiles on same machine | CLAUDE_CONFIG_DIR multiple profiles | concurrent personal work account sessions claude | how to keep the right ai coding account per repo
+
+## Common Switching Situations
+
+URL: https://burakdede.github.io/aisw/common-situations/
+Section: getting-started
+Summary: Real aisw workflows for work vs personal accounts, client-specific profiles, repo guardrails, GUI-safe secret entry, and verifying that a coding agent switch actually worked.
+Source: https://github.com/burakdede/aisw/blob/main/docs/common-situations.md
+Headings: One tool, two accounts | Same profile name across every tool | Different profile names for the same client or workspace | Capture what is already live | GUI-safe and automation-safe secret entry | Keep the right account active per repo | Verify that switching really worked | Which feature should I reach for? | Next steps
+Common queries: switch between two Claude Code accounts | multiple Codex CLI accounts | Gemini CLI work personal profiles | coding agent account switch per repo | client-specific ai coding agent accounts | how to keep client and personal coding agent accounts separate | desktop app account switching for claude code codex gemini | verify coding agent account switch worked
 
 ## Quickstart
 
@@ -28,7 +37,7 @@ URL: https://burakdede.github.io/aisw/commands/
 Section: reference
 Summary: Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 Source: https://github.com/burakdede/aisw/blob/main/docs/commands.md
-Headings: Global flags | At a glance | `aisw init` | `aisw add` | `aisw use` | `aisw context` | `aisw context create` | `aisw context list` | `aisw context use` | `aisw context set` | `aisw context unset` | `aisw context remove` | `aisw context rename` | `aisw workspace` | `aisw workspace bind` | `aisw workspace status` | `aisw workspace doctor` | `aisw workspace guard` | `aisw list` | `aisw status` | `aisw remove` | `aisw rename` | `aisw backup list` | `aisw backup restore` | `aisw uninstall` | `aisw shell-hook` | `aisw doctor` | Automation reference
+Headings: Global flags | At a glance | `aisw init` | `aisw add` | `aisw use` | `aisw context` | `aisw context create` | `aisw context list` | `aisw context use` | `aisw context set` | `aisw context unset` | `aisw context remove` | `aisw context rename` | `aisw workspace` | `aisw workspace bind` | `aisw workspace unbind` | `aisw workspace status` | `aisw workspace doctor` | `aisw workspace guard` | `aisw list` | `aisw status` | `aisw remove` | `aisw rename` | `aisw backup list` | `aisw backup restore` | `aisw uninstall` | `aisw shell-hook` | `aisw doctor` | `aisw verify` | `aisw repair` | `aisw project-bindings list` | Automation reference
 Common queries: aisw command reference | aisw add use list status | aisw flags
 
 ## Automation and Scripting
@@ -55,7 +64,7 @@ URL: https://burakdede.github.io/aisw/workspace/
 Section: reference
 Summary: Bind repos, directories, and git remotes to expected aisw contexts. Warn or block agent launches when the wrong account is active.
 Source: https://github.com/burakdede/aisw/blob/main/docs/workspace.md
-Headings: Concepts | Setup | Step 1: Create contexts for your workspaces | Step 2: Install the shell hook | Step 3: Bind your repos | Step 4: Set guard mode | How it works in practice | Commands | `aisw workspace bind` | `aisw workspace status` | `aisw workspace doctor` | `aisw workspace guard` | Common scenarios | You work in client repos and a personal repo | You have many repos under a GitHub organization | You want to check state without launching an agent | You temporarily need to override the guard | Storage | Related
+Headings: Concepts | Setup | Step 1: Create contexts for your workspaces | Step 2: Install the shell hook | Step 3: Bind your repos | Step 4: Set guard mode | How it works in practice | Commands | `aisw workspace bind` | `aisw workspace unbind` | `aisw workspace status` | `aisw workspace doctor` | `aisw workspace guard` | Common scenarios | You work in client repos and a personal repo | You have many repos under a GitHub organization | You want to check state without launching an agent | You temporarily need to override the guard | Storage | Related
 Common queries: aisw workspace guardrails | wrong account in wrong repo | prevent wrong claude account | aisw workspace bind | aisw workspace guard strict | workspace context mismatch
 
 ## Adding Profiles
@@ -107,10 +116,10 @@ Common queries: aisw credential security | is aisw safe to use | aisw file permi
 
 URL: https://burakdede.github.io/aisw/why-aisw/
 Section: overview
-Summary: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
+Summary: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and why named profiles, contexts, and guardrails fit those workflows better.
 Source: https://github.com/burakdede/aisw/blob/main/docs/why-aisw.md
 Headings: The problem | What aisw does differently | Profiles vs contexts | What aisw does not do | Typical users | Design principles | Common questions
-Common queries: why use aisw | AI CLI account switching problem | Claude Code account manager | Codex CLI account switcher | Gemini CLI account switcher | multiple AI coding agent accounts | managing multiple claude accounts consultant | switching AI agents between clients | claude code credentials file manual editing | ai coding agent credential management
+Common queries: why use aisw | AI CLI account switching problem | Claude Code account manager | Codex CLI account switcher | Gemini CLI account switcher | multiple AI coding agent accounts | managing multiple claude accounts consultant | switching AI agents between clients | coding agent account switcher for consultants | claude code credentials file manual editing | ai coding agent credential management | local gui backend for coding agent account switching
 
 ## Troubleshooting
 

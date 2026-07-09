@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, automation and scripting, reference
+      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, automation and scripting, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.6","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Automation and Scripting","headline":"Automation and Scripting","description":"Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.","url":"https://burakdede.github.io/aisw/automation/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, automation and scripting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.7","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Automation and Scripting","item":"https://burakdede.github.io/aisw/automation/"}]}]}
 ---
 
 `aisw` is designed to be used safely in CI pipelines, shell scripts, and non-interactive environments.
@@ -42,6 +42,9 @@ aisw --non-interactive --quiet <command>
 # Add an API key profile without any prompts
 aisw --non-interactive add claude ci --api-key "$ANTHROPIC_API_KEY"
 
+# Or avoid passing the secret in argv
+printf '%s' "$ANTHROPIC_API_KEY" | aisw --non-interactive add claude ci --api-key-stdin --json
+
 # Add from an already-exported environment variable
 aisw --non-interactive add codex ci --from-env
 
@@ -56,9 +59,27 @@ Interactive OAuth flows (`aisw add claude personal` without flags) are not avail
 
 ## Machine-readable output
 
-All inventory and status commands support `--json`:
+Read commands support `--json`, and core mutation commands now expose machine envelopes as well:
 
 ```sh
+aisw version --json
+aisw capabilities --json
+aisw init --json --no-shell-hook --detect-live
+aisw add claude work --api-key-stdin --json
+aisw use claude work --json
+aisw context create work --claude work-claude --codex work-codex --json
+aisw context use work --json
+aisw context rename work client-acme --json
+aisw context remove client-acme --yes --json
+aisw remove claude work --yes --json
+aisw rename claude work personal --json
+aisw backup restore 20260325T114502Z-claude-ci --yes --json
+aisw verify --json
+aisw repair --json --dry-run
+aisw workspace bind --default --context work --json
+aisw workspace unbind --default --json
+aisw workspace guard --mode strict --json
+aisw project-bindings list --json
 aisw status --json
 aisw status --context --json
 aisw list --json
@@ -68,7 +89,21 @@ aisw backup list --json
 aisw doctor --json
 ```
 
-JSON output goes to stdout. Errors always go to stderr with a non-zero exit code.
+With `--json`, success and expected command failures are emitted as structured JSON on stdout. Human-oriented stdout/stderr output is suppressed. The process still exits non-zero on failure.
+
+For OAuth-based `add`, use `--progress-json` to stream newline-delimited JSON progress events:
+
+```sh
+aisw add claude personal --progress-json
+```
+
+Example event stream:
+
+```json
+{"type":"started","seq":1,"command":"add","tool":"claude","profile":"personal"}
+{"type":"waiting_for_user","seq":3,"command":"add","tool":"claude","profile":"personal","phase":"waiting_for_user","safe_to_cancel":true,"message":"Complete login in the browser or terminal"}
+{"type":"result","seq":5,"command":"add","tool":"claude","profile":"personal","ok":true,"result":{"tool":"claude","profile":"personal","auth_method":"oauth","credential_backend":"file","active":false,"source":null,"warnings":[]}}
+```
 
 ### Useful JSON patterns
 
@@ -82,11 +117,32 @@ aisw status --context --json | jq -r '.context.active'
 # Check whether the live credentials match the active Claude profile
 aisw status --json | jq '.[] | select(.tool == "claude") | .active_profile_applied'
 
+# Get a one-shot pass/warn/fail verification verdict
+aisw verify --json | jq -r '.summary.status'
+
+# Preview safe local repairs and count remaining issues
+aisw repair --json --dry-run | jq -r '.result.summary.issues_remaining'
+
 # List all stored Codex profile names
 aisw list codex --json | jq -r '.profiles[].name'
 
 # List all saved contexts
 aisw context list --json | jq -r '.contexts[].name'
+
+# Activate a saved context and read the refreshed active profile map
+aisw context use work --json | jq '.result.active'
+
+# Update the default workspace context and inspect the refreshed binding snapshot
+aisw workspace bind --default --context work --json | jq '.result.project_bindings.user_bindings'
+
+# Remove the default workspace context and inspect the refreshed binding snapshot
+aisw workspace unbind --default --json | jq '.result.project_bindings.user_bindings'
+
+# Persist strict workspace guard mode and confirm the saved mode
+aisw workspace guard --mode strict --json | jq -r '.result.guard_mode'
+
+# List user workspace rules plus the current repo-local binding
+aisw project-bindings list --json | jq '.result'
 
 # Find profiles with expired tokens
 aisw status --json | jq '.[] | select(.token_warning != null) | {tool, warning: .token_warning}'
@@ -100,11 +156,13 @@ aisw backup list --json | jq '[.[] | select(.profile == "claude/work")] | sort_b
 | Output | Destination | Notes |
 |---|---|---|
 | Human-readable tables and status | stdout | Suppressed by `--quiet` |
-| Errors | stderr + non-zero exit | Always present, never suppressed |
+| Errors in human mode | stderr + non-zero exit | Always present, never suppressed |
+| Errors in machine mode (`--json`, `--progress-json`) | stdout + non-zero exit | Structured JSON envelope |
 | Prompts | stderr or tty | Only shown without `--non-interactive` and without `--yes` |
 | `aisw use --emit-env` / `aisw context use --emit-env` | stdout | Shell variable exports; not affected by `--quiet` |
 | `aisw shell-hook` | stdout | Shell hook code; not affected by `--quiet` |
 | JSON output (`--json`) | stdout | Not affected by `--quiet` |
+| Progress JSON (`--progress-json`) | stdout | One JSON object per line, intended for GUI/OAuth flows |
 
 Exit code `0` means success. Any non-zero exit code means failure; the error message is on stderr.
 

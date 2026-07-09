@@ -2,11 +2,12 @@
 
 > aisw is a named profile and context manager for Claude Code, Codex CLI, and Gemini CLI. It solves the problem of switching between multiple accounts (work, personal, client) across AI coding agents. Store credentials as named profiles, switch with one command, and use workspace guardrails to prevent launching the wrong account in the wrong repo.
 
-Current version: 0.3.6
+Current version: 0.3.7
 
 ## Docs
 
-- [aisw documentation](https://burakdede.github.io/aisw/): aisw manages named profiles for Claude Code, Codex CLI, and Gemini CLI. Switch between work, personal, and client accounts with one command on macOS, Linux, and Windows.
+- [aisw documentation](https://burakdede.github.io/aisw/): aisw manages named profiles and contexts for Claude Code, Codex CLI, and Gemini CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
+- [Common Switching Situations](https://burakdede.github.io/aisw/common-situations/): Real aisw workflows for work vs personal accounts, client-specific profiles, repo guardrails, GUI-safe secret entry, and verifying that a coding agent switch actually worked.
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.
 - [Commands](https://burakdede.github.io/aisw/commands/): Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 - [Automation and Scripting](https://burakdede.github.io/aisw/automation/): Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.
@@ -17,7 +18,7 @@ Current version: 0.3.6
 - [Configuration](https://burakdede.github.io/aisw/configuration/): aisw configuration file location, schema, field reference, directory layout, and AISW_HOME override.
 - [How It Works](https://burakdede.github.io/aisw/how-it-works/): Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
 - [Security](https://burakdede.github.io/aisw/security/): How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.
-- [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and how named profiles solve them.
+- [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and why named profiles, contexts, and guardrails fit those workflows better.
 - [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/): Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
 
 ## Project
