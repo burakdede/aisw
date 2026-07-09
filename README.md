@@ -164,6 +164,7 @@ aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
 aisw verify [--json]
 aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
+aisw project-bindings list [--json]
 ```
 
 ## Security

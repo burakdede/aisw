@@ -1,6 +1,6 @@
 ---
 title: Command reference
-description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, verify, repair, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
+description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, verify, repair, project-bindings, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
 ---
 
 # Command reference
@@ -48,6 +48,7 @@ aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
 aisw verify [--json]
 aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
+aisw project-bindings list [--json]
 ```
 
 `<tool>` is one of: `claude`, `codex`, `gemini`.
@@ -628,6 +629,25 @@ aisw repair
 aisw repair --json --dry-run
 aisw repair --apply --fix home
 aisw repair --json --apply --fix home,permissions
+```
+
+---
+
+## `aisw project-bindings list`
+
+```text
+aisw project-bindings list [--json]
+```
+
+List workspace binding rules that matter to GUI/project-aware flows.
+
+- Includes user-level workspace rules from `~/.aisw/workspaces.json`
+- Includes the current repo-local binding from `.git/info/aisw.json` when the current directory is inside a repo
+- Does not scan the filesystem for arbitrary repo-local binding files outside the current repo
+
+```sh
+aisw project-bindings list
+aisw project-bindings list --json
 ```
 
 ---

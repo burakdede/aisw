@@ -227,6 +227,79 @@ fn workspace_bind_default_and_git_remote_update_user_store() {
 }
 
 #[test]
+fn project_bindings_list_json_reports_current_repo_and_user_rules() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+    let outside = env.fake_home.join("scratch").join("project");
+    fs::create_dir_all(&outside).unwrap();
+
+    env.cmd()
+        .args(["workspace", "bind", "--default", "--context", "client-acme"])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--git-remote",
+            "github.com/acme/*",
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            outside.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+
+    let output = env
+        .cmd()
+        .current_dir(repo.join("api"))
+        .args(["project-bindings", "list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(
+        json["result"]["repo_local_binding"]["context"],
+        "client-acme"
+    );
+    assert_eq!(
+        json["result"]["user_bindings"]["default_context"],
+        "client-acme"
+    );
+    assert_eq!(
+        json["result"]["user_bindings"]["path_rules"][0]["path"],
+        outside.display().to_string()
+    );
+    assert_eq!(
+        json["result"]["user_bindings"]["git_remote_rules"][0]["pattern"],
+        "github.com/acme/*"
+    );
+}
+
+#[test]
 fn strict_workspace_guard_blocks_wrapped_claude_before_launch() {
     let env = TestEnv::new();
     setup_profiles_and_contexts(&env);
