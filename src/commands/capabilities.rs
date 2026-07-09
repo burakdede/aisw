@@ -60,7 +60,7 @@ pub fn run(args: CapabilitiesArgs) -> Result<()> {
             repair: true,
             contexts: true,
             workspace_bindings: true,
-            project_bindings_alias: false,
+            project_bindings_alias: true,
         },
         tools: ToolCapabilitiesSet {
             claude: tool_capabilities(Tool::Claude),

@@ -121,6 +121,10 @@ pub enum Command {
     /// Repair safe local aisw state issues such as missing home/config or broad permissions
     Repair(RepairArgs),
 
+    /// List saved workspace/project binding rules for GUI and automation
+    #[command(name = "project-bindings")]
+    ProjectBindings(ProjectBindingsArgs),
+
     /// Bind workspaces to expected contexts and enforce guardrails
     Workspace(WorkspaceArgs),
 }
@@ -162,6 +166,25 @@ pub struct RepairArgs {
     /// Limit repairs to one or more fix categories
     #[arg(long, value_enum, value_delimiter = ',', num_args = 1..)]
     pub fix: Vec<RepairFix>,
+}
+
+#[derive(Args, Debug)]
+pub struct ProjectBindingsArgs {
+    #[command(subcommand)]
+    pub command: ProjectBindingsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ProjectBindingsCommand {
+    /// List user workspace bindings and the current repo-local binding
+    List(ProjectBindingsListArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ProjectBindingsListArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -996,6 +1019,16 @@ mod tests {
         assert!(args.json);
         assert!(args.apply);
         assert_eq!(args.fix, vec![RepairFix::Home, RepairFix::Permissions]);
+    }
+
+    #[test]
+    fn project_bindings_list_json_parse() {
+        let cli = parse(&["project-bindings", "list", "--json"]).unwrap();
+        let Command::ProjectBindings(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let ProjectBindingsCommand::List(args) = args.command;
+        assert!(args.json);
     }
 
     #[test]

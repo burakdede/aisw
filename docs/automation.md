@@ -59,6 +59,7 @@ aisw rename claude work personal --json
 aisw backup restore 20260325T114502Z-claude-ci --yes --json
 aisw verify --json
 aisw repair --json --dry-run
+aisw project-bindings list --json
 aisw status --json
 aisw status --context --json
 aisw list --json
@@ -110,6 +111,9 @@ aisw context list --json | jq -r '.contexts[].name'
 
 # Activate a saved context and read the refreshed active profile map
 aisw context use work --json | jq '.result.active'
+
+# List user workspace rules plus the current repo-local binding
+aisw project-bindings list --json | jq '.result'
 
 # Find profiles with expired tokens
 aisw status --json | jq '.[] | select(.token_warning != null) | {tool, warning: .token_warning}'

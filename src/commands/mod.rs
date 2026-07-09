@@ -10,6 +10,7 @@ pub mod context;
 pub mod doctor;
 pub mod init;
 pub mod list;
+pub mod project_bindings;
 pub mod remove;
 pub mod rename;
 pub mod repair;
@@ -71,6 +72,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             }
         }
         Command::Repair(args) => repair::run(args, &home)?,
+        Command::ProjectBindings(args) => project_bindings::run(args, &home)?,
         Command::Workspace(args) => workspace::run(args, &home)?,
     }
     Ok(())

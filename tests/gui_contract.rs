@@ -40,6 +40,7 @@ fn capabilities_json_reports_tool_capabilities() {
     assert_eq!(json["features"]["detect_live_init"], true);
     assert_eq!(json["features"]["verify"], true);
     assert_eq!(json["features"]["repair"], true);
+    assert_eq!(json["features"]["project_bindings_alias"], true);
     assert_eq!(json["tools"]["gemini"]["state_modes"][0], "isolated");
     assert_eq!(json["tools"]["codex"]["fail_closed_keyring_identity"], true);
 }
@@ -422,6 +423,86 @@ fn context_remove_json_returns_remaining_contexts() {
     assert_eq!(json["command"], "context_remove");
     assert_eq!(json["result"]["removed_context"], "client-acme");
     assert_eq!(json["result"]["remaining_contexts"], serde_json::json!([]));
+}
+
+#[test]
+fn project_bindings_list_json_reports_user_and_repo_rules() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "create", "client-acme", "--claude", "work"])
+        .assert()
+        .success();
+
+    let repo = env.fake_home.join("clients").join("acme");
+    std::fs::create_dir_all(repo.join(".git").join("info")).unwrap();
+    std::fs::write(
+        repo.join(".git").join("config"),
+        "[remote \"origin\"]\n\turl = git@github.com:acme/api.git\n",
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["workspace", "bind", "--default", "--context", "client-acme"])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--git-remote",
+            "github.com/acme/*",
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+
+    let output = env
+        .cmd()
+        .current_dir(&repo)
+        .args(["project-bindings", "list", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "project_bindings_list");
+    assert_eq!(
+        json["result"]["repo_local_binding"]["context"],
+        "client-acme"
+    );
+    assert_eq!(
+        json["result"]["user_bindings"]["default_context"],
+        "client-acme"
+    );
+    assert_eq!(
+        json["result"]["user_bindings"]["git_remote_rules"][0]["pattern"],
+        "github.com/acme/*"
+    );
 }
 
 #[test]
