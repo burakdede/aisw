@@ -237,6 +237,92 @@ fn parse_errors_are_structured_in_machine_mode() {
 }
 
 #[test]
+fn context_create_duplicate_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "create", "work", "--claude", "work", "--json"])
+        .assert()
+        .success();
+
+    let output = env.output(&["context", "create", "work", "--claude", "work", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "context_already_exists");
+    assert_eq!(
+        json["error"]["remediation"]["command"],
+        "aisw context list --json"
+    );
+}
+
+#[test]
+fn context_use_missing_context_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.cmd().args(["init", "--yes"]).assert().success();
+
+    let output = env.output(&["context", "use", "missing", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "context_not_found");
+    assert_eq!(
+        json["error"]["remediation"]["command"],
+        "aisw context list --json"
+    );
+}
+
+#[test]
+fn context_create_missing_profile_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.cmd().args(["init", "--yes"]).assert().success();
+
+    let output = env.output(&["context", "create", "work", "--claude", "missing", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "profile_not_found");
+}
+
+#[test]
+fn workspace_bind_missing_context_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.cmd().args(["init", "--yes"]).assert().success();
+
+    let output = env.output(&[
+        "workspace",
+        "bind",
+        "--default",
+        "--context",
+        "missing",
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "context_not_found");
+}
+
+#[test]
 fn add_api_key_stdin_json_succeeds_without_stderr() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
