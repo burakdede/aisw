@@ -281,6 +281,7 @@ fn project_bindings_list_json_reports_current_repo_and_user_rules() {
         .clone();
 
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["result"]["user_bindings"]["guard_mode"], "warn");
     assert_eq!(
         json["result"]["repo_local_binding"]["context"],
         "client-acme"
@@ -296,6 +297,52 @@ fn project_bindings_list_json_reports_current_repo_and_user_rules() {
     assert_eq!(
         json["result"]["user_bindings"]["git_remote_rules"][0]["pattern"],
         "github.com/acme/*"
+    );
+}
+
+#[test]
+fn workspace_bind_and_guard_json_return_machine_envelopes() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+
+    let bind_output = env
+        .cmd()
+        .current_dir(repo.join("api"))
+        .args([
+            "workspace",
+            "bind",
+            "..",
+            "--context",
+            "client-acme",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let bind_json: serde_json::Value = serde_json::from_slice(&bind_output).unwrap();
+    assert_eq!(bind_json["ok"], true);
+    assert_eq!(bind_json["command"], "workspace_bind");
+    assert_eq!(bind_json["result"]["binding"]["scope"], "repo_local");
+    assert_eq!(bind_json["result"]["binding"]["context"], "client-acme");
+
+    let guard_output = env
+        .cmd()
+        .args(["workspace", "guard", "--mode", "strict", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let guard_json: serde_json::Value = serde_json::from_slice(&guard_output).unwrap();
+    assert_eq!(guard_json["ok"], true);
+    assert_eq!(guard_json["command"], "workspace_guard");
+    assert_eq!(guard_json["result"]["guard_mode"], "strict");
+    assert_eq!(
+        guard_json["result"]["project_bindings"]["user_bindings"]["guard_mode"],
+        "strict"
     );
 }
 

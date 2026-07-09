@@ -147,12 +147,12 @@ aisw context remove <name> [--yes] [--json]
 aisw context rename <old> <new> [--json]
 aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
 aisw use --all --profile <profile> [--emit-env]
-aisw workspace bind [PATH] --context <name>
-aisw workspace bind --git-remote <PATTERN> --context <name>
-aisw workspace bind --default --context <name>
+aisw workspace bind [PATH] --context <name> [--json]
+aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
+aisw workspace bind --default --context <name> [--json]
 aisw workspace status [--json]
 aisw workspace doctor [--json]
-aisw workspace guard --mode warn|strict
+aisw workspace guard --mode warn|strict [--json]
 aisw list [tool] [--json]
 aisw status [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]

@@ -142,12 +142,14 @@ The prompt check also runs when you change directories, so you get a heads-up as
 ### `aisw workspace bind`
 
 ```text
-aisw workspace bind [PATH] --context <name>
-aisw workspace bind --git-remote <PATTERN> --context <name>
-aisw workspace bind --default --context <name>
+aisw workspace bind [PATH] --context <name> [--json]
+aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
+aisw workspace bind --default --context <name> [--json]
 ```
 
 Create or update a workspace binding.
+
+Pass `--json` when driving the command from a GUI or script that needs a structured mutation result and refreshed bindings snapshot.
 
 | Flag | Effect |
 |---|---|
@@ -247,10 +249,12 @@ aisw workspace doctor --json
 ### `aisw workspace guard`
 
 ```text
-aisw workspace guard --mode warn|strict
+aisw workspace guard --mode warn|strict [--json]
 ```
 
 Set the default guard mode. The setting is saved to `~/.aisw/workspaces.json`.
+
+With `--json`, the success envelope includes the saved `guard_mode` and the refreshed project bindings snapshot.
 
 ```sh
 aisw workspace guard --mode warn    # warn but allow launch
