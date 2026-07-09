@@ -102,6 +102,48 @@ fn workspace_guard_json_returns_updated_mode_and_snapshot() {
 }
 
 #[test]
+fn workspace_unbind_json_returns_removed_default_and_snapshot() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "create", "client-acme", "--claude", "work"])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--default",
+            "--context",
+            "client-acme",
+            "--json",
+        ])
+        .assert()
+        .success();
+
+    let json = json_output(&env, &["workspace", "unbind", "--default", "--json"]);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "workspace_unbind");
+    assert_eq!(json["result"]["binding"]["scope"], "default");
+    assert_eq!(json["result"]["binding"]["removed_context"], "client-acme");
+    assert_eq!(
+        json["result"]["project_bindings"]["user_bindings"]["default_context"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
 fn verify_json_reports_failures_and_remediation() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");

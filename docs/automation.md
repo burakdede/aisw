@@ -60,6 +60,7 @@ aisw backup restore 20260325T114502Z-claude-ci --yes --json
 aisw verify --json
 aisw repair --json --dry-run
 aisw workspace bind --default --context work --json
+aisw workspace unbind --default --json
 aisw workspace guard --mode strict --json
 aisw project-bindings list --json
 aisw status --json
@@ -116,6 +117,9 @@ aisw context use work --json | jq '.result.active'
 
 # Update the default workspace context and inspect the refreshed binding snapshot
 aisw workspace bind --default --context work --json | jq '.result.project_bindings.user_bindings'
+
+# Remove the default workspace context and inspect the refreshed binding snapshot
+aisw workspace unbind --default --json | jq '.result.project_bindings.user_bindings'
 
 # Persist strict workspace guard mode and confirm the saved mode
 aisw workspace guard --mode strict --json | jq -r '.result.guard_mode'

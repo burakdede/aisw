@@ -34,6 +34,9 @@ aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
 aisw workspace bind [PATH] --context <name> [--json]
 aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
 aisw workspace bind --default --context <name> [--json]
+aisw workspace unbind [PATH] [--json]
+aisw workspace unbind --git-remote <PATTERN> [--json]
+aisw workspace unbind --default [--json]
 aisw workspace status [--json]
 aisw workspace doctor [--json]
 aisw workspace guard --mode warn|strict [--json]
@@ -324,6 +327,34 @@ aisw workspace bind --git-remote "github.com/acme/*" --context client-acme
 aisw workspace bind ~/clients --context client-acme
 aisw workspace bind --default --context personal
 aisw workspace bind --default --context personal --json
+```
+
+### `aisw workspace unbind`
+
+```text
+aisw workspace unbind [PATH] [--json]
+aisw workspace unbind --git-remote <PATTERN> [--json]
+aisw workspace unbind --default [--json]
+```
+
+Remove an existing workspace binding.
+
+| Flag | Effect |
+|---|---|
+| `PATH` | Path to unbind. Defaults to `.`. Inside a git repo, removes `.git/info/aisw.json`. Outside a repo, removes the matching path rule from `~/.aisw/workspaces.json`. |
+| `--git-remote PATTERN` | Remove a git remote rule. Supports the same normalization as `bind`, so `git@github.com:acme/*` and `github.com/acme/*` target the same rule. |
+| `--default` | Clear the fallback context for locations with no more specific rule. |
+| `--json` | Output a machine-readable mutation envelope with the refreshed bindings snapshot |
+
+Notes:
+- `unbind` errors if the targeted binding does not exist.
+- When invoked in a git repo without `PATH`, repo-local unbind removes `.git/info/aisw.json`.
+
+```sh
+aisw workspace unbind .
+aisw workspace unbind ~/clients/acme-api
+aisw workspace unbind --git-remote "github.com/acme/*"
+aisw workspace unbind --default --json
 ```
 
 ### `aisw workspace status`

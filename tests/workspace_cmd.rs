@@ -227,6 +227,80 @@ fn workspace_bind_default_and_git_remote_update_user_store() {
 }
 
 #[test]
+fn workspace_unbind_removes_default_remote_path_and_repo_rules() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+    let outside = env.fake_home.join("scratch").join("project");
+    fs::create_dir_all(&outside).unwrap();
+
+    env.cmd()
+        .args(["workspace", "bind", "--default", "--context", "client-acme"])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--git-remote",
+            "github.com/acme/*",
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            outside.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["workspace", "unbind", "--default"])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "unbind",
+            "--git-remote",
+            "git@github.com:acme/*",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["workspace", "unbind", outside.to_str().unwrap()])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["workspace", "unbind", repo.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let json: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("workspaces.json")).unwrap();
+    assert_eq!(json["default_context"], serde_json::Value::Null);
+    assert_eq!(json["git_remote_rules"], serde_json::json!([]));
+    assert_eq!(json["path_rules"], serde_json::json!([]));
+    assert!(!repo.join(".git").join("info").join("aisw.json").exists());
+}
+
+#[test]
 fn project_bindings_list_json_reports_current_repo_and_user_rules() {
     let env = TestEnv::new();
     setup_profiles_and_contexts(&env);
@@ -343,6 +417,155 @@ fn workspace_bind_and_guard_json_return_machine_envelopes() {
     assert_eq!(
         guard_json["result"]["project_bindings"]["user_bindings"]["guard_mode"],
         "strict"
+    );
+}
+
+#[test]
+fn workspace_unbind_json_returns_removed_binding_and_snapshot() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            repo.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+
+    let output = env
+        .cmd()
+        .current_dir(repo.join("api"))
+        .args(["workspace", "unbind", "..", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "workspace_unbind");
+    assert_eq!(json["result"]["binding"]["scope"], "repo_local");
+    assert_eq!(json["result"]["binding"]["removed_context"], "client-acme");
+    assert_eq!(
+        json["result"]["project_bindings"]["repo_local_binding"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn workspace_unbind_errors_when_target_rule_is_missing() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let repo = setup_repo(&env, "clients/acme", "git@github.com:acme/api.git");
+    let outside = env.fake_home.join("scratch").join("project");
+    fs::create_dir_all(&outside).unwrap();
+
+    env.cmd()
+        .args(["workspace", "unbind", "--default"])
+        .assert()
+        .failure()
+        .stderr(contains("default workspace context is not set"));
+
+    env.cmd()
+        .args(["workspace", "unbind", "--git-remote", "github.com/acme/*"])
+        .assert()
+        .failure()
+        .stderr(contains(
+            "workspace remote rule 'github.com/acme/*' not found",
+        ));
+
+    env.cmd()
+        .args(["workspace", "unbind", outside.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(contains(format!(
+            "workspace path rule '{}' not found",
+            outside.display()
+        )));
+
+    env.cmd()
+        .args(["workspace", "unbind", repo.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(contains("repo-local workspace binding not found"));
+}
+
+#[test]
+fn workspace_unbind_json_reports_path_and_remote_removals() {
+    let env = TestEnv::new();
+    setup_profiles_and_contexts(&env);
+    let outside = env.fake_home.join("scratch").join("project");
+    fs::create_dir_all(&outside).unwrap();
+
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--git-remote",
+            "github.com/acme/*",
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            outside.to_str().unwrap(),
+            "--context",
+            "client-acme",
+        ])
+        .assert()
+        .success();
+
+    let remote_output = env
+        .cmd()
+        .args([
+            "workspace",
+            "unbind",
+            "--git-remote",
+            "git@github.com:acme/*",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let remote_json: serde_json::Value = serde_json::from_slice(&remote_output).unwrap();
+    assert_eq!(remote_json["result"]["binding"]["scope"], "git_remote");
+    assert_eq!(
+        remote_json["result"]["binding"]["pattern"],
+        "github.com/acme/*"
+    );
+    assert_eq!(
+        remote_json["result"]["binding"]["removed_context"],
+        "client-acme"
+    );
+
+    let path_output = env
+        .cmd()
+        .args(["workspace", "unbind", outside.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let path_json: serde_json::Value = serde_json::from_slice(&path_output).unwrap();
+    assert_eq!(path_json["result"]["binding"]["scope"], "path");
+    assert_eq!(
+        path_json["result"]["binding"]["path"],
+        outside.display().to_string()
+    );
+    assert_eq!(
+        path_json["result"]["binding"]["removed_context"],
+        "client-acme"
     );
 }
 

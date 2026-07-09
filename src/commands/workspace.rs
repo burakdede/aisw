@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::cli::{
     WorkspaceArgs, WorkspaceBindArgs, WorkspaceCheckArgs, WorkspaceCommand, WorkspaceDoctorArgs,
-    WorkspaceGuardArgs, WorkspaceStatusArgs,
+    WorkspaceGuardArgs, WorkspaceStatusArgs, WorkspaceUnbindArgs,
 };
 use crate::commands::project_bindings::snapshot as project_bindings_snapshot;
 use crate::config::ConfigStore;
@@ -22,6 +22,7 @@ use crate::workspace::{
 pub fn run(args: WorkspaceArgs, home: &Path) -> Result<()> {
     match args.command {
         WorkspaceCommand::Bind(args) => bind(args, home),
+        WorkspaceCommand::Unbind(args) => unbind(args, home),
         WorkspaceCommand::Status(args) => status(args, home),
         WorkspaceCommand::Doctor(args) => doctor(args, home),
         WorkspaceCommand::Guard(args) => guard(args, home),
@@ -153,6 +154,134 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
     output::print_kv("Context", &args.context);
     output::print_effects_header();
     output::print_effect("User workspace path rule saved.");
+    Ok(())
+}
+
+fn unbind(args: WorkspaceUnbindArgs, home: &Path) -> Result<()> {
+    let cwd = std::env::current_dir().context("could not determine current directory")?;
+
+    if args.default {
+        let store = WorkspaceStore::new(home);
+        let mut workspace_config = store.load()?;
+        let removed_context = workspace_config
+            .default_context
+            .take()
+            .context("default workspace context is not set")?;
+        store.save(&workspace_config)?;
+
+        if args.json {
+            machine::print_success(
+                "workspace_unbind",
+                json!({
+                    "binding": {
+                        "scope": "default",
+                        "removed_context": removed_context,
+                    },
+                    "project_bindings": project_bindings_snapshot(home, &cwd)?,
+                }),
+            )?;
+            return Ok(());
+        }
+
+        output::print_title("Removed workspace default");
+        output::print_effects_header();
+        output::print_effect("Default workspace context cleared.");
+        return Ok(());
+    }
+
+    if let Some(pattern) = args.git_remote.as_deref() {
+        let store = WorkspaceStore::new(home);
+        let mut workspace_config = store.load()?;
+        let normalized = normalize_remote_pattern(pattern);
+        let removed_context = remove_git_remote_rule(&mut workspace_config, &normalized)
+            .with_context(|| format!("workspace remote rule '{}' not found", normalized))?;
+        store.save(&workspace_config)?;
+
+        if args.json {
+            machine::print_success(
+                "workspace_unbind",
+                json!({
+                    "binding": {
+                        "scope": "git_remote",
+                        "pattern": normalized,
+                        "removed_context": removed_context,
+                    },
+                    "project_bindings": project_bindings_snapshot(home, &cwd)?,
+                }),
+            )?;
+            return Ok(());
+        }
+
+        output::print_title("Removed workspace remote");
+        output::print_kv("Pattern", &normalized);
+        output::print_effects_header();
+        output::print_effect("Remote workspace rule removed.");
+        return Ok(());
+    }
+
+    let target = args.path.as_deref().unwrap_or(".");
+    let path = resolve_target_path(target)?;
+    if let Some(repo) = detect_repo(&path)? {
+        let config_path = repo_local_config_path(&repo);
+        let removed = load_repo_local_config(&repo)?.with_context(|| {
+            format!(
+                "repo-local workspace binding not found at {}",
+                config_path.display()
+            )
+        })?;
+        std::fs::remove_file(&config_path)
+            .with_context(|| format!("could not remove {}", config_path.display()))?;
+
+        if args.json {
+            machine::print_success(
+                "workspace_unbind",
+                json!({
+                    "binding": {
+                        "scope": "repo_local",
+                        "repo_root": repo.root.display().to_string(),
+                        "config_path": config_path.display().to_string(),
+                        "removed_context": removed.context,
+                    },
+                    "project_bindings": project_bindings_snapshot(home, &cwd)?,
+                }),
+            )?;
+            return Ok(());
+        }
+
+        output::print_title("Removed workspace repo");
+        output::print_kv("Repo", repo.root.display().to_string());
+        output::print_kv("Config", config_path.display().to_string());
+        output::print_effects_header();
+        output::print_effect("Repo-local workspace binding removed.");
+        return Ok(());
+    }
+
+    let store = WorkspaceStore::new(home);
+    let mut workspace_config = store.load()?;
+    let path_text = path.display().to_string();
+    let removed_context = remove_path_rule(&mut workspace_config, &path_text)
+        .with_context(|| format!("workspace path rule '{}' not found", path_text))?;
+    store.save(&workspace_config)?;
+
+    if args.json {
+        machine::print_success(
+            "workspace_unbind",
+            json!({
+                "binding": {
+                    "scope": "path",
+                    "path": path_text,
+                    "removed_context": removed_context,
+                },
+                "project_bindings": project_bindings_snapshot(home, &cwd)?,
+            }),
+        )?;
+        return Ok(());
+    }
+
+    output::print_title("Removed workspace path");
+    output::print_kv("Path", &path_text);
+    output::print_effects_header();
+    output::print_effect("User workspace path rule removed.");
     Ok(())
 }
 
@@ -439,6 +568,22 @@ fn upsert_git_remote_rule(config: &mut WorkspaceConfig, pattern: &str, context: 
             context: context.to_owned(),
         });
     }
+}
+
+fn remove_path_rule(config: &mut WorkspaceConfig, path: &str) -> Option<String> {
+    let index = config
+        .path_rules
+        .iter()
+        .position(|rule| rule.path == path)?;
+    Some(config.path_rules.remove(index).context)
+}
+
+fn remove_git_remote_rule(config: &mut WorkspaceConfig, pattern: &str) -> Option<String> {
+    let index = config
+        .git_remote_rules
+        .iter()
+        .position(|rule| rule.pattern == pattern)?;
+    Some(config.git_remote_rules.remove(index).context)
 }
 
 fn active_profiles_summary(
