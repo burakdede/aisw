@@ -2,11 +2,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::status::{collect_status, derive_context_status, DerivedContextStatus};
 use crate::config::{Config, ConfigStore};
+use crate::error::AiswError;
 use crate::types::Tool;
 
 const WORKSPACES_VERSION: u32 = 1;
@@ -586,11 +587,10 @@ fn set_file_permissions_600(path: &Path) -> Result<()> {
 
 pub fn validate_context_exists(config: &Config, name: &str) -> Result<()> {
     if config.context(name).is_none() {
-        bail!(
-            "context '{}' not found.\n  Create it first with: aisw context create {} --claude <profile>",
-            name,
-            name
-        );
+        return Err(AiswError::ContextNotFound {
+            name: name.to_owned(),
+        }
+        .into());
     }
     Ok(())
 }

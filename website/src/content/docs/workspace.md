@@ -159,12 +159,14 @@ The prompt check also runs when you change directories, so you get a heads-up as
 ### `aisw workspace bind`
 
 ```text
-aisw workspace bind [PATH] --context <name>
-aisw workspace bind --git-remote <PATTERN> --context <name>
-aisw workspace bind --default --context <name>
+aisw workspace bind [PATH] --context <name> [--json]
+aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
+aisw workspace bind --default --context <name> [--json]
 ```
 
 Create or update a workspace binding.
+
+Pass `--json` when driving the command from a GUI or script that needs a structured mutation result and refreshed bindings snapshot.
 
 | Flag | Effect |
 |---|---|
@@ -190,6 +192,32 @@ aisw workspace bind ~/work --context work
 
 # Set a default context for unlisted locations
 aisw workspace bind --default --context personal
+```
+
+### `aisw workspace unbind`
+
+```text
+aisw workspace unbind [PATH] [--json]
+aisw workspace unbind --git-remote <PATTERN> [--json]
+aisw workspace unbind --default [--json]
+```
+
+Remove an existing workspace binding.
+
+Use this when a repo, path rule, remote rule, or default context should no longer participate in workspace guardrails.
+
+```sh
+# Remove the current repo-local binding
+aisw workspace unbind .
+
+# Remove a path prefix rule
+aisw workspace unbind ~/work
+
+# Remove a remote rule
+aisw workspace unbind --git-remote "github.com/acme/*"
+
+# Clear the default fallback context and return machine output
+aisw workspace unbind --default --json
 ```
 
 ### `aisw workspace status`

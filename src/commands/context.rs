@@ -15,6 +15,7 @@ use crate::commands::use_::{
     state_mode_map, ResolvedProfileSwitch,
 };
 use crate::config::{Config, ConfigStore, ContextEntry, ContextProfiles};
+use crate::error::AiswError;
 use crate::live_apply::LiveFileChange;
 use crate::machine;
 use crate::output;
@@ -138,10 +139,13 @@ fn list(args: ContextListArgs, home: &Path) -> Result<()> {
 fn set(args: ContextSetArgs, home: &Path) -> Result<()> {
     let store = ConfigStore::new(home);
     let config = store.load()?;
-    let existing = config
-        .context(&args.context_name)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("context '{}' not found.", args.context_name))?;
+    let existing =
+        config
+            .context(&args.context_name)
+            .cloned()
+            .ok_or_else(|| AiswError::ContextNotFound {
+                name: args.context_name.clone(),
+            })?;
 
     let updates = profile_map_from_options(args.claude, args.codex, args.gemini);
     if updates.is_empty() {
@@ -189,10 +193,13 @@ fn set(args: ContextSetArgs, home: &Path) -> Result<()> {
 fn unset(args: ContextUnsetArgs, home: &Path) -> Result<()> {
     let store = ConfigStore::new(home);
     let config = store.load()?;
-    let existing = config
-        .context(&args.context_name)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("context '{}' not found.", args.context_name))?;
+    let existing =
+        config
+            .context(&args.context_name)
+            .cloned()
+            .ok_or_else(|| AiswError::ContextNotFound {
+                name: args.context_name.clone(),
+            })?;
 
     let mut profiles = existing.profiles.clone();
     let mut changed = false;
@@ -314,7 +321,9 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
     let config = store.load()?;
     let context = config
         .context(&args.context_name)
-        .ok_or_else(|| anyhow!("context '{}' not found.", args.context_name))?;
+        .ok_or_else(|| AiswError::ContextNotFound {
+            name: args.context_name.clone(),
+        })?;
     let switches = resolve_context_switches(&config, context, args.state_mode)?;
     if switches.is_empty() {
         bail!("context '{}' has no tool mappings.", args.context_name);
@@ -433,7 +442,11 @@ fn ensure_profiles_exist(
 ) -> Result<()> {
     for (tool, profile) in profiles {
         if !config.profiles_for(*tool).contains_key(profile) {
-            bail!("profile '{}' not found for {}.", profile, tool);
+            return Err(AiswError::ProfileNotFound {
+                tool: *tool,
+                name: profile.clone(),
+            }
+            .into());
         }
     }
     Ok(())

@@ -102,6 +102,48 @@ fn workspace_guard_json_returns_updated_mode_and_snapshot() {
 }
 
 #[test]
+fn workspace_unbind_json_returns_removed_default_and_snapshot() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "create", "client-acme", "--claude", "work"])
+        .assert()
+        .success();
+    env.cmd()
+        .args([
+            "workspace",
+            "bind",
+            "--default",
+            "--context",
+            "client-acme",
+            "--json",
+        ])
+        .assert()
+        .success();
+
+    let json = json_output(&env, &["workspace", "unbind", "--default", "--json"]);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["command"], "workspace_unbind");
+    assert_eq!(json["result"]["binding"]["scope"], "default");
+    assert_eq!(json["result"]["binding"]["removed_context"], "client-acme");
+    assert_eq!(
+        json["result"]["project_bindings"]["user_bindings"]["default_context"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
 fn verify_json_reports_failures_and_remediation() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -234,6 +276,92 @@ fn parse_errors_are_structured_in_machine_mode() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["error"]["kind"], "unsupported_flag");
+}
+
+#[test]
+fn context_create_duplicate_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+    env.cmd().args(["init", "--yes"]).assert().success();
+    env.cmd()
+        .args([
+            "add",
+            "claude",
+            "work",
+            "--api-key",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["context", "create", "work", "--claude", "work", "--json"])
+        .assert()
+        .success();
+
+    let output = env.output(&["context", "create", "work", "--claude", "work", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "context_already_exists");
+    assert_eq!(
+        json["error"]["remediation"]["command"],
+        "aisw context list --json"
+    );
+}
+
+#[test]
+fn context_use_missing_context_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.cmd().args(["init", "--yes"]).assert().success();
+
+    let output = env.output(&["context", "use", "missing", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "context_not_found");
+    assert_eq!(
+        json["error"]["remediation"]["command"],
+        "aisw context list --json"
+    );
+}
+
+#[test]
+fn context_create_missing_profile_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.cmd().args(["init", "--yes"]).assert().success();
+
+    let output = env.output(&["context", "create", "work", "--claude", "missing", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "profile_not_found");
+}
+
+#[test]
+fn workspace_bind_missing_context_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.cmd().args(["init", "--yes"]).assert().success();
+
+    let output = env.output(&[
+        "workspace",
+        "bind",
+        "--default",
+        "--context",
+        "missing",
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["error"]["kind"], "context_not_found");
 }
 
 #[test]

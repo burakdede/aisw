@@ -252,11 +252,17 @@ aisw workspace guard --mode warn
 Remove the binding:
 
 ```sh
-# Repo-local binding  -  delete the file inside the repo
-rm .git/info/aisw.json
+# Remove the repo-local binding for the current repo
+aisw workspace unbind .
 
-# Or remove a user-level path rule by rebinding to a different context
-# and then removing that context entry from ~/.aisw/workspaces.json manually
+# Remove a user-level path rule
+aisw workspace unbind ~/clients/acme-api
+
+# Remove a user-level remote rule
+aisw workspace unbind --git-remote "github.com/acme/*"
+
+# Clear the default fallback context
+aisw workspace unbind --default
 ```
 
 Check what rule matched and why:

@@ -266,7 +266,10 @@ impl ConfigStore {
         self.with_mutating_config(|config| {
             let contexts = context_entries_mut(config);
             if contexts.contains_key(name) {
-                bail!("context '{}' already exists.", name);
+                return Err(AiswError::ContextAlreadyExists {
+                    name: name.to_owned(),
+                }
+                .into());
             }
             contexts.insert(name.to_owned(), entry);
             Ok(())
@@ -283,7 +286,10 @@ impl ConfigStore {
     pub fn remove_context(&self, name: &str) -> Result<Config> {
         self.with_mutating_config(|config| {
             if context_entries_mut(config).remove(name).is_none() {
-                bail!("context '{}' not found.", name);
+                return Err(AiswError::ContextNotFound {
+                    name: name.to_owned(),
+                }
+                .into());
             }
             Ok(())
         })
@@ -297,10 +303,15 @@ impl ConfigStore {
             }
             let entry = contexts
                 .remove(old_name)
-                .ok_or_else(|| anyhow::anyhow!("context '{}' not found.", old_name))?;
+                .ok_or_else(|| AiswError::ContextNotFound {
+                    name: old_name.to_owned(),
+                })?;
             if contexts.contains_key(new_name) {
                 contexts.insert(old_name.to_owned(), entry);
-                bail!("context '{}' already exists.", new_name);
+                return Err(AiswError::ContextAlreadyExists {
+                    name: new_name.to_owned(),
+                }
+                .into());
             }
             contexts.insert(new_name.to_owned(), entry);
             Ok(())
