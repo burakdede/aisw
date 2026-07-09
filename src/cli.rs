@@ -198,6 +198,9 @@ pub enum WorkspaceCommand {
     /// Bind a path, repo, remote, or default rule to a context
     Bind(WorkspaceBindArgs),
 
+    /// Remove a path, repo, remote, or default workspace binding
+    Unbind(WorkspaceUnbindArgs),
+
     /// Show workspace-to-context resolution for the current directory
     Status(WorkspaceStatusArgs),
 
@@ -225,6 +228,24 @@ pub struct WorkspaceBindArgs {
     pub git_remote: Option<String>,
 
     /// Set the default context when no workspace-specific rule matches
+    #[arg(long, conflicts_with_all = ["path", "git_remote"])]
+    pub default: bool,
+
+    /// Output result as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceUnbindArgs {
+    /// Path to unbind. In a git repo this removes .git/info/aisw.json by default.
+    pub path: Option<String>,
+
+    /// Remove a git remote pattern like github.com/acme/*
+    #[arg(long, value_name = "PATTERN", conflicts_with_all = ["path", "default"])]
+    pub git_remote: Option<String>,
+
+    /// Remove the default context when no workspace-specific rule matches
     #[arg(long, conflicts_with_all = ["path", "git_remote"])]
     pub default: bool,
 
@@ -862,6 +883,26 @@ mod tests {
         };
         assert_eq!(args.git_remote.as_deref(), Some("github.com/acme/*"));
         assert_eq!(args.context, "client-acme");
+        assert!(args.json);
+    }
+
+    #[test]
+    fn workspace_unbind_json_parse() {
+        let cli = parse(&[
+            "workspace",
+            "unbind",
+            "--git-remote",
+            "github.com/acme/*",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Workspace(args) = cli.command else {
+            panic!("wrong command")
+        };
+        let WorkspaceCommand::Unbind(args) = args.command else {
+            panic!("wrong subcommand")
+        };
+        assert_eq!(args.git_remote.as_deref(), Some("github.com/acme/*"));
         assert!(args.json);
     }
 
