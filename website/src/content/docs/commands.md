@@ -48,12 +48,15 @@ aisw context remove <name> [--yes]
 aisw context rename <old> <new>
 aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
 aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
-aisw workspace bind [PATH] --context <name>
-aisw workspace bind --git-remote <PATTERN> --context <name>
-aisw workspace bind --default --context <name>
+aisw workspace bind [PATH] --context <name> [--json]
+aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
+aisw workspace bind --default --context <name> [--json]
+aisw workspace unbind [PATH] [--json]
+aisw workspace unbind --git-remote <PATTERN> [--json]
+aisw workspace unbind --default [--json]
 aisw workspace status [--json]
 aisw workspace doctor [--json]
-aisw workspace guard --mode warn|strict
+aisw workspace guard --mode warn|strict [--json]
 aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
 aisw remove <tool> <profile> [--yes] [--force]
@@ -298,9 +301,9 @@ See [Workspace guardrails](/aisw/workspace/) for a full explanation of the featu
 ### `aisw workspace bind`
 
 ```text
-aisw workspace bind [PATH] --context <name>
-aisw workspace bind --git-remote <PATTERN> --context <name>
-aisw workspace bind --default --context <name>
+aisw workspace bind [PATH] --context <name> [--json]
+aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
+aisw workspace bind --default --context <name> [--json]
 ```
 
 Create or update a workspace binding. The context must already exist.
@@ -317,6 +320,31 @@ aisw workspace bind . --context client-acme
 aisw workspace bind --git-remote "github.com/acme/*" --context client-acme
 aisw workspace bind ~/clients --context client-acme
 aisw workspace bind --default --context personal
+aisw workspace bind --default --context personal --json
+```
+
+### `aisw workspace unbind`
+
+```text
+aisw workspace unbind [PATH] [--json]
+aisw workspace unbind --git-remote <PATTERN> [--json]
+aisw workspace unbind --default [--json]
+```
+
+Remove an existing workspace binding.
+
+| Flag | Effect |
+|---|---|
+| `PATH` | Path to unbind. Defaults to `.`. Inside a git repo, removes `.git/info/aisw.json`. Outside a repo, removes the matching path rule from `~/.aisw/workspaces.json`. |
+| `--git-remote PATTERN` | Remove a git remote rule. Supports `*` wildcards. Cannot be combined with `PATH` or `--default`. |
+| `--default` | Clear the fallback context used when no more specific rule matches. Cannot be combined with `PATH` or `--git-remote`. |
+| `--json` | Emit a machine-readable success envelope including the removed binding and refreshed binding snapshot. |
+
+```sh
+aisw workspace unbind .
+aisw workspace unbind ~/clients/acme-api
+aisw workspace unbind --git-remote "github.com/acme/*"
+aisw workspace unbind --default --json
 ```
 
 ### `aisw workspace status`
@@ -348,7 +376,7 @@ aisw workspace doctor --json
 ### `aisw workspace guard`
 
 ```text
-aisw workspace guard --mode warn|strict
+aisw workspace guard --mode warn|strict [--json]
 ```
 
 Set the default guard mode, saved to `~/.aisw/workspaces.json`.
@@ -361,6 +389,7 @@ Set the default guard mode, saved to `~/.aisw/workspaces.json`.
 ```sh
 aisw workspace guard --mode warn
 aisw workspace guard --mode strict
+aisw workspace guard --mode strict --json
 ```
 
 ---

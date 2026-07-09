@@ -177,6 +177,32 @@ aisw workspace bind ~/work --context work
 aisw workspace bind --default --context personal
 ```
 
+### `aisw workspace unbind`
+
+```text
+aisw workspace unbind [PATH] [--json]
+aisw workspace unbind --git-remote <PATTERN> [--json]
+aisw workspace unbind --default [--json]
+```
+
+Remove an existing workspace binding.
+
+Use this when a repo, path rule, remote rule, or default context should no longer participate in workspace guardrails.
+
+```sh
+# Remove the current repo-local binding
+aisw workspace unbind .
+
+# Remove a path prefix rule
+aisw workspace unbind ~/work
+
+# Remove a remote rule
+aisw workspace unbind --git-remote "github.com/acme/*"
+
+# Clear the default fallback context and return machine output
+aisw workspace unbind --default --json
+```
+
 ### `aisw workspace status`
 
 ```text
