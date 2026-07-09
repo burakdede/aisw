@@ -9,6 +9,19 @@ Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI. St
 
 If you maintain separate work and personal accounts for Claude Code, Codex, or Gemini  -  or manage credentials for multiple clients  -  `aisw` gives you one command to switch instead of manually editing `~/.claude/.credentials.json`, juggling `CLAUDE_CONFIG_DIR` overrides, or copying `auth.json` files between directories.
 
+It is built for the questions people actually ask:
+
+- How do I switch between two Claude Code accounts?
+- How do I keep separate Codex CLI accounts for different clients?
+- How do I store work and personal Gemini CLI profiles on one machine?
+- How do I make sure the right coding agent account is active in the right repo?
+
+`aisw` answers those with three primitives:
+
+- Profiles: named saved accounts for one tool
+- Contexts: one saved work mode across multiple tools
+- Workspace guardrails: repo-aware warnings or blocks before launching the wrong account
+
 ## Install
 
 ```sh
@@ -56,20 +69,56 @@ aisw status --context
 aisw list
 ```
 
+## Common situations
+
+### Work and personal accounts for the same tool
+
+Store both once, then switch by name:
+
+```sh
+aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+aisw add claude personal
+aisw use claude work
+```
+
+### Mixed client setup across Claude, Codex, and Gemini
+
+Use a context when each tool needs a different profile name:
+
+```sh
+aisw context create client-acme \
+  --claude acme-claude \
+  --codex client-a-openai \
+  --gemini gemini-consulting
+
+aisw context use client-acme
+```
+
+### Wrong-account protection per repo
+
+Use workspace guardrails when the repo itself should enforce the right work mode:
+
+```sh
+aisw workspace bind . --context client-acme
+aisw workspace guard --mode strict
+```
+
 ## Start here
 
 1. [Quickstart](quickstart.md)  -  install, first profile, first switch
-2. [Commands](commands.md)  -  complete syntax and flag reference
-3. [How it works](how-it-works.md)  -  design decisions, credential storage, platform behavior
-4. [Security](security.md)  -  local-only storage, keyring integration, file permissions
-5. [Automation and scripting](automation.md)  -  CI patterns, JSON output, non-interactive mode
-6. [Troubleshooting](troubleshooting.md)  -  common failures and diagnostics
+2. [Common switching situations](common-situations.md)  -  work/personal, client, repo guardrails
+3. [Commands](commands.md)  -  complete syntax and flag reference
+4. [How it works](how-it-works.md)  -  design decisions, credential storage, platform behavior
+5. [Security](security.md)  -  local-only storage, keyring integration, file permissions
+6. [Automation and scripting](automation.md)  -  CI patterns, JSON output, non-interactive mode
+7. [Troubleshooting](troubleshooting.md)  -  common failures and diagnostics
 
 ## Additional reference
 
 - [Adding profiles](adding-profiles.md)
 - [Shell integration](shell-integration.md)
 - [Workspace guardrails](workspace.md)
+- [Why aisw](why-aisw.md)
 - [Supported tools](supported-tools.md)
 - [Configuration](config.md)
 - [Changelog](https://github.com/burakdede/aisw/releases)

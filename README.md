@@ -9,9 +9,9 @@
 
 <p align="center"><strong>Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
 
-<p align="center">Switch between multiple work, personal, and client accounts in one command - across all three AI coding agents.</p>
+<p align="center">Switch between work, personal, and client accounts without copying auth files, editing hidden config, or logging in again every time.</p>
 
-<p align="center"><em>The answer to "how do I use two Claude Code accounts?" and "how do I switch Codex CLI between client projects?"</em></p>
+<p align="center"><em>The answer to "how do I switch between two Claude Code accounts?" and "how do I keep the right coding agent profile active per repo?"</em></p>
 
 <p align="center">
   <a href="https://crates.io/crates/aisw">
@@ -30,11 +30,65 @@
 
 ---
 
-## The problem
+## Why people use aisw
 
-Claude Code, Codex CLI, and Gemini CLI each store credentials in different locations - files, OS keychains, and tool-specific directories. If you maintain separate work and personal accounts, or manage credentials for multiple clients, switching means editing hidden files, copying tokens, and hoping nothing breaks.
+`aisw` exists for a very specific kind of mess:
 
-`aisw` solves this with named profiles and contexts. Profiles capture per-tool auth state. Contexts let you map those profiles across tools into one saved work mode. Switching is a single command that atomically replaces the live credentials and produces a clean rollback on failure.
+- You use one Claude Code account for work and another for personal projects.
+- Codex CLI should use one OpenAI account for client A and a different one for client B.
+- Gemini CLI is already logged in, but you want to capture that state safely and switch back to it later.
+- Your repo should open with the right coding agent account active, not whatever happened to be left over from the last project.
+
+The underlying problem is not just "multiple accounts." It is that each upstream CLI stores auth differently, in different places, with different side effects. Manual switching usually means editing hidden files, copying `auth.json`, juggling `CLAUDE_CONFIG_DIR`, or hoping the shell session you are in still has the right environment.
+
+`aisw` turns that into a named workflow:
+
+- Save each account as a profile.
+- Group mixed per-tool profiles into a context when real-world names do not line up.
+- Switch in one command with rollback if something fails.
+- Bind repos to expected contexts so the wrong account does not silently launch in the wrong workspace.
+
+If you have ever searched for "Claude Code account switcher", "multiple Codex CLI accounts", "Gemini CLI work and personal profiles", or "coding agent profile switch per repo", this is the tool that addresses that workflow directly.
+
+## Common situations
+
+### I need separate work and personal accounts
+
+Store both once, then switch explicitly instead of logging out and back in:
+
+```sh
+aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+aisw add claude personal
+aisw use claude work
+```
+
+The same pattern works for Codex CLI and Gemini CLI.
+
+### I work across multiple clients
+
+Each client can have its own Claude, Codex, and Gemini profiles, even when the names differ:
+
+```sh
+aisw context create client-acme \
+  --claude acme-claude \
+  --codex acme-codex \
+  --gemini acme-gemini
+
+aisw context use client-acme
+```
+
+That gives you one switch for the actual work mode instead of forcing fake naming symmetry across tools.
+
+### I want the right profile active in the right repo
+
+Bind the repo to a context and let the shell hook warn or block when the wrong account is active:
+
+```sh
+aisw workspace bind . --context client-acme
+aisw workspace guard --mode strict
+```
+
+This is the practical answer to "how do I avoid opening a client repository with my personal coding agent account?"
 
 ## Demo
 
@@ -60,14 +114,14 @@ curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
 cargo install aisw
 ```
 
-## Getting started
+## Quick start
 
 ```sh
 # Bootstrap: creates ~/.aisw/, offers shell-hook setup,
-# imports any currently logged-in accounts
+# and can import already logged-in accounts
 aisw init
 
-# Store profiles
+# Store profiles for each tool
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
 aisw add claude personal
 aisw add codex work --api-key "$OPENAI_API_KEY"
@@ -88,6 +142,16 @@ aisw context use acme
 aisw status
 aisw status --context
 aisw list
+```
+
+For GUI or other subprocess-driven clients, `aisw` also exposes machine-oriented commands such as:
+
+```sh
+aisw version --json
+aisw capabilities --json
+aisw add claude work --api-key-stdin --json
+aisw add claude personal --progress-json
+aisw verify --json
 ```
 
 ## Profiles vs contexts
@@ -122,6 +186,14 @@ What you do not get from a context:
 - New credential storage or vendor auth behavior. Contexts only point at existing profiles.
 
 The practical value is simple: `aisw use --all --profile personal` works when names line up, and `aisw context use acme` works when the real world does not.
+
+## Why aisw works better than manual switching
+
+- It writes the native upstream credential locations that Claude Code, Codex CLI, and Gemini CLI already use.
+- It snapshots live state before switching and rolls back on failure instead of leaving you mid-edit.
+- It keeps stored profile data under `~/.aisw/` and uses the OS keyring where the platform supports it.
+- It gives you one place to inspect active profile state, drift, warnings, backups, and workspace expectations.
+- It stays local. No daemon, no remote control plane, no credential proxy.
 
 ## What it supports
 
@@ -176,8 +248,10 @@ Credentials never leave the local machine. There is no remote service, no teleme
 
 ## Documentation
 
+- [Common switching situations](https://burakdede.github.io/aisw/common-situations/)
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/)
 - [Commands](https://burakdede.github.io/aisw/commands/)
+- [Why aisw](https://burakdede.github.io/aisw/why-aisw/)
 - [Workspace guardrails](https://burakdede.github.io/aisw/workspace/)
 - [How it works](https://burakdede.github.io/aisw/how-it-works/)
 - [Security](https://burakdede.github.io/aisw/security/)
