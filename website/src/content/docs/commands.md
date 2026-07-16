@@ -139,6 +139,7 @@ Notes:
 - `--from-live` captures what the tool is currently using; it does not launch a browser or auth flow.
 - `--from-live` always activates the profile because those credentials are already live.
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
+- For Codex ChatGPT-managed auth, `--from-live` is a bootstrap import, not a durable interchangeable account bundle.
 - When OAuth identity can be resolved, `add` blocks creating a duplicate profile for an already-stored account.
 - `--credential-backend` affects the managed `aisw` profile only. It does not force the upstream CLI's live auth backend.
 - Gemini supports only `file`. Claude and Codex support `file` and `system-keyring`. Stored config and status output use `system_keyring`.
@@ -182,6 +183,8 @@ Notes:
 - Switching is atomic: the previous live state is snapshotted before any write. A failed write triggers a full rollback.
 - With shell hook active, `aisw use` also emits the environment variable exports into the current shell session.
 - `--emit-env` is used internally by the shell hook. You can use it directly to apply exports in a subshell: `eval "$(aisw use claude work --emit-env)"`.
+- Codex shared mode remains supported for API-key profiles.
+- Codex shared mode is blocked for ChatGPT-managed auth. Use `--state-mode isolated` instead; this is an expected upstream limitation, not `aisw` corruption.
 
 ```sh
 aisw use claude work
@@ -250,6 +253,7 @@ Activate every mapped tool in a saved context as one transaction.
 Notes:
 - Default state mode is `isolated`.
 - `--state-mode shared` applies only to Claude Code and Codex CLI.
+- For Codex, `--state-mode shared` is blocked when the mapped profile uses ChatGPT-managed auth.
 - Activation is transactional across mapped tools. If one tool write fails, prior live state is restored.
 - With the shell hook active, `aisw context use` applies emitted env vars to the current shell the same way `aisw use` does.
 

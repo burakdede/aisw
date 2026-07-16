@@ -24,6 +24,7 @@ pub(crate) struct ToolStatus {
     pub active_profile: Option<String>,
     pub auth_method: Option<String>,
     pub credential_backend: Option<String>,
+    pub codex_auth_classification: Option<String>,
     pub state_mode: Option<String>,
     pub active_profile_added_at: Option<chrono::DateTime<chrono::Utc>>,
     pub active_profile_applied: Option<bool>,
@@ -154,6 +155,7 @@ pub(crate) fn collect_status(
             active_profile,
             auth_method,
             credential_backend,
+            codex_auth_classification,
             active_profile_added_at,
             active_profile_applied,
             credentials_present,
@@ -171,6 +173,20 @@ pub(crate) fn collect_status(
             let backend = profiles
                 .get(name)
                 .map(|m| m.credential_backend.display_name().to_owned());
+            let codex_auth_classification = if tool == Tool::Codex {
+                Some(
+                    auth::codex::classify_profile(
+                        &profile_store,
+                        name,
+                        profile_meta.auth_method,
+                        profile_meta.credential_backend,
+                    )?
+                    .as_str()
+                    .to_owned(),
+                )
+            } else {
+                None
+            };
             let added_at = profiles.get(name).map(|m| m.added_at);
             let applied = if creds {
                 profiles
@@ -204,13 +220,14 @@ pub(crate) fn collect_status(
                 Some(name.to_owned()),
                 auth,
                 backend,
+                codex_auth_classification,
                 added_at,
                 applied,
                 creds,
                 perms,
             )
         } else {
-            (None, None, None, None, None, false, true)
+            (None, None, None, None, None, None, false, true)
         };
 
         statuses.push(ToolStatus {
@@ -220,6 +237,7 @@ pub(crate) fn collect_status(
             active_profile,
             auth_method,
             credential_backend,
+            codex_auth_classification,
             state_mode,
             active_profile_added_at,
             active_profile_applied,
@@ -431,6 +449,9 @@ fn print_text(statuses: &[ToolStatus], context_status: Option<&DerivedContextSta
         if let Some(backend) = s.credential_backend.as_deref() {
             output::print_kv("Backend", output::ellipsize(backend, BACKEND_WIDTH));
         }
+        if let Some(classification) = s.codex_auth_classification.as_deref() {
+            output::print_kv("Codex auth", classification);
+        }
         if let Some(mode) = s.state_mode.as_deref() {
             output::print_kv("State mode", output::ellipsize(mode, STATE_MODE_WIDTH));
         }
@@ -456,6 +477,7 @@ fn print_json(
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
                 "credential_backend":   s.credential_backend,
+                "codex_auth_classification": s.codex_auth_classification,
                 "state_mode":           s.state_mode,
                 "active_profile_applied": s.active_profile_applied,
                 "credentials_present":  s.credentials_present,
@@ -1089,6 +1111,7 @@ mod tests {
                 active_profile: Some("work".to_owned()),
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
+                codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(chrono::Utc::now()),
                 active_profile_applied: Some(true),
@@ -1102,6 +1125,7 @@ mod tests {
                 active_profile: None,
                 auth_method: None,
                 credential_backend: None,
+                codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: None,
                 active_profile_applied: None,
@@ -1140,6 +1164,7 @@ mod tests {
                 active_profile: Some("old".to_owned()),
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
+                codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(older),
                 active_profile_applied: Some(true),
@@ -1153,6 +1178,7 @@ mod tests {
                 active_profile: Some("new".to_owned()),
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
+                codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(newer),
                 active_profile_applied: Some(true),

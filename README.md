@@ -35,7 +35,7 @@
 `aisw` exists for a very specific kind of mess:
 
 - You use one Claude Code account for work and another for personal projects.
-- Codex CLI should use one OpenAI account for client A and a different one for client B.
+- Codex CLI should use one OpenAI account for client A and a different one for client B, without relying on copied shared ChatGPT session files.
 - Gemini CLI is already logged in, but you want to capture that state safely and switch back to it later.
 - Your repo should open with the right coding agent account active, not whatever happened to be left over from the last project.
 
@@ -62,7 +62,7 @@ aisw add claude personal
 aisw use claude work
 ```
 
-The same pattern works for Codex CLI and Gemini CLI.
+The same pattern works for Codex CLI and Gemini CLI. For Codex ChatGPT-managed auth, the durable model is one isolated `CODEX_HOME` per profile.
 
 ### I work across multiple clients
 
@@ -204,6 +204,12 @@ The practical value is simple: `aisw use --all --profile personal` works when na
 | Gemini CLI | `gemini` | OAuth, API key | Full | Full | Full |
 
 Credentials are stored in the native OS keyring where available (macOS Keychain, Linux Secret Service, Windows Credential Manager) and fall back to encrypted local files with `0600` permissions.
+
+For Codex specifically:
+- Durable: API-key profiles.
+- Durable: ChatGPT-managed profiles authenticated directly inside their own isolated `CODEX_HOME`.
+- Bootstrap only: `aisw add codex <name> --from-live` for ChatGPT-managed auth.
+- Unsupported: shared-mode ChatGPT auth switching.
 
 ## Command reference
 

@@ -86,6 +86,8 @@ This is especially useful when:
 - You are onboarding `aisw` onto an existing machine.
 - You want to preserve the current known-good state before changing anything.
 
+For Codex ChatGPT-managed auth, `--from-live` is bootstrap-only. After import, re-login directly inside the isolated profile if you want a durable profile that survives future upstream refreshes cleanly.
+
 ## GUI-safe and automation-safe secret entry
 
 If another application is driving `aisw`, passing API keys in process arguments is the wrong shape. `aisw` supports stdin-based secret entry for that path:

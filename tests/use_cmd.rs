@@ -44,6 +44,56 @@ fn write_config_json(env: &TestEnv, json: serde_json::Value) {
     .unwrap();
 }
 
+fn write_codex_chatgpt_oauth_profile(env: &TestEnv, name: &str, imported_bootstrap: bool) {
+    env.add_fake_tool("codex", "codex 1.0.0");
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join(name);
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("auth.json"),
+        r#"{"auth_mode":"chatgpt","primaryEmail":"test@example.com","tokens":{"refresh_token":"refresh-token","account_id":"acc-123"},"last_refresh":"2026-07-16T00:00:00Z"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = \"file\"\n",
+    )
+    .unwrap();
+    if imported_bootstrap {
+        std::fs::write(
+            profile_dir.join(".aisw-chatgpt-bootstrap-from-live"),
+            "chatgpt_from_live_bootstrap\n",
+        )
+        .unwrap();
+    }
+    write_config_json(
+        env,
+        serde_json::json!({
+            "version": 2,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {
+                    name: {
+                        "added_at": "2026-07-16T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": null
+                    }
+                },
+                "gemini": {}
+            },
+            "settings": {
+                "backup_on_switch": true,
+                "max_backups": 10,
+                "tool_settings": {
+                    "claude": {"state_mode": "isolated"},
+                    "codex": {"state_mode": "isolated"}
+                }
+            }
+        }),
+    );
+}
+
 #[test]
 fn use_claude_oauth_emit_env_prints_claude_config_dir() {
     let env = TestEnv::new();
@@ -321,6 +371,44 @@ fn use_codex_shared_emit_env_unsets_codex_home() {
     let config: serde_json::Value =
         serde_json::from_str(&env.read_home_file("config.json")).unwrap();
     assert_eq!(config["settings"]["codex"]["state_mode"], "shared");
+}
+
+#[test]
+fn use_codex_chatgpt_shared_mode_is_blocked_before_live_mutation() {
+    let env = TestEnv::new();
+    write_codex_chatgpt_oauth_profile(&env, "work", false);
+    let live_dir = env.fake_home.join(".codex");
+    std::fs::create_dir_all(&live_dir).unwrap();
+    std::fs::write(live_dir.join("auth.json"), r#"{"sentinel":"keep"}"#).unwrap();
+
+    env.cmd()
+        .args(["use", "codex", "work", "--state-mode", "shared"])
+        .assert()
+        .failure()
+        .stderr(contains("expected upstream limitation"))
+        .stderr(contains("state-mode isolated"));
+
+    assert_eq!(
+        std::fs::read_to_string(live_dir.join("auth.json")).unwrap(),
+        r#"{"sentinel":"keep"}"#
+    );
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert!(config["active"]["codex"].is_null());
+    assert!(config["settings"]["codex"]["state_mode"].is_null());
+}
+
+#[test]
+fn use_codex_imported_chatgpt_shared_mode_mentions_bootstrap_remediation() {
+    let env = TestEnv::new();
+    write_codex_chatgpt_oauth_profile(&env, "bootstrap", true);
+
+    env.cmd()
+        .args(["use", "codex", "bootstrap", "--state-mode", "shared"])
+        .assert()
+        .failure()
+        .stderr(contains("bootstrap session"))
+        .stderr(contains("profile-owned CODEX_HOME"));
 }
 
 #[test]

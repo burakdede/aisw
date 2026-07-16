@@ -111,6 +111,8 @@ Or capture the current live account as a new profile:
 aisw add claude current --from-live --set-active
 ```
 
+For Codex ChatGPT-managed auth, prefer re-applying the isolated profile and re-authenticating inside that profile-owned `CODEX_HOME` if needed. Imported `--from-live` Codex sessions are bootstrap-only.
+
 ---
 
 ## OAuth flow fails or times out
@@ -126,6 +128,10 @@ aisw add claude current --from-live --set-active
 *Tool stores credentials in an unexpected location:*
 - Run `aisw doctor` to check for known detection issues.
 - File a GitHub issue with the tool version and platform.
+
+*For Codex  -  login succeeds but later refreshes log you out or switch accounts:*
+- Use isolated mode only for ChatGPT-managed Codex profiles.
+- If the profile came from `aisw add codex <name> --from-live`, re-login directly into that profile instead of treating the imported session as durable.
 
 *For Gemini  -  scratch directory error:*
 - This should not occur in normal usage. If it does, check that `/tmp` is writable.
@@ -227,6 +233,27 @@ Interactive OAuth is not available in `--non-interactive` mode by design. Use AP
 **Cause:** Gemini does not support `shared` state mode. Its auth credentials and local state are coupled under `~/.gemini/`, making shared mode unsafe to implement.
 
 **Fix:** Remove `--state-mode` when using Gemini. Gemini profiles are always isolated.
+
+---
+
+## `aisw use codex ... --state-mode shared` fails for ChatGPT auth
+
+**Cause:** Codex refreshes ChatGPT-managed auth in place. Refresh tokens and related session state are not safely shareable across multiple live owners, so `aisw` blocks shared-mode switching for those profiles. This is an expected upstream limitation, not an `aisw` corruption bug.
+
+**Fix:**
+
+```sh
+aisw use codex work --state-mode isolated
+```
+
+If the profile was imported with `aisw add codex work --from-live`, treat it as a bootstrap session and re-login directly inside that isolated profile for the durable path.
+
+Common symptoms of the upstream limitation:
+- "refresh token already used"
+- Codex suddenly appears logged out
+- Codex refreshes into another account after you copied or reused state
+
+If a desktop app, remote sidecar, or long-lived shell already had the old account state loaded, restart that connection after changing accounts so it re-reads the active profile.
 
 ---
 

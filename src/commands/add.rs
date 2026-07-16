@@ -677,6 +677,26 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
+    let marker_result = if auth_method == AuthMethod::OAuth {
+        auth::codex::mark_imported_bootstrap(&profile_store, &args.profile_name)
+    } else {
+        auth::codex::clear_imported_bootstrap_marker(&profile_store, &args.profile_name)
+    };
+    if let Err(e) = marker_result {
+        if let Some(snapshot) = overwrite_snapshot.as_ref() {
+            snapshot.restore(
+                &profile_store,
+                &config_store,
+                Tool::Codex,
+                &args.profile_name,
+                backend,
+            );
+        } else {
+            let _ = profile_store.delete(Tool::Codex, &args.profile_name);
+        }
+        return Err(e);
+    }
+
     if auth_method == AuthMethod::OAuth {
         if let Err(e) = identity::ensure_unique_oauth_identity(
             &profile_store,
@@ -981,6 +1001,7 @@ fn finalize_from_live(
         "credential_backend": backend.display_name(),
         "active": true,
         "source": "from_live",
+        "codex_auth_classification": codex_add_classification(tool, auth_method, true),
         "warnings": Vec::<String>::new(),
     });
     if runtime::is_progress_json() {
@@ -1003,12 +1024,23 @@ fn finalize_from_live(
     output::print_kv("Profile", &args.profile_name);
     output::print_kv("Auth", auth_label(auth_method));
     output::print_kv("Backend", backend.display_name());
+    if let Some(classification) = codex_add_classification(tool, auth_method, true) {
+        output::print_kv("Codex auth", classification);
+    }
     output::print_kv("Activation", "active");
     output::print_blank_line();
     output::print_effects_header();
     output::print_effect("Profile credentials stored in aisw.");
     output::print_effect("Live tool configuration updated.");
     output::print_effect("Active profile updated.");
+    if tool == Tool::Codex && auth_method == AuthMethod::OAuth {
+        output::print_effect(
+            "This Codex ChatGPT profile was imported from live state as a bootstrap session.",
+        );
+        output::print_effect(
+            "Re-login directly inside this profile's isolated CODEX_HOME for the durable path.",
+        );
+    }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_add(tool, &args.profile_name, true));
     Ok(())
@@ -1052,6 +1084,9 @@ fn print_add_summary(
         },
     );
     output::print_kv("Backend", backend.display_name());
+    if let Some(classification) = codex_add_classification(args.tool, auth_method, false) {
+        output::print_kv("Codex auth", classification);
+    }
     if let Some(source) = source {
         output::print_kv("Source", source);
     }
@@ -1064,6 +1099,12 @@ fn print_add_summary(
     output::print_effect("Profile credentials stored in aisw.");
     if args.set_active {
         output::print_effect("Active profile updated.");
+    }
+    if args.tool == Tool::Codex && auth_method == AuthMethod::OAuth {
+        output::print_effect(
+            "Codex login ran inside this profile-owned CODEX_HOME, so future refreshes stay tied to this profile.",
+        );
+        output::print_effect("This is the durable ChatGPT-managed Codex path.");
     }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_add(
@@ -1087,6 +1128,7 @@ fn emit_add_result(
         "credential_backend": backend.display_name(),
         "active": args.set_active || args.from_live,
         "source": source,
+        "codex_auth_classification": codex_add_classification(args.tool, auth_method, args.from_live),
         "warnings": Vec::<String>::new(),
     });
     if let Some(progress) = progress {
@@ -1106,6 +1148,22 @@ fn auth_label(auth_method: AuthMethod) -> &'static str {
         AuthMethod::OAuth => "oauth",
         AuthMethod::ApiKey => "api_key",
     }
+}
+
+fn codex_add_classification(
+    tool: Tool,
+    auth_method: AuthMethod,
+    from_live: bool,
+) -> Option<&'static str> {
+    if tool != Tool::Codex {
+        return None;
+    }
+
+    Some(match auth_method {
+        AuthMethod::ApiKey => "api_key",
+        AuthMethod::OAuth if from_live => "chatgpt_managed_imported_bootstrap",
+        AuthMethod::OAuth => "chatgpt_managed_isolated",
+    })
 }
 
 fn read_api_key_from_stdin() -> Result<String> {

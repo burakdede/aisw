@@ -107,14 +107,16 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 
 **How `aisw` captures credentials:**
 - `--api-key` / `--from-env`: stores the key directly.
-- `--from-live`: reads `auth.json` or queries the live keyring entry using the account identifier Codex writes there.
-- Interactive OAuth: sets `CODEX_HOME` to the profile directory and spawns `codex` so the native device-auth flow writes directly into the profile.
+- `--from-live`: reads `auth.json` or queries the live keyring entry using the account identifier Codex writes there. For ChatGPT-managed auth this is treated as a bootstrap import.
+- Interactive OAuth: sets `CODEX_HOME` to the profile directory and spawns `codex` so the native device-auth flow writes directly into the profile. This is the durable ChatGPT-managed Codex path because refreshes remain tied to that profile-owned state.
 
 **How `aisw use` applies credentials:**
-- Sets `CODEX_HOME` to the profile directory (isolated mode), or unsets it (shared mode).
+- Sets `CODEX_HOME` to the profile directory in isolated mode.
+- For API-key profiles, shared mode can unset `CODEX_HOME` and keep the standard Codex directory.
+- For ChatGPT-managed auth, shared mode is intentionally blocked because Codex refreshes that session in place and the resulting refresh/session state is not safely shareable across multiple live owners.
 - For keyring-backed profiles, writes the profile credentials into the keyring account that Codex expects to find.
 
-**State mode:** `CODEX_HOME` overrides where Codex reads its entire config and auth state. Isolated mode gives each profile a fully separate Codex environment.
+**State mode:** `CODEX_HOME` overrides where Codex reads its entire config and auth state. Isolated mode gives each profile a fully separate Codex environment and is the only supported durable mode for ChatGPT-managed Codex auth.
 
 ### Gemini CLI
 

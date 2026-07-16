@@ -22,10 +22,12 @@ description: Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth meth
 | Tool | `isolated` (default) | `shared` |
 |---|---|---|
 | Claude Code | `CLAUDE_CONFIG_DIR` set to profile directory | `CLAUDE_CONFIG_DIR` unset |
-| Codex CLI | `CODEX_HOME` set to profile directory | `CODEX_HOME` unset |
+| Codex CLI | `CODEX_HOME` set to profile directory | `CODEX_HOME` unset for API-key profiles only |
 | Gemini CLI | Profile files applied to `~/.gemini/` | Not supported |
 
 In `isolated` mode, the tool reads config, history, and extensions from the profile-specific directory. In `shared` mode, the tool reads its standard config directory. Credentials are applied to the live location in both modes; state mode only controls which config directory the tool reads.
+
+For Codex ChatGPT-managed auth, shared mode is intentionally unsupported. Use one isolated `CODEX_HOME` per profile and authenticate each profile independently.
 
 Gemini does not support `shared` mode because its auth state and broader local state (settings, session history, MCP configs) are tightly coupled under `~/.gemini/`. Separating them is not safely possible without risking session corruption.
 
@@ -52,6 +54,12 @@ Claude Code also stores MCP OAuth tokens in the credentials payload. `aisw` pres
 | Windows | `~/.codex/auth.json` or OS keyring | Supported via Windows Credential Manager |
 
 Codex uses `CODEX_HOME` to override its root directory. `aisw` sets this variable when applying profiles in isolated mode, which causes Codex to read its complete state (auth, config, history) from the profile directory.
+
+Supported Codex auth models in `aisw`:
+- Durable: API-key profiles.
+- Durable: ChatGPT-managed profiles authenticated directly inside their own isolated `CODEX_HOME`.
+- Bootstrap only: ChatGPT-managed profiles imported with `aisw add codex <name> --from-live`.
+- Unsupported: shared-mode ChatGPT auth switching.
 
 Codex's keyring account identifier is an opaque string, not the system username. `aisw` discovers the identifier from the live keyring entry during import and stores it so subsequent switches write to the correct account. `aisw` will not fabricate a keyring account name if it cannot read the live identifier.
 
