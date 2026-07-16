@@ -21,13 +21,15 @@ description: Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth meth
 
 | Tool | `isolated` (default) | `shared` |
 |---|---|---|
-| Claude Code | `CLAUDE_CONFIG_DIR` set to profile directory | `CLAUDE_CONFIG_DIR` unset |
+| Claude Code | `CLAUDE_CONFIG_DIR` set to profile directory when the install supports profile-owned auth | `CLAUDE_CONFIG_DIR` unset |
 | Codex CLI | `CODEX_HOME` set to profile directory | `CODEX_HOME` unset for API-key profiles only |
 | Gemini CLI | Profile files applied to `~/.gemini/` | Not supported |
 
 In `isolated` mode, the tool reads config, history, and extensions from the profile-specific directory. In `shared` mode, the tool reads its standard config directory. Credentials are applied to the live location in both modes; state mode only controls which config directory the tool reads.
 
 For Codex ChatGPT-managed auth, shared mode is intentionally unsupported. Use one isolated `CODEX_HOME` per profile and authenticate each profile independently.
+
+For Claude OAuth, isolated mode is intentionally blocked only when Claude is using its legacy shared live Keychain credential. `CLAUDE_CONFIG_DIR` still isolates config/history in that case, but not the underlying OAuth credential owner. Use shared mode for that profile, or prefer API key / long-lived token flows for repeatable switching.
 
 Gemini does not support `shared` mode because its auth state and broader local state (settings, session history, MCP configs) are tightly coupled under `~/.gemini/`. Separating them is not safely possible without risking session corruption.
 
@@ -44,6 +46,13 @@ Gemini does not support `shared` mode because its auth state and broader local s
 OAuth account metadata (display name, organization) is stored in `~/.claude.json` under the `oauthAccount` key. `aisw` captures and restores this alongside credentials.
 
 Claude Code also stores MCP OAuth tokens in the credentials payload. `aisw` preserves the full credential payload including `mcpOAuth` keys when writing to any backend.
+
+Supported Claude auth models in `aisw`:
+- Durable: API-key profiles.
+- Durable: file-backed OAuth where the live credential file follows `CLAUDE_CONFIG_DIR`.
+- Durable: OAuth installs whose keychain credential is scoped by `CLAUDE_CONFIG_DIR`.
+- Supported but not isolated: OAuth profiles backed by Claude's legacy shared live Keychain credential.
+- Caution: if Claude's keychain behavior cannot be determined, `aisw` warns that isolated switching may not be durable on that install.
 
 ### Codex CLI
 

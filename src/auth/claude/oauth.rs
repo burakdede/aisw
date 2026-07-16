@@ -3,8 +3,10 @@
 //! Claude's OAuth flow varies by installation and platform:
 //!  - We monitor Claude's live credential locations (file and keychain) for
 //!    changes after `claude auth login` completes.
-//!  - We avoid setting `CLAUDE_CONFIG_DIR` during login so Claude can run its
-//!    native auth flow without override-induced fallbacks.
+//!  - When the install supports profile-scoped auth, we run login inside the
+//!    profile's `CLAUDE_CONFIG_DIR` so refreshes stay tied to that profile.
+//!  - For legacy shared-keychain installs, we leave login pointed at Claude's
+//!    live state and treat the resulting auth as shared.
 
 use std::fs;
 use std::path::Path;
@@ -23,12 +25,11 @@ use super::super::files;
 use super::super::identity;
 use super::super::secure_store;
 use super::keychain::{
-    forced_auth_storage, oauth_stored_backend, read_keychain_credentials,
-    watch_keychain_during_oauth, ClaudeAuthStorage,
+    forced_auth_storage, keychain_service_for_config_dir, oauth_stored_backend,
+    read_keychain_credentials, read_keychain_credentials_for_service, watch_keychain_during_oauth,
+    ClaudeAuthStorage,
 };
-use super::paths::{
-    live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
-};
+use super::paths::{live_account_metadata_path, live_credentials_path, live_credentials_paths};
 use super::{read_stored_credentials, LiveCredentialSnapshot, LiveCredentialSource};
 
 fn persist_oauth_storage(
@@ -51,51 +52,39 @@ pub fn live_credentials_snapshot_for_import(
     use super::keychain::read_live_keychain_credentials_for_import;
 
     let live_path = live_credentials_path(user_home);
-    let local_state = live_local_state_dir(user_home);
-
-    if cfg!(target_os = "macos") {
-        if local_state.is_some() {
+    match super::keychain::auth_storage(user_home) {
+        ClaudeAuthStorage::Keychain => {
             if let Some(bytes) = read_live_keychain_credentials_for_import()? {
                 return Ok(Some(LiveCredentialSnapshot {
                     bytes,
                     source: LiveCredentialSource::Keychain,
                 }));
             }
+
+            if live_path.exists() {
+                let bytes = std::fs::read(&live_path)
+                    .with_context(|| format!("could not read {}", live_path.display()))?;
+                return Ok(Some(LiveCredentialSnapshot {
+                    bytes,
+                    source: LiveCredentialSource::File(live_path),
+                }));
+            }
+
+            Ok(None)
         }
+        ClaudeAuthStorage::File => {
+            if live_path.exists() {
+                let bytes = std::fs::read(&live_path)
+                    .with_context(|| format!("could not read {}", live_path.display()))?;
+                return Ok(Some(LiveCredentialSnapshot {
+                    bytes,
+                    source: LiveCredentialSource::File(live_path),
+                }));
+            }
 
-        if live_path.exists() {
-            let bytes = std::fs::read(&live_path)
-                .with_context(|| format!("could not read {}", live_path.display()))?;
-            return Ok(Some(LiveCredentialSnapshot {
-                bytes,
-                source: LiveCredentialSource::File(live_path),
-            }));
+            Ok(None)
         }
-
-        return Ok(None);
     }
-
-    if live_path.exists() {
-        let bytes = std::fs::read(&live_path)
-            .with_context(|| format!("could not read {}", live_path.display()))?;
-        return Ok(Some(LiveCredentialSnapshot {
-            bytes,
-            source: LiveCredentialSource::File(live_path),
-        }));
-    }
-
-    if local_state.is_none() {
-        return Ok(None);
-    }
-
-    let Some(bytes) = read_live_keychain_credentials_for_import()? else {
-        return Ok(None);
-    };
-
-    Ok(Some(LiveCredentialSnapshot {
-        bytes,
-        source: LiveCredentialSource::Keychain,
-    }))
 }
 
 // ---- OAuth account metadata ----
@@ -324,8 +313,19 @@ pub(super) fn add_oauth_with(
 ) -> Result<()> {
     profile_store.create(Tool::Claude, name)?;
 
+    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let login_targets_profile_state = super::login_targets_profile_state(&user_home);
+    let target_config_dir =
+        login_targets_profile_state.then(|| profile_store.profile_dir(Tool::Claude, name));
+
     let auth_bytes = files::cleanup_profile_on_error(
-        run_oauth_flow(claude_bin, timeout, poll_interval),
+        run_oauth_flow(
+            claude_bin,
+            timeout,
+            poll_interval,
+            target_config_dir.as_deref(),
+            user_home.as_path(),
+        ),
         profile_store,
         Tool::Claude,
         name,
@@ -390,11 +390,27 @@ fn run_oauth_flow(
     claude_bin: &Path,
     timeout: Duration,
     poll_interval: Duration,
+    target_config_dir: Option<&Path>,
+    user_home: &Path,
 ) -> Result<Vec<u8>> {
     let forced_storage = forced_auth_storage();
     let mut watch_keychain = watch_keychain_during_oauth();
+    let target_service = target_config_dir.and_then(|config_dir| {
+        if !watch_keychain {
+            return None;
+        }
+        Some(keychain_service_for_config_dir(
+            config_dir,
+            user_home,
+            super::current_claude_keychain_scheme(),
+        ))
+    });
     let keychain_before = if watch_keychain {
-        match read_keychain_credentials() {
+        match target_service
+            .as_deref()
+            .map(read_keychain_credentials_for_service)
+            .unwrap_or_else(read_keychain_credentials)
+        {
             Ok(credentials) => credentials,
             Err(_err) if forced_storage != Some(ClaudeAuthStorage::Keychain) => {
                 watch_keychain = false;
@@ -414,24 +430,28 @@ If you need a different Claude account, fully sign out of claude.com first, then
 'aisw add claude <name>'.",
     );
 
-    // CLAUDE_CONFIG_DIR is intentionally NOT set here so Claude can run its
-    // native auth flow. We detect completion by watching the live credential
-    // file and the OS keychain for changes.
-    let live_credentials_path_before = dirs::home_dir().map(|home| live_credentials_path(&home));
-    let file_before = live_credentials_path_before
+    let credential_path = target_config_dir
+        .map(|config_dir| config_dir.join(super::CREDENTIALS_FILE))
+        .unwrap_or_else(|| live_credentials_path(user_home));
+    let fallback_live_path = target_config_dir
+        .map(|_| live_credentials_path(user_home))
+        .filter(|path| path != &credential_path);
+    let file_before = credential_path
+        .exists()
+        .then(|| fs::read(&credential_path))
+        .transpose()
+        .with_context(|| format!("could not read {}", credential_path.display()))?;
+    let fallback_file_before = fallback_live_path
         .as_ref()
         .filter(|path| path.exists())
-        .map(fs::read)
-        .transpose()
-        .with_context(|| {
-            live_credentials_path_before
-                .as_ref()
-                .map(|path| format!("could not read {}", path.display()))
-                .unwrap_or_else(|| "could not read Claude live credentials".to_owned())
-        })?;
+        .map(|path| fs::read(path).with_context(|| format!("could not read {}", path.display())))
+        .transpose()?;
 
     let mut cmd = Command::new(claude_bin);
     cmd.arg("auth").arg("login");
+    if let Some(config_dir) = target_config_dir {
+        cmd.env("CLAUDE_CONFIG_DIR", config_dir);
+    }
     let mut child = cmd
         .spawn()
         .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
@@ -440,7 +460,11 @@ If you need a different Claude account, fully sign out of claude.com first, then
 
     loop {
         if watch_keychain {
-            if let Some(current) = read_keychain_credentials()? {
+            let current = target_service
+                .as_deref()
+                .map(read_keychain_credentials_for_service)
+                .unwrap_or_else(read_keychain_credentials)?;
+            if let Some(current) = current {
                 let changed = keychain_before.as_deref() != Some(current.as_slice());
                 if changed {
                     let _ = child.kill();
@@ -450,11 +474,22 @@ If you need a different Claude account, fully sign out of claude.com first, then
             }
         }
 
-        if let Some(live_path) = &live_credentials_path_before {
-            if live_path.exists() {
-                let current = fs::read(live_path)
-                    .with_context(|| format!("could not read {}", live_path.display()))?;
-                let changed = file_before.as_deref() != Some(current.as_slice());
+        if credential_path.exists() {
+            let current = fs::read(&credential_path)
+                .with_context(|| format!("could not read {}", credential_path.display()))?;
+            let changed = file_before.as_deref() != Some(current.as_slice());
+            if changed {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(current);
+            }
+        }
+
+        if let Some(fallback_live_path) = fallback_live_path.as_ref() {
+            if fallback_live_path.exists() {
+                let current = fs::read(fallback_live_path)
+                    .with_context(|| format!("could not read {}", fallback_live_path.display()))?;
+                let changed = fallback_file_before.as_deref() != Some(current.as_slice());
                 if changed {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -468,17 +503,27 @@ If you need a different Claude account, fully sign out of claude.com first, then
             .with_context(|| format!("could not poll {}", claude_bin.display()))?
         {
             if watch_keychain {
-                if let Some(current) = read_keychain_credentials()? {
+                let current = target_service
+                    .as_deref()
+                    .map(read_keychain_credentials_for_service)
+                    .unwrap_or_else(read_keychain_credentials)?;
+                if let Some(current) = current {
                     if status.success() || keychain_before.is_none() {
                         return Ok(current);
                     }
                 }
             }
 
-            if let Some(live_path) = &live_credentials_path_before {
-                if live_path.exists() && status.success() {
-                    return fs::read(live_path)
-                        .with_context(|| format!("could not read {}", live_path.display()));
+            if credential_path.exists() && status.success() {
+                return fs::read(&credential_path)
+                    .with_context(|| format!("could not read {}", credential_path.display()));
+            }
+
+            if let Some(fallback_live_path) = fallback_live_path.as_ref() {
+                if fallback_live_path.exists() && status.success() {
+                    return fs::read(fallback_live_path).with_context(|| {
+                        format!("could not read {}", fallback_live_path.display())
+                    });
                 }
             }
 
@@ -489,7 +534,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
             };
             bail!(
                 "{} before aisw could capture credentials.\n  \
-                 Claude may be storing auth outside the live credential path or in the system keyring.",
+                 Claude may be storing auth outside the expected credential target.",
                 exit_note
             );
         }

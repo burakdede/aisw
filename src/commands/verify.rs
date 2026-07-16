@@ -246,6 +246,7 @@ mod tests {
             active_profile: Some("work".to_owned()),
             auth_method: Some("api_key".to_owned()),
             credential_backend: Some("file".to_owned()),
+            claude_auth_classification: None,
             codex_auth_classification: None,
             state_mode: Some("isolated".to_owned()),
             active_profile_added_at: None,

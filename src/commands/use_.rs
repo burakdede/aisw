@@ -143,6 +143,7 @@ fn run_for_tool(
         state_mode_override,
         emit_env,
         home,
+        user_home,
     )?;
     apply_resolved_profile_switch(&resolved, emit_env, home, user_home)?;
 
@@ -166,7 +167,7 @@ fn run_for_tool(
             }),
         )?;
     } else if !emit_env {
-        print_switch_summary(&resolved, home);
+        print_switch_summary(&resolved, home, user_home);
     }
 
     Ok(())
@@ -178,6 +179,7 @@ pub(crate) fn resolve_profile_switch_request(
     state_mode_override: Option<StateMode>,
     emit_env: bool,
     home: &Path,
+    user_home: &Path,
 ) -> Result<ResolvedProfileSwitch> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
@@ -229,7 +231,14 @@ pub(crate) fn resolve_profile_switch_request(
         }
     };
     profile_meta.credential_backend.validate_for_tool(tool)?;
-    validate_state_mode_support(tool, &profile_name, &profile_meta, state_mode, home)?;
+    validate_state_mode_support(
+        tool,
+        &profile_name,
+        &profile_meta,
+        state_mode,
+        home,
+        user_home,
+    )?;
 
     Ok(ResolvedProfileSwitch {
         tool,
@@ -246,25 +255,41 @@ fn validate_state_mode_support(
     profile_meta: &ProfileMeta,
     state_mode: StateMode,
     home: &Path,
+    user_home: &Path,
 ) -> Result<()> {
-    if tool != Tool::Codex || state_mode != StateMode::Shared {
-        return Ok(());
+    let profile_store = ProfileStore::new(home);
+    if tool == Tool::Codex && state_mode == StateMode::Shared {
+        let classification = auth::codex::classify_profile(
+            &profile_store,
+            profile_name,
+            profile_meta.auth_method,
+            profile_meta.credential_backend,
+        )?;
+
+        if classification.is_chatgpt_managed() {
+            return Err(AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
+                profile: profile_name.to_owned(),
+                imported_bootstrap: classification.is_imported_bootstrap(),
+            }
+            .into());
+        }
     }
 
-    let profile_store = ProfileStore::new(home);
-    let classification = auth::codex::classify_profile(
-        &profile_store,
-        profile_name,
-        profile_meta.auth_method,
-        profile_meta.credential_backend,
-    )?;
+    if tool == Tool::Claude && state_mode == StateMode::Isolated {
+        let classification = auth::claude::classify_profile(
+            user_home,
+            &profile_store,
+            profile_name,
+            profile_meta.auth_method,
+            profile_meta.credential_backend,
+        )?;
 
-    if classification.is_chatgpt_managed() {
-        return Err(AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
-            profile: profile_name.to_owned(),
-            imported_bootstrap: classification.is_imported_bootstrap(),
+        if classification.blocks_isolated_mode() {
+            return Err(AiswError::UnsupportedClaudeMacosOauthIsolation {
+                profile: profile_name.to_owned(),
+            }
+            .into());
         }
-        .into());
     }
 
     Ok(())
@@ -322,6 +347,7 @@ pub(crate) fn apply_resolved_profile_switch(
                         &resolved.profile_name,
                         resolved.profile_meta.credential_backend,
                         user_home,
+                        resolved.state_mode,
                     )?;
                 }
             }
@@ -344,6 +370,7 @@ pub(crate) fn apply_resolved_profile_switch(
                         &resolved.profile_name,
                         resolved.profile_meta.credential_backend,
                         user_home,
+                        resolved.state_mode,
                     )?;
                 }
             }
@@ -471,7 +498,7 @@ fn maybe_sync_active_profile_before_switch(
     Ok(())
 }
 
-fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
+fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home: &Path) {
     let profile_store = ProfileStore::new(home);
     let title = format!(
         "{} \u{2192} {}",
@@ -545,6 +572,37 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
                     );
                 }
                 auth::codex::CodexAuthClassification::ApiKey => {}
+            }
+        }
+    } else if resolved.tool == Tool::Claude {
+        if let Ok(classification) = auth::claude::classify_profile(
+            user_home,
+            &profile_store,
+            &resolved.profile_name,
+            resolved.profile_meta.auth_method,
+            resolved.profile_meta.credential_backend,
+        ) {
+            if classification == auth::claude::ClaudeAuthClassification::OAuthFileBacked {
+                output::print_effect(
+                    "Claude OAuth for this profile stays file-backed, so CLAUDE_CONFIG_DIR can isolate profile state.",
+                );
+            } else if classification
+                == auth::claude::ClaudeAuthClassification::OAuthKeychainScopedByConfigDir
+            {
+                output::print_effect(
+                    "Claude OAuth for this install is scoped by CLAUDE_CONFIG_DIR, so isolated mode keeps refreshes tied to this profile.",
+                );
+            } else if classification
+                == auth::claude::ClaudeAuthClassification::OAuthMacosKeychainSharedLive
+            {
+                output::print_effect(
+                    "Claude OAuth on this install uses the legacy shared live Keychain auth; shared mode is the supported path for this profile.",
+                );
+            } else if classification == auth::claude::ClaudeAuthClassification::OAuthKeychainUnknown
+            {
+                output::print_effect(
+                    "Claude OAuth keychain behavior is unknown for this install; isolated mode may not be durable unless Claude scopes credentials by config dir.",
+                );
             }
         }
     }
@@ -959,6 +1017,7 @@ mod tests {
 
     #[test]
     fn missing_profile_without_tty_fails_clearly() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _runtime = RuntimeModeGuard::set(false, false);
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
@@ -983,6 +1042,7 @@ mod tests {
 
     #[test]
     fn missing_profile_with_emit_env_requires_explicit_name() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _runtime = RuntimeModeGuard::set(false, false);
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
@@ -1007,6 +1067,7 @@ mod tests {
 
     #[test]
     fn typo_suggestion_did_you_mean() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1021,6 +1082,7 @@ mod tests {
 
     #[test]
     fn claude_api_key_emit_env_updates_active() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1038,6 +1100,7 @@ mod tests {
 
     #[test]
     fn use_updates_active_in_config() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1053,6 +1116,7 @@ mod tests {
 
     #[test]
     fn use_creates_backup_when_enabled() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1290,6 +1354,7 @@ mod tests {
 
     #[test]
     fn all_flag_switches_all_tools_with_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1310,6 +1375,7 @@ mod tests {
 
     #[test]
     fn all_flag_skips_tools_without_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1343,6 +1409,127 @@ mod tests {
     }
 
     #[test]
+    fn all_flag_json_emits_machine_result_for_switched_tools() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+        setup_claude_api_key_profile(&home, "work");
+        setup_codex_api_key_profile(&home, "work");
+
+        run_all_in("work", true, &home, &user_home).unwrap();
+
+        let config = ConfigStore::new(&home).load().unwrap();
+        assert_eq!(config.active_for(Tool::Claude), Some("work"));
+        assert_eq!(config.active_for(Tool::Codex), Some("work"));
+    }
+
+    #[test]
+    fn print_switch_summary_covers_codex_bootstrap_classification() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let cs = ConfigStore::new(&home);
+        ps.create(Tool::Codex, "work").unwrap();
+        ps.write_file(
+            Tool::Codex,
+            "work",
+            "auth.json",
+            br#"{"auth_mode":"chatgpt","tokens":{"refresh_token":"rt","account_id":"acct-123"},"primaryEmail":"dev@example.com"}"#,
+        )
+        .unwrap();
+        auth::codex::mark_imported_bootstrap(&ps, "work").unwrap();
+
+        let profile_meta = ProfileMeta {
+            added_at: chrono::Utc::now(),
+            auth_method: AuthMethod::OAuth,
+            credential_backend: crate::config::CredentialBackend::File,
+            label: None,
+        };
+        cs.add_profile(Tool::Codex, "work", profile_meta.clone())
+            .unwrap();
+
+        print_switch_summary(
+            &ResolvedProfileSwitch {
+                tool: Tool::Codex,
+                profile_name: "work".to_owned(),
+                profile_meta,
+                state_mode: StateMode::Isolated,
+                backup_on_switch: true,
+            },
+            &home,
+            &user_home,
+        );
+    }
+
+    #[test]
+    fn print_switch_summary_covers_claude_keychain_classifications() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let cs = ConfigStore::new(&home);
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            ".credentials.json",
+            br#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"refresh","expiresAt":2000},"oauthAccount":{"emailAddress":"team@example.com"}}"#,
+        )
+        .unwrap();
+
+        let profile_meta = ProfileMeta {
+            added_at: chrono::Utc::now(),
+            auth_method: AuthMethod::OAuth,
+            credential_backend: crate::config::CredentialBackend::File,
+            label: None,
+        };
+        cs.add_profile(Tool::Claude, "work", profile_meta.clone())
+            .unwrap();
+
+        {
+            let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "scoped");
+            print_switch_summary(
+                &ResolvedProfileSwitch {
+                    tool: Tool::Claude,
+                    profile_name: "work".to_owned(),
+                    profile_meta: profile_meta.clone(),
+                    state_mode: StateMode::Isolated,
+                    backup_on_switch: false,
+                },
+                &home,
+                &user_home,
+            );
+        }
+
+        {
+            let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "unknown");
+            print_switch_summary(
+                &ResolvedProfileSwitch {
+                    tool: Tool::Claude,
+                    profile_name: "work".to_owned(),
+                    profile_meta,
+                    state_mode: StateMode::Shared,
+                    backup_on_switch: false,
+                },
+                &home,
+                &user_home,
+            );
+        }
+    }
+
+    #[test]
     fn diff_backup_ids_returns_only_new_ids() {
         let before = vec!["b".to_owned(), "a".to_owned()];
         let after = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
@@ -1351,6 +1538,7 @@ mod tests {
 
     #[test]
     fn active_and_state_mode_maps_reflect_current_config() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");

@@ -96,6 +96,12 @@ aisw add claude current --from-live --set-active
 
 For Codex ChatGPT-managed auth, prefer re-applying the isolated profile and re-authenticating inside that profile-owned `CODEX_HOME` if needed. Imported `--from-live` Codex sessions are bootstrap-only.
 
+For Claude OAuth, a mismatch after trying isolated mode usually means the installed Claude build is still using its shared live Keychain credential. Re-apply with shared mode instead:
+
+```sh
+aisw use claude work --state-mode shared
+```
+
 ---
 
 ## OAuth flow fails or times out
@@ -122,6 +128,11 @@ For Codex ChatGPT-managed auth, prefer re-applying the isolated profile and re-a
 *For Claude  -  credentials captured but profile creation fails:*
 - Check available disk space under `~/.aisw/`.
 - Check permissions on `~/.aisw/profiles/`.
+
+*For Claude  -  isolated mode is rejected:*
+- This is expected when Claude OAuth is backed by the legacy shared live Keychain credential.
+- `CLAUDE_CONFIG_DIR` isolates config/history, not the upstream Keychain auth owner.
+- Use `aisw use claude <name> --state-mode shared`, or switch that workflow to API key / long-lived token auth if you need repeatable per-profile isolation semantics.
 
 ---
 

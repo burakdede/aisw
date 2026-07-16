@@ -128,6 +128,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
             backend,
             Some(env_var),
             AuthMethod::ApiKey,
+            None,
             progress.as_mut(),
         )?;
         return Ok(());
@@ -183,7 +184,11 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                     Option<auth::claude::LiveCredentialSnapshot>,
                     Option<Vec<u8>>,
                     Option<std::path::PathBuf>,
-                ) = if args.set_active {
+                ) = if args.set_active
+                    || dirs::home_dir()
+                        .as_deref()
+                        .is_some_and(auth::claude::login_targets_profile_state)
+                {
                     (None, None, None)
                 } else {
                     let user_home =
@@ -252,7 +257,15 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         config_store.set_active(args.tool, &args.profile_name)?;
     }
 
-    emit_add_result(&args, backend, source, auth_method, progress.as_mut())?;
+    let user_home = dirs::home_dir();
+    emit_add_result(
+        &args,
+        backend,
+        source,
+        auth_method,
+        user_home.as_deref(),
+        progress.as_mut(),
+    )?;
 
     Ok(())
 }
@@ -534,6 +547,7 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         &args.profile_name,
         stored_backend,
         user_home,
+        crate::types::StateMode::Shared,
     ) {
         if let Some(snapshot) = overwrite_snapshot.as_ref() {
             snapshot.restore(
@@ -559,7 +573,13 @@ fn from_live_claude(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
         return Err(e);
     }
 
-    finalize_from_live(&args, Tool::Claude, stored_backend, AuthMethod::OAuth)
+    finalize_from_live(
+        &args,
+        Tool::Claude,
+        stored_backend,
+        AuthMethod::OAuth,
+        Some(user_home),
+    )
 }
 
 fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
@@ -792,7 +812,7 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    finalize_from_live(&args, Tool::Codex, backend, auth_method)
+    finalize_from_live(&args, Tool::Codex, backend, auth_method, None)
 }
 
 fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
@@ -985,7 +1005,13 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
             "Both Gemini API key (.env) and OAuth cache were found. Imported .env by precedence.",
         );
     }
-    finalize_from_live(&args, Tool::Gemini, CredentialBackend::File, auth_method)
+    finalize_from_live(
+        &args,
+        Tool::Gemini,
+        CredentialBackend::File,
+        auth_method,
+        None,
+    )
 }
 
 fn finalize_from_live(
@@ -993,7 +1019,9 @@ fn finalize_from_live(
     tool: Tool,
     backend: CredentialBackend,
     auth_method: AuthMethod,
+    user_home: Option<&Path>,
 ) -> Result<()> {
+    let warnings = add_warnings(tool, auth_method, user_home);
     let result = serde_json::json!({
         "tool": tool.binary_name(),
         "profile": args.profile_name,
@@ -1001,8 +1029,9 @@ fn finalize_from_live(
         "credential_backend": backend.display_name(),
         "active": true,
         "source": "from_live",
+        "claude_auth_classification": claude_add_classification(tool, auth_method, user_home),
         "codex_auth_classification": codex_add_classification(tool, auth_method, true),
-        "warnings": Vec::<String>::new(),
+        "warnings": warnings,
     });
     if runtime::is_progress_json() {
         if let Some(mut progress) = machine::ProgressReporter::new(
@@ -1024,6 +1053,9 @@ fn finalize_from_live(
     output::print_kv("Profile", &args.profile_name);
     output::print_kv("Auth", auth_label(auth_method));
     output::print_kv("Backend", backend.display_name());
+    if let Some(classification) = claude_add_classification(tool, auth_method, user_home) {
+        output::print_kv("Claude auth", classification);
+    }
     if let Some(classification) = codex_add_classification(tool, auth_method, true) {
         output::print_kv("Codex auth", classification);
     }
@@ -1040,6 +1072,9 @@ fn finalize_from_live(
         output::print_effect(
             "Re-login directly inside this profile's isolated CODEX_HOME for the durable path.",
         );
+    }
+    if let Some(warning) = add_warnings(tool, auth_method, user_home).first() {
+        output::print_effect(warning);
     }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_add(tool, &args.profile_name, true));
@@ -1072,6 +1107,7 @@ fn print_add_summary(
     backend: CredentialBackend,
     source: Option<&str>,
     auth_method: AuthMethod,
+    user_home: Option<&Path>,
 ) {
     output::print_title("Added profile");
     output::print_kv("Tool", args.tool.display_name());
@@ -1084,6 +1120,9 @@ fn print_add_summary(
         },
     );
     output::print_kv("Backend", backend.display_name());
+    if let Some(classification) = claude_add_classification(args.tool, auth_method, user_home) {
+        output::print_kv("Claude auth", classification);
+    }
     if let Some(classification) = codex_add_classification(args.tool, auth_method, false) {
         output::print_kv("Codex auth", classification);
     }
@@ -1106,6 +1145,9 @@ fn print_add_summary(
         );
         output::print_effect("This is the durable ChatGPT-managed Codex path.");
     }
+    for warning in add_warnings(args.tool, auth_method, user_home) {
+        output::print_effect(warning);
+    }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_add(
         args.tool,
@@ -1119,8 +1161,10 @@ fn emit_add_result(
     backend: CredentialBackend,
     source: Option<&str>,
     auth_method: AuthMethod,
+    user_home: Option<&Path>,
     progress: Option<&mut machine::ProgressReporter>,
 ) -> Result<()> {
+    let warnings = add_warnings(args.tool, auth_method, user_home);
     let result = serde_json::json!({
         "tool": args.tool.binary_name(),
         "profile": args.profile_name,
@@ -1128,8 +1172,9 @@ fn emit_add_result(
         "credential_backend": backend.display_name(),
         "active": args.set_active || args.from_live,
         "source": source,
+        "claude_auth_classification": claude_add_classification(args.tool, auth_method, user_home),
         "codex_auth_classification": codex_add_classification(args.tool, auth_method, args.from_live),
-        "warnings": Vec::<String>::new(),
+        "warnings": warnings,
     });
     if let Some(progress) = progress {
         progress.result(true, result)?;
@@ -1139,7 +1184,7 @@ fn emit_add_result(
         return Ok(());
     }
 
-    print_add_summary(args, backend, source, auth_method);
+    print_add_summary(args, backend, source, auth_method, user_home);
     Ok(())
 }
 
@@ -1164,6 +1209,56 @@ fn codex_add_classification(
         AuthMethod::OAuth if from_live => "chatgpt_managed_imported_bootstrap",
         AuthMethod::OAuth => "chatgpt_managed_isolated",
     })
+}
+
+fn claude_add_classification(
+    tool: Tool,
+    auth_method: AuthMethod,
+    user_home: Option<&Path>,
+) -> Option<&'static str> {
+    if tool != Tool::Claude {
+        return None;
+    }
+
+    Some(match auth_method {
+        AuthMethod::ApiKey => "api_key",
+        AuthMethod::OAuth => {
+            if user_home.is_some_and(auth::claude::uses_live_keychain) {
+                match auth::claude::current_claude_keychain_scheme() {
+                    auth::claude::ClaudeKeychainScheme::LegacyShared => {
+                        "oauth_macos_keychain_shared_live"
+                    }
+                    auth::claude::ClaudeKeychainScheme::ScopedByConfigDir => {
+                        "oauth_keychain_scoped_by_config_dir"
+                    }
+                    auth::claude::ClaudeKeychainScheme::Unknown => "oauth_keychain_unknown",
+                }
+            } else {
+                "oauth_file_backed"
+            }
+        }
+    })
+}
+
+fn add_warnings(tool: Tool, auth_method: AuthMethod, user_home: Option<&Path>) -> Vec<String> {
+    match claude_add_classification(tool, auth_method, user_home) {
+        Some("oauth_macos_keychain_shared_live") => {
+            vec![
+                "Claude OAuth on this install uses the legacy shared live Keychain credential, so this profile is not a durable isolated account container. Use shared mode for this profile, or prefer an API key or long-lived auth token for repeatable switching.".to_owned(),
+            ]
+        }
+        Some("oauth_keychain_unknown") => {
+            vec![
+                "Claude OAuth keychain behavior could not be determined for this install. Isolated switching may not be durable unless Claude scopes credentials by CLAUDE_CONFIG_DIR.".to_owned(),
+            ]
+        }
+        Some("oauth_keychain_scoped_by_config_dir") => {
+            vec![
+                "Claude login ran against this profile-owned config dir, so this install can keep OAuth refreshes tied to the profile when you use isolated mode.".to_owned(),
+            ]
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn read_api_key_from_stdin() -> Result<String> {
@@ -1292,26 +1387,6 @@ mod tests {
     fn make_fake_binary(dir: &Path, name: &str) {
         let path = dir.join(name);
         fs::write(&path, "#!/bin/sh\necho 'fake 1.0'\n").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    fn make_claude_oauth_binary(dir: &Path) {
-        let path = dir.join("claude");
-        fs::write(
-            &path,
-            "#!/bin/sh\n\
-             if [ \"$1\" = \"--version\" ]; then\n\
-               echo 'claude 2.3.0'\n\
-               exit 0\n\
-             fi\n\
-             [ \"$1\" = \"auth\" ] || exit 9\n\
-             [ \"$2\" = \"login\" ] || exit 8\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             printf '%s' '{\"oauthToken\":\"new-token\",\"account\":{\"email\":\"new@example.com\"}}' > \"$HOME/.claude/.credentials.json\"\n\
-             printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"new@example.com\"}}' > \"$HOME/.claude.json\"\n\
-             exit 0\n",
-        )
-        .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
@@ -1603,10 +1678,29 @@ mod tests {
             let aisw_home = tmp.path().join("aisw-home");
             let user_home = tmp.path().join("user-home");
             let bin_dir = tmp.path().join("bin");
+            let keyring_dir = tmp.path().join("keychain");
             fs::create_dir_all(&aisw_home).unwrap();
             fs::create_dir_all(&user_home).unwrap();
             fs::create_dir_all(&bin_dir).unwrap();
-            make_claude_oauth_binary(&bin_dir);
+            let claude_bin = bin_dir.join("claude");
+            fs::write(
+                &claude_bin,
+                "#!/bin/sh\n\
+                 if [ \"$1\" = \"--version\" ]; then\n\
+                   echo 'claude 2.1.19'\n\
+                   exit 0\n\
+                 fi\n\
+                 [ \"$1\" = \"auth\" ] || exit 9\n\
+                 [ \"$2\" = \"login\" ] || exit 8\n\
+                 item=\"$AISW_KEYRING_TEST_DIR/Claude Code-credentials/${USER:-tester}\"\n\
+                 mkdir -p \"$item\"\n\
+                 printf '%s' \"${USER:-tester}\" > \"$item/account\"\n\
+                 printf '%s' '{\"oauthToken\":\"new-token\",\"account\":{\"email\":\"new@example.com\"}}' > \"$item/secret\"\n\
+                 printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"new@example.com\"}}' > \"$HOME/.claude.json\"\n\
+                 exit 0\n",
+            )
+            .unwrap();
+            fs::set_permissions(&claude_bin, fs::Permissions::from_mode(0o755)).unwrap();
 
             fs::create_dir_all(user_home.join(".claude")).unwrap();
             fs::write(
@@ -1621,7 +1715,19 @@ mod tests {
             .unwrap();
 
             let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
-            let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+            let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+            let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared");
+            let _platform = EnvVarGuard::set("AISW_TEST_CLAUDE_PLATFORM", "macos");
+            let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", keyring_dir.to_str().unwrap());
+            let _user = EnvVarGuard::set("USER", "tester");
+            let live_item = keyring_dir.join("Claude Code-credentials").join("tester");
+            fs::create_dir_all(&live_item).unwrap();
+            fs::write(live_item.join("account"), "tester").unwrap();
+            fs::write(
+                live_item.join("secret"),
+                br#"{"oauthToken":"old-token","account":{"email":"old@example.com"}}"#,
+            )
+            .unwrap();
 
             let args = AddArgs {
                 tool: Tool::Claude,
@@ -1641,16 +1747,23 @@ mod tests {
 
             let config = ConfigStore::new(&aisw_home).load().unwrap();
             assert_eq!(config.active_for(Tool::Claude), None);
+            let backend = config.profiles_for(Tool::Claude)["work"].credential_backend;
 
-            let stored = ProfileStore::new(&aisw_home)
-                .read_file(Tool::Claude, "work", ".credentials.json")
-                .unwrap();
+            let stored = match backend {
+                CredentialBackend::File => ProfileStore::new(&aisw_home)
+                    .read_file(Tool::Claude, "work", ".credentials.json")
+                    .unwrap(),
+                CredentialBackend::SystemKeyring => {
+                    auth::secure_store::read_profile_secret(Tool::Claude, "work")
+                        .unwrap()
+                        .expect("stored Claude shared-keychain profile secret")
+                }
+            };
             let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
             assert_eq!(stored_json["oauthToken"], "new-token");
 
-            let live_credentials =
-                fs::read_to_string(user_home.join(".claude").join(".credentials.json")).unwrap();
-            let live_json: serde_json::Value = serde_json::from_str(&live_credentials).unwrap();
+            let live_credentials = fs::read(live_item.join("secret")).unwrap();
+            let live_json: serde_json::Value = serde_json::from_slice(&live_credentials).unwrap();
             assert_eq!(live_json["oauthToken"], "old-token");
 
             let live_metadata = fs::read_to_string(user_home.join(".claude.json")).unwrap();

@@ -324,7 +324,7 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
         .ok_or_else(|| AiswError::ContextNotFound {
             name: args.context_name.clone(),
         })?;
-    let switches = resolve_context_switches(&config, context, args.state_mode, home)?;
+    let switches = resolve_context_switches(&config, context, args.state_mode, home, &user_home)?;
     if switches.is_empty() {
         bail!("context '{}' has no tool mappings.", args.context_name);
     }
@@ -457,6 +457,7 @@ fn resolve_context_switches(
     context: &ContextEntry,
     state_mode_override: Option<StateMode>,
     home: &Path,
+    user_home: &Path,
 ) -> Result<Vec<ResolvedProfileSwitch>> {
     let mut switches = Vec::new();
     for tool in Tool::ALL {
@@ -478,8 +479,8 @@ fn resolve_context_switches(
         } else {
             StateMode::Isolated
         };
+        let profile_store = crate::profile::ProfileStore::new(home);
         if tool == Tool::Codex && state_mode == StateMode::Shared {
-            let profile_store = crate::profile::ProfileStore::new(home);
             let classification = auth::codex::classify_profile(
                 &profile_store,
                 profile_name,
@@ -490,6 +491,21 @@ fn resolve_context_switches(
                 return Err(AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
                     profile: profile_name.to_owned(),
                     imported_bootstrap: classification.is_imported_bootstrap(),
+                }
+                .into());
+            }
+        }
+        if tool == Tool::Claude && state_mode == StateMode::Isolated {
+            let classification = auth::claude::classify_profile(
+                user_home,
+                &profile_store,
+                profile_name,
+                profile_meta.auth_method,
+                profile_meta.credential_backend,
+            )?;
+            if classification.blocks_isolated_mode() {
+                return Err(AiswError::UnsupportedClaudeMacosOauthIsolation {
+                    profile: profile_name.to_owned(),
                 }
                 .into());
             }

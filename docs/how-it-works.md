@@ -70,7 +70,7 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 **How `aisw` captures credentials:**
 - `--api-key`: stores the key directly.
 - `--from-live`: reads the current live credentials from file or Keychain.
-- Interactive OAuth: spawns `claude auth login` without overriding `CLAUDE_CONFIG_DIR` so the native flow runs unmodified. `aisw` polls the live credential file and Keychain for changes to detect when login completes, then captures the result.
+- Interactive OAuth: spawns `claude auth login`. When Claude's install supports profile-owned auth, `aisw` points login at the profile `CLAUDE_CONFIG_DIR`; otherwise it polls Claude's live credential file and Keychain for changes and captures the result there.
 
 **How `aisw use` applies credentials:**
 - Detects whether the live tool is reading from file or Keychain.
@@ -78,6 +78,8 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 - Updates the `oauthAccount` field in `~/.claude.json` if the profile includes OAuth account metadata.
 - With `--state-mode isolated`: sets `CLAUDE_CONFIG_DIR` to the profile directory so Claude reads config, history, and extensions from a profile-specific location.
 - With `--state-mode shared`: unsets `CLAUDE_CONFIG_DIR` so Claude reads its standard config directory.
+
+**Important Claude limitation:** when Claude OAuth is backed by the legacy shared live Keychain entry, `CLAUDE_CONFIG_DIR` does not isolate the actual OAuth credential owner. `aisw` blocks isolated mode for that case before mutating live state and points the user to shared mode or API key / token-based alternatives. When Claude scopes auth by `CLAUDE_CONFIG_DIR`, isolated mode remains the durable path. This is an upstream storage limitation, not `aisw` corruption.
 
 **MCP OAuth tokens:** The full credentials payload including `mcpOAuth` keys is preserved when writing to the Keychain. No subset-stripping is performed.
 

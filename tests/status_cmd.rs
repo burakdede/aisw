@@ -145,6 +145,7 @@ fn status_json_has_expected_keys() {
     assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
     assert_eq!(claude["state_mode"], "isolated");
+    assert_eq!(claude["claude_auth_classification"], "api_key");
     if cfg!(target_os = "macos") {
         assert!(claude["active_profile_applied"].is_null());
     } else {

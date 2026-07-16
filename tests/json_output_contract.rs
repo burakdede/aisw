@@ -59,15 +59,15 @@ fn list_json_contract_snapshot() {
     let expected = serde_json::json!({
         "claude": {
             "active": "work",
-            "profiles": [{"name": "work", "auth": "api_key", "codex_auth_classification": null, "label": null}],
+            "profiles": [{"name": "work", "auth": "api_key", "claude_auth_classification": "api_key", "codex_auth_classification": null, "label": null}],
         },
         "codex": {
             "active": "work",
-            "profiles": [{"name": "work", "auth": "api_key", "codex_auth_classification": "api_key", "label": null}],
+            "profiles": [{"name": "work", "auth": "api_key", "claude_auth_classification": null, "codex_auth_classification": "api_key", "label": null}],
         },
         "gemini": {
             "active": "work",
-            "profiles": [{"name": "work", "auth": "api_key", "codex_auth_classification": null, "label": null}],
+            "profiles": [{"name": "work", "auth": "api_key", "claude_auth_classification": null, "codex_auth_classification": null, "label": null}],
         }
     });
 
@@ -94,6 +94,7 @@ fn status_json_contract_snapshot() {
             "active_profile": "work",
             "auth_method": "api_key",
             "credential_backend": "file",
+            "claude_auth_classification": "api_key",
             "codex_auth_classification": null,
             "state_mode": "isolated",
             "active_profile_applied": expected_claude_active_applied,
@@ -107,6 +108,7 @@ fn status_json_contract_snapshot() {
             "active_profile": "work",
             "auth_method": "api_key",
             "credential_backend": "file",
+            "claude_auth_classification": null,
             "codex_auth_classification": "api_key",
             "state_mode": "isolated",
             "active_profile_applied": true,
@@ -120,6 +122,7 @@ fn status_json_contract_snapshot() {
             "active_profile": "work",
             "auth_method": "api_key",
             "credential_backend": "file",
+            "claude_auth_classification": null,
             "codex_auth_classification": null,
             "state_mode": null,
             "active_profile_applied": true,
@@ -216,9 +219,10 @@ fn list_json_contract_preserved_with_filter_and_sort_flags() {
         .expect("profile entry should be object");
     assert!(profile.contains_key("name"));
     assert!(profile.contains_key("auth"));
+    assert!(profile.contains_key("claude_auth_classification"));
     assert!(profile.contains_key("codex_auth_classification"));
     assert!(profile.contains_key("label"));
-    assert_eq!(profile.len(), 4);
+    assert_eq!(profile.len(), 5);
 }
 
 #[test]
@@ -253,6 +257,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
         "active_profile",
         "auth_method",
         "credential_backend",
+        "claude_auth_classification",
         "codex_auth_classification",
         "state_mode",
         "active_profile_applied",
@@ -265,7 +270,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
             "missing key `{key}` in status entry"
         );
     }
-    assert_eq!(entry.len(), 11);
+    assert_eq!(entry.len(), 12);
 }
 
 #[test]
