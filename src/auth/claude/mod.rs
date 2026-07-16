@@ -23,7 +23,10 @@ use crate::config::CredentialBackend;
 use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
-use keychain::{auth_storage, ClaudeAuthStorage};
+use keychain::{
+    auth_storage, current_keychain_scheme, keychain_service_for_config_dir, ClaudeAuthStorage,
+    ClaudeKeychainScheme as KeychainScheme,
+};
 use paths::live_credentials_path;
 
 // ---- Constants ----
@@ -50,16 +53,59 @@ pub struct LiveCredentialSnapshot {
     pub source: LiveCredentialSource,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaudeAuthClassification {
+    ApiKey,
+    OAuthFileBacked,
+    OAuthKeychainScopedByConfigDir,
+    OAuthMacosKeychainSharedLive,
+    OAuthKeychainUnknown,
+}
+
+impl ClaudeAuthClassification {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ClaudeAuthClassification::ApiKey => "api_key",
+            ClaudeAuthClassification::OAuthFileBacked => "oauth_file_backed",
+            ClaudeAuthClassification::OAuthKeychainScopedByConfigDir => {
+                "oauth_keychain_scoped_by_config_dir"
+            }
+            ClaudeAuthClassification::OAuthMacosKeychainSharedLive => {
+                "oauth_macos_keychain_shared_live"
+            }
+            ClaudeAuthClassification::OAuthKeychainUnknown => "oauth_keychain_unknown",
+        }
+    }
+
+    pub fn human_label(self) -> &'static str {
+        match self {
+            ClaudeAuthClassification::ApiKey => "API key",
+            ClaudeAuthClassification::OAuthFileBacked => "OAuth file-backed",
+            ClaudeAuthClassification::OAuthKeychainScopedByConfigDir => {
+                "OAuth keychain scoped by config dir"
+            }
+            ClaudeAuthClassification::OAuthMacosKeychainSharedLive => "OAuth macOS shared Keychain",
+            ClaudeAuthClassification::OAuthKeychainUnknown => "OAuth keychain unknown",
+        }
+    }
+
+    pub fn blocks_isolated_mode(self) -> bool {
+        matches!(self, ClaudeAuthClassification::OAuthMacosKeychainSharedLive)
+    }
+}
+
 // ---- Public re-exports from sub-modules ----
 
 pub use api_key::{
     add_api_key, add_api_key_with_backend, read_api_key, read_api_key_with_backend,
     validate_api_key,
 };
+pub use keychain::ClaudeKeychainScheme;
 pub use keychain::{
-    imported_profile_backend, keychain_import_supported, oauth_stored_backend,
-    preferred_import_backend, read_live_keychain_credentials_for_import, storage_fallback_note,
-    uses_live_keychain,
+    current_keychain_scheme as current_claude_keychain_scheme,
+    detected_keychain_scheme as detected_claude_keychain_scheme, imported_profile_backend,
+    keychain_import_supported, oauth_stored_backend, preferred_import_backend,
+    read_live_keychain_credentials_for_import, storage_fallback_note, uses_live_keychain,
 };
 pub use oauth::{
     add_oauth, add_oauth_with_backend, capture_live_oauth_account_metadata,
@@ -68,6 +114,48 @@ pub use oauth::{
 };
 pub use paths::live_local_state_dir;
 
+pub fn classify_profile(
+    user_home: &Path,
+    profile_store: &ProfileStore,
+    name: &str,
+    auth_method: crate::config::AuthMethod,
+    _backend: CredentialBackend,
+) -> Result<ClaudeAuthClassification> {
+    Ok(match auth_method {
+        crate::config::AuthMethod::ApiKey => ClaudeAuthClassification::ApiKey,
+        crate::config::AuthMethod::OAuth => {
+            if uses_live_keychain(user_home) {
+                match current_keychain_scheme() {
+                    KeychainScheme::LegacyShared => {
+                        ClaudeAuthClassification::OAuthMacosKeychainSharedLive
+                    }
+                    KeychainScheme::ScopedByConfigDir => {
+                        let profile_dir = profile_store.profile_dir(Tool::Claude, name);
+                        let service = keychain_service_for_config_dir(
+                            &profile_dir,
+                            user_home,
+                            KeychainScheme::ScopedByConfigDir,
+                        );
+                        if service == KEYCHAIN_SERVICE {
+                            ClaudeAuthClassification::OAuthMacosKeychainSharedLive
+                        } else {
+                            ClaudeAuthClassification::OAuthKeychainScopedByConfigDir
+                        }
+                    }
+                    KeychainScheme::Unknown => ClaudeAuthClassification::OAuthKeychainUnknown,
+                }
+            } else {
+                ClaudeAuthClassification::OAuthFileBacked
+            }
+        }
+    })
+}
+
+pub fn login_targets_profile_state(user_home: &Path) -> bool {
+    !uses_live_keychain(user_home)
+        || matches!(current_keychain_scheme(), KeychainScheme::ScopedByConfigDir)
+}
+
 // ---- Core public functions ----
 
 pub fn apply_live_credentials(
@@ -75,6 +163,7 @@ pub fn apply_live_credentials(
     name: &str,
     backend: CredentialBackend,
     user_home: &Path,
+    state_mode: StateMode,
 ) -> Result<()> {
     let stored = read_stored_credentials(profile_store, name, backend)?;
 
@@ -85,7 +174,17 @@ pub fn apply_live_credentials(
                 stored,
             )])
         }
-        ClaudeAuthStorage::Keychain => keychain::write_keychain_credentials(&stored),
+        ClaudeAuthStorage::Keychain => {
+            let service = match state_mode {
+                StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
+                StateMode::Isolated => keychain_service_for_config_dir(
+                    &profile_store.profile_dir(Tool::Claude, name),
+                    user_home,
+                    current_keychain_scheme(),
+                ),
+            };
+            keychain::write_keychain_credentials_for_service(&service, &stored)
+        }
     }?;
 
     oauth::apply_live_oauth_account_metadata(profile_store, name, user_home)
@@ -108,6 +207,7 @@ pub fn live_credentials_match(
     name: &str,
     backend: CredentialBackend,
     user_home: &Path,
+    state_mode: StateMode,
 ) -> Result<bool> {
     let stored = read_stored_credentials(profile_store, name, backend)?;
     match auth_storage(user_home) {
@@ -125,7 +225,15 @@ pub fn live_credentials_match(
             Ok(live_value == stored_value)
         }
         ClaudeAuthStorage::Keychain => {
-            let Some(live) = keychain::read_keychain_credentials()? else {
+            let service = match state_mode {
+                StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
+                StateMode::Isolated => keychain_service_for_config_dir(
+                    &profile_store.profile_dir(Tool::Claude, name),
+                    user_home,
+                    current_keychain_scheme(),
+                ),
+            };
+            let Some(live) = keychain::read_keychain_credentials_for_service(&service)? else {
                 return Ok(false);
             };
             // Compare as parsed JSON values to handle the trailing newline
@@ -255,6 +363,93 @@ mod tests {
 
     fn stores(dir: &std::path::Path) -> (ProfileStore, ConfigStore) {
         (ProfileStore::new(dir), ConfigStore::new(dir))
+    }
+
+    #[test]
+    fn classify_api_key_profile_as_api_key() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+        let classification = classify_profile(
+            &user_home,
+            &ProfileStore::new(dir.path()),
+            "work",
+            AuthMethod::ApiKey,
+            CredentialBackend::File,
+        )
+        .unwrap();
+        assert_eq!(classification, ClaudeAuthClassification::ApiKey);
+    }
+
+    #[test]
+    fn classify_oauth_profile_as_shared_keychain_when_macos_keychain_is_active() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+        let _platform_guard = EnvVarGuard::set("AISW_TEST_CLAUDE_PLATFORM", "macos");
+        let _storage_guard = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _scheme_guard = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared");
+        let classification = classify_profile(
+            &user_home,
+            &ProfileStore::new(dir.path()),
+            "work",
+            AuthMethod::OAuth,
+            CredentialBackend::File,
+        )
+        .unwrap();
+        assert_eq!(
+            classification,
+            ClaudeAuthClassification::OAuthMacosKeychainSharedLive
+        );
+    }
+
+    #[test]
+    fn classify_oauth_profile_as_scoped_keychain_when_supported() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+        let profile_store = ProfileStore::new(dir.path());
+        profile_store.create(Tool::Claude, "work").unwrap();
+        let _platform_guard = EnvVarGuard::set("AISW_TEST_CLAUDE_PLATFORM", "macos");
+        let _storage_guard = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _scheme_guard = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "scoped");
+        let classification = classify_profile(
+            &user_home,
+            &profile_store,
+            "work",
+            AuthMethod::OAuth,
+            CredentialBackend::File,
+        )
+        .unwrap();
+        assert_eq!(
+            classification,
+            ClaudeAuthClassification::OAuthKeychainScopedByConfigDir
+        );
+    }
+
+    #[test]
+    fn classify_oauth_profile_as_file_backed_when_keychain_is_not_active() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(".credentials.json"),
+            br#"{"oauthToken":"tok"}"#,
+        )
+        .unwrap();
+        let _storage_guard = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let classification = classify_profile(
+            &user_home,
+            &ProfileStore::new(dir.path()),
+            "work",
+            AuthMethod::OAuth,
+            CredentialBackend::File,
+        )
+        .unwrap();
+        assert_eq!(classification, ClaudeAuthClassification::OAuthFileBacked);
     }
 
     fn write_security_mock(bin: &std::path::Path) {
@@ -830,6 +1025,7 @@ mod tests {
         fs::set_permissions(&claude_bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared");
         let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
         let _security = EnvVarGuard::set(
             "AISW_SECURITY_BIN",
@@ -885,6 +1081,7 @@ mod tests {
         fs::set_permissions(&claude_bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared");
         let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
         let _security = EnvVarGuard::set(
             "AISW_SECURITY_BIN",
@@ -919,7 +1116,7 @@ mod tests {
 
     #[test]
     #[cfg(all(unix, not(target_os = "macos")))]
-    fn oauth_on_non_macos_avoids_claude_config_dir_during_login() {
+    fn oauth_on_non_macos_targets_profile_config_dir_during_login() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         use std::fs;
@@ -937,9 +1134,10 @@ mod tests {
             "#!/bin/sh\n\
              [ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             [ -z \"$CLAUDE_CONFIG_DIR\" ] || { echo \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"; exit 7; }\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             echo '{}' > \"$HOME/.claude/.credentials.json\"\n\
+             [ -n \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
+             printf '%s' \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"\n\
+             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -959,14 +1157,18 @@ mod tests {
         .unwrap();
 
         assert!(
-            !home.join("env_was_set").exists(),
-            "CLAUDE_CONFIG_DIR should not be set during non-macOS OAuth login"
+            home.join("env_was_set").exists(),
+            "CLAUDE_CONFIG_DIR should be set during non-macOS OAuth login"
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("env_was_set")).unwrap(),
+            ps.profile_dir(Tool::Claude, "work").display().to_string()
         );
     }
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn oauth_on_macos_avoids_claude_config_dir_and_reads_live_file() {
+    fn oauth_on_macos_legacy_shared_keeps_live_keychain_target() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
@@ -978,15 +1180,30 @@ mod tests {
         fs::create_dir_all(&bin_dir).unwrap();
 
         let _home = EnvVarGuard::set("HOME", &home);
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _platform = EnvVarGuard::set("AISW_TEST_CLAUDE_PLATFORM", "macos");
+        let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+        let _user = EnvVarGuard::set("USER", "tester");
         let bin = bin_dir.join("claude");
+        let security_bin = bin_dir.join("security");
+        write_security_mock(&security_bin);
+        let _security = EnvVarGuard::set(
+            "AISW_SECURITY_BIN",
+            security_bin
+                .to_str()
+                .expect("security path should be utf-8"),
+        );
         fs::write(
             &bin,
             "#!/bin/sh\n\
              [ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
              [ -z \"$CLAUDE_CONFIG_DIR\" ] || { echo \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"; exit 7; }\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             echo '{\"oauthToken\":\"tok\"}' > \"$HOME/.claude/.credentials.json\"\n\
+             item=\"$AISW_KEYRING_TEST_DIR/Claude Code-credentials/${USER:-tester}\"\n\
+             mkdir -p \"$item\"\n\
+             printf '%s' \"${USER:-tester}\" > \"$item/account\"\n\
+             printf '%s' '{\"account\":{\"email\":\"work@example.com\"}}' > \"$item/secret\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -1007,14 +1224,14 @@ mod tests {
 
         assert!(
             !home.join("env_was_set").exists(),
-            "CLAUDE_CONFIG_DIR should not be set during macOS OAuth login"
+            "CLAUDE_CONFIG_DIR should stay unset for legacy shared macOS OAuth login"
         );
         let stored = ps
             .read_file(Tool::Claude, "work", CREDENTIALS_FILE)
             .unwrap();
         assert_eq!(
             String::from_utf8(stored).unwrap().trim(),
-            r#"{"oauthToken":"tok"}"#
+            r#"{"account":{"email":"work@example.com"}}"#
         );
     }
 
@@ -1036,10 +1253,10 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             [ -z \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
+             [ -n \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
              printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             echo '{}' > \"$HOME/.claude/.credentials.json\"\n\
+             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -1118,7 +1335,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn oauth_on_macos_uses_auth_login_subcommand() {
+    fn oauth_on_macos_scoped_keychain_targets_profile_config_dir() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         use std::fs;
         use std::os::unix::fs::PermissionsExt;
@@ -1130,13 +1347,18 @@ mod tests {
         fs::create_dir_all(&bin_dir).unwrap();
 
         let _home = EnvVarGuard::set("HOME", &home);
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let _platform = EnvVarGuard::set("AISW_TEST_CLAUDE_PLATFORM", "macos");
+        let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "scoped");
         let bin = bin_dir.join("claude");
         fs::write(
             &bin,
             "#!/bin/sh\n\
+             [ -n \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
              printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             echo '{}' > \"$HOME/.claude/.credentials.json\"\n\
+             printf '%s' \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"\n\
+             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -1158,6 +1380,10 @@ mod tests {
         assert_eq!(
             fs::read_to_string(home.join("login_args")).unwrap(),
             "auth login"
+        );
+        assert_eq!(
+            fs::read_to_string(home.join("env_was_set")).unwrap(),
+            ps.profile_dir(Tool::Claude, "work").display().to_string()
         );
     }
 
@@ -1228,7 +1454,14 @@ mod tests {
         )
         .unwrap();
 
-        apply_live_credentials(&ps, "work", CredentialBackend::File, &user_home).unwrap();
+        apply_live_credentials(
+            &ps,
+            "work",
+            CredentialBackend::File,
+            &user_home,
+            StateMode::Shared,
+        )
+        .unwrap();
 
         let live_keychain = keychain::read_keychain_credentials().unwrap().unwrap();
         assert_eq!(
@@ -1274,12 +1507,23 @@ mod tests {
         ps.create(Tool::Claude, "work").unwrap();
         secure_store::write_profile_secret(Tool::Claude, "work", br#"{"token":"tok"}"#).unwrap();
 
-        apply_live_credentials(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
+        apply_live_credentials(
+            &ps,
+            "work",
+            CredentialBackend::SystemKeyring,
+            &user_home,
+            StateMode::Shared,
+        )
+        .unwrap();
 
-        assert!(
-            live_credentials_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home)
-                .unwrap()
-        );
+        assert!(live_credentials_match(
+            &ps,
+            "work",
+            CredentialBackend::SystemKeyring,
+            &user_home,
+            StateMode::Shared,
+        )
+        .unwrap());
     }
 
     #[test]
@@ -1301,17 +1545,28 @@ mod tests {
         )
         .unwrap();
 
-        apply_live_credentials(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
+        apply_live_credentials(
+            &ps,
+            "work",
+            CredentialBackend::SystemKeyring,
+            &user_home,
+            StateMode::Shared,
+        )
+        .unwrap();
 
         let live = keychain::read_keychain_credentials().unwrap().unwrap();
         let live_json: serde_json::Value = serde_json::from_slice(&live).unwrap();
         assert_eq!(live_json["claudeAiOauth"]["accessToken"], "a");
         assert_eq!(live_json["mcpOAuth"]["srv"]["clientId"], "c");
 
-        assert!(
-            live_credentials_match(&ps, "work", CredentialBackend::SystemKeyring, &user_home)
-                .unwrap()
-        );
+        assert!(live_credentials_match(
+            &ps,
+            "work",
+            CredentialBackend::SystemKeyring,
+            &user_home,
+            StateMode::Shared,
+        )
+        .unwrap());
     }
 
     #[test]
@@ -1333,7 +1588,14 @@ mod tests {
         )
         .unwrap();
 
-        apply_live_credentials(&ps, "work", CredentialBackend::SystemKeyring, &user_home).unwrap();
+        apply_live_credentials(
+            &ps,
+            "work",
+            CredentialBackend::SystemKeyring,
+            &user_home,
+            StateMode::Shared,
+        )
+        .unwrap();
 
         let live = fs::read_to_string(user_home.join(".claude").join(CREDENTIALS_FILE)).unwrap();
         let live_json: serde_json::Value = serde_json::from_str(&live).unwrap();
@@ -1376,7 +1638,14 @@ mod tests {
 
         keychain::write_keychain_credentials(b"7b226f61757468546f6b656e223a22746f6b227d").unwrap();
 
-        assert!(live_credentials_match(&ps, "work", CredentialBackend::File, &user_home).unwrap());
+        assert!(live_credentials_match(
+            &ps,
+            "work",
+            CredentialBackend::File,
+            &user_home,
+            StateMode::Shared,
+        )
+        .unwrap());
     }
 
     #[test]

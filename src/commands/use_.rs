@@ -143,6 +143,7 @@ fn run_for_tool(
         state_mode_override,
         emit_env,
         home,
+        user_home,
     )?;
     apply_resolved_profile_switch(&resolved, emit_env, home, user_home)?;
 
@@ -166,7 +167,7 @@ fn run_for_tool(
             }),
         )?;
     } else if !emit_env {
-        print_switch_summary(&resolved, home);
+        print_switch_summary(&resolved, home, user_home);
     }
 
     Ok(())
@@ -178,6 +179,7 @@ pub(crate) fn resolve_profile_switch_request(
     state_mode_override: Option<StateMode>,
     emit_env: bool,
     home: &Path,
+    user_home: &Path,
 ) -> Result<ResolvedProfileSwitch> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
@@ -229,7 +231,14 @@ pub(crate) fn resolve_profile_switch_request(
         }
     };
     profile_meta.credential_backend.validate_for_tool(tool)?;
-    validate_state_mode_support(tool, &profile_name, &profile_meta, state_mode, home)?;
+    validate_state_mode_support(
+        tool,
+        &profile_name,
+        &profile_meta,
+        state_mode,
+        home,
+        user_home,
+    )?;
 
     Ok(ResolvedProfileSwitch {
         tool,
@@ -246,25 +255,41 @@ fn validate_state_mode_support(
     profile_meta: &ProfileMeta,
     state_mode: StateMode,
     home: &Path,
+    user_home: &Path,
 ) -> Result<()> {
-    if tool != Tool::Codex || state_mode != StateMode::Shared {
-        return Ok(());
+    let profile_store = ProfileStore::new(home);
+    if tool == Tool::Codex && state_mode == StateMode::Shared {
+        let classification = auth::codex::classify_profile(
+            &profile_store,
+            profile_name,
+            profile_meta.auth_method,
+            profile_meta.credential_backend,
+        )?;
+
+        if classification.is_chatgpt_managed() {
+            return Err(AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
+                profile: profile_name.to_owned(),
+                imported_bootstrap: classification.is_imported_bootstrap(),
+            }
+            .into());
+        }
     }
 
-    let profile_store = ProfileStore::new(home);
-    let classification = auth::codex::classify_profile(
-        &profile_store,
-        profile_name,
-        profile_meta.auth_method,
-        profile_meta.credential_backend,
-    )?;
+    if tool == Tool::Claude && state_mode == StateMode::Isolated {
+        let classification = auth::claude::classify_profile(
+            user_home,
+            &profile_store,
+            profile_name,
+            profile_meta.auth_method,
+            profile_meta.credential_backend,
+        )?;
 
-    if classification.is_chatgpt_managed() {
-        return Err(AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
-            profile: profile_name.to_owned(),
-            imported_bootstrap: classification.is_imported_bootstrap(),
+        if classification.blocks_isolated_mode() {
+            return Err(AiswError::UnsupportedClaudeMacosOauthIsolation {
+                profile: profile_name.to_owned(),
+            }
+            .into());
         }
-        .into());
     }
 
     Ok(())
@@ -322,6 +347,7 @@ pub(crate) fn apply_resolved_profile_switch(
                         &resolved.profile_name,
                         resolved.profile_meta.credential_backend,
                         user_home,
+                        resolved.state_mode,
                     )?;
                 }
             }
@@ -344,6 +370,7 @@ pub(crate) fn apply_resolved_profile_switch(
                         &resolved.profile_name,
                         resolved.profile_meta.credential_backend,
                         user_home,
+                        resolved.state_mode,
                     )?;
                 }
             }
@@ -471,7 +498,7 @@ fn maybe_sync_active_profile_before_switch(
     Ok(())
 }
 
-fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
+fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home: &Path) {
     let profile_store = ProfileStore::new(home);
     let title = format!(
         "{} \u{2192} {}",
@@ -545,6 +572,37 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
                     );
                 }
                 auth::codex::CodexAuthClassification::ApiKey => {}
+            }
+        }
+    } else if resolved.tool == Tool::Claude {
+        if let Ok(classification) = auth::claude::classify_profile(
+            user_home,
+            &profile_store,
+            &resolved.profile_name,
+            resolved.profile_meta.auth_method,
+            resolved.profile_meta.credential_backend,
+        ) {
+            if classification == auth::claude::ClaudeAuthClassification::OAuthFileBacked {
+                output::print_effect(
+                    "Claude OAuth for this profile stays file-backed, so CLAUDE_CONFIG_DIR can isolate profile state.",
+                );
+            } else if classification
+                == auth::claude::ClaudeAuthClassification::OAuthKeychainScopedByConfigDir
+            {
+                output::print_effect(
+                    "Claude OAuth for this install is scoped by CLAUDE_CONFIG_DIR, so isolated mode keeps refreshes tied to this profile.",
+                );
+            } else if classification
+                == auth::claude::ClaudeAuthClassification::OAuthMacosKeychainSharedLive
+            {
+                output::print_effect(
+                    "Claude OAuth on this install uses the legacy shared live Keychain auth; shared mode is the supported path for this profile.",
+                );
+            } else if classification == auth::claude::ClaudeAuthClassification::OAuthKeychainUnknown
+            {
+                output::print_effect(
+                    "Claude OAuth keychain behavior is unknown for this install; isolated mode may not be durable unless Claude scopes credentials by config dir.",
+                );
             }
         }
     }

@@ -94,6 +94,7 @@ fn list_json_output_is_valid_json_object() {
     assert_eq!(profiles.len(), 1);
     assert_eq!(profiles[0]["name"], "work");
     assert_eq!(profiles[0]["auth"], "api_key");
+    assert_eq!(profiles[0]["claude_auth_classification"], "api_key");
     assert!(json["claude"]["active"].is_null());
 }
 

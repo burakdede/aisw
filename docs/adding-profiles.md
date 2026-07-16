@@ -46,9 +46,14 @@ aisw add codex personal
 aisw add gemini personal
 ```
 
-- Claude: spawns `claude auth login`. `aisw` monitors the live credential file and Keychain for changes and captures the result when login completes.
+- Claude: spawns `claude auth login`. When the installed Claude build supports profile-scoped auth, `aisw` runs login inside the profile-owned `CLAUDE_CONFIG_DIR`; otherwise it monitors the live credential file and Keychain for changes and captures the result there.
 - Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into that profile-owned isolated state. This is the durable ChatGPT-managed Codex path.
 - Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting OAuth cache files into the profile. The scratch directory is removed after the flow regardless of outcome.
+
+Claude OAuth support depends on how the installed Claude build scopes auth:
+- File-backed or profile-scoped keychain auth: the interactive login is a durable isolated profile path.
+- Legacy shared-Keychain auth: the profile is captured successfully, but `aisw use claude <name> --state-mode shared` is the supported runtime path because `CLAUDE_CONFIG_DIR` does not own the live OAuth credential.
+- Unknown keychain behavior: `aisw` will warn that isolated switching may not be durable until the profile is validated on that install.
 
 Interactive OAuth requires a terminal and browser access. It is not available in `--non-interactive` mode.
 
@@ -65,6 +70,8 @@ aisw add gemini work --from-live
 This is the fastest path if you are already logged in. The captured profile is automatically set as active because those credentials are already live.
 
 For Codex ChatGPT-managed auth, `--from-live` is compatibility/bootstrap only. It captures the current live session, but the durable setup is to re-login directly into the profile with interactive `aisw add codex <name>` so future upstream refreshes stay tied to that profile's own `CODEX_HOME`.
+
+For Claude OAuth, `--from-live` captures whatever Claude is currently using, but it does not upgrade a shared live session into an independently isolated auth owner. If the install still uses Claude's legacy shared Keychain credential, treat the imported profile as a captured shared-live session rather than as a durable isolated OAuth bundle.
 
 If a profile with that name already exists, use `--yes` to overwrite it:
 

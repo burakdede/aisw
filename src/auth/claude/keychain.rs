@@ -8,6 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use semver::Version;
+use sha2::{Digest, Sha256};
 
 use crate::config::CredentialBackend;
 use crate::tool_detection;
@@ -22,6 +24,23 @@ use super::LiveCredentialSource;
 pub(super) enum ClaudeAuthStorage {
     File,
     Keychain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaudeKeychainScheme {
+    LegacyShared,
+    ScopedByConfigDir,
+    Unknown,
+}
+
+impl ClaudeKeychainScheme {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ClaudeKeychainScheme::LegacyShared => "legacy_shared",
+            ClaudeKeychainScheme::ScopedByConfigDir => "scoped_by_config_dir",
+            ClaudeKeychainScheme::Unknown => "unknown",
+        }
+    }
 }
 
 /// Returns the auth storage Claude is actively reading from on this machine.
@@ -60,6 +79,56 @@ pub(super) fn forced_auth_storage() -> Option<ClaudeAuthStorage> {
     }
 }
 
+fn shared_keychain_platform() -> bool {
+    cfg!(target_os = "macos")
+        || matches!(
+            super::super::test_overrides::string("AISW_TEST_CLAUDE_PLATFORM").as_deref(),
+            Some("macos")
+        )
+}
+
+fn forced_keychain_scheme() -> Option<ClaudeKeychainScheme> {
+    match super::super::test_overrides::string("AISW_CLAUDE_KEYCHAIN_SCHEME").as_deref() {
+        Some("legacy_shared") | Some("shared") => Some(ClaudeKeychainScheme::LegacyShared),
+        Some("scoped_by_config_dir") | Some("scoped") => {
+            Some(ClaudeKeychainScheme::ScopedByConfigDir)
+        }
+        Some("unknown") => Some(ClaudeKeychainScheme::Unknown),
+        _ => None,
+    }
+}
+
+fn parse_claude_version(raw: &str) -> Option<Version> {
+    raw.split_whitespace()
+        .find_map(|token| Version::parse(token.trim_start_matches('v')).ok())
+}
+
+pub fn detected_keychain_scheme(claude_version: Option<&str>) -> ClaudeKeychainScheme {
+    if let Some(forced) = forced_keychain_scheme() {
+        return forced;
+    }
+
+    let Some(version) = claude_version.and_then(parse_claude_version) else {
+        return ClaudeKeychainScheme::Unknown;
+    };
+
+    // Evidence from upstream/public tooling indicates older 2.1.19-era builds
+    // used one shared service, while 2.1.121+ builds namespace by
+    // CLAUDE_CONFIG_DIR. Preserve an explicit unknown band in between.
+    if version <= Version::new(2, 1, 19) {
+        ClaudeKeychainScheme::LegacyShared
+    } else if version >= Version::new(2, 1, 121) {
+        ClaudeKeychainScheme::ScopedByConfigDir
+    } else {
+        ClaudeKeychainScheme::Unknown
+    }
+}
+
+pub fn current_keychain_scheme() -> ClaudeKeychainScheme {
+    let version = tool_detection::detect(Tool::Claude).and_then(|detected| detected.version);
+    detected_keychain_scheme(version.as_deref())
+}
+
 // ---- Import support ----
 
 /// Returns `true` when the OS keychain is available for reading Claude's live
@@ -93,12 +162,12 @@ pub(super) fn keychain_account() -> String {
 }
 
 pub(super) fn read_keychain_credentials() -> Result<Option<Vec<u8>>> {
-    super::super::secure_backend::read_generic_password(
-        super::KEYCHAIN_BACKEND,
-        super::KEYCHAIN_SERVICE,
-        None,
-    )
-    .context("could not query the system keyring for Claude Code credentials")
+    read_keychain_credentials_for_service(super::KEYCHAIN_SERVICE)
+}
+
+pub(super) fn read_keychain_credentials_for_service(service: &str) -> Result<Option<Vec<u8>>> {
+    super::super::secure_backend::read_generic_password(super::KEYCHAIN_BACKEND, service, None)
+        .context("could not query the system keyring for Claude Code credentials")
 }
 
 /// Reads the live Keychain entry for use during profile import. Returns `None`
@@ -116,11 +185,15 @@ pub fn read_live_keychain_credentials_for_import() -> Result<Option<Vec<u8>>> {
 }
 
 pub(super) fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
+    write_keychain_credentials_for_service(super::KEYCHAIN_SERVICE, bytes)
+}
+
+pub(super) fn write_keychain_credentials_for_service(service: &str, bytes: &[u8]) -> Result<()> {
     if cfg!(target_os = "macos")
         && super::super::test_overrides::var("AISW_KEYRING_TEST_DIR").is_none()
     {
         return super::super::macos_keychain::upsert_generic_password(
-            super::KEYCHAIN_SERVICE,
+            service,
             &keychain_account(),
             bytes,
             &trusted_claude_app_paths(),
@@ -130,7 +203,7 @@ pub(super) fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
 
     super::super::secure_backend::upsert_generic_password(
         super::KEYCHAIN_BACKEND,
-        super::KEYCHAIN_SERVICE,
+        service,
         &keychain_account(),
         bytes,
     )
@@ -138,9 +211,13 @@ pub(super) fn write_keychain_credentials(bytes: &[u8]) -> Result<()> {
 }
 
 pub(super) fn delete_keychain_credentials() -> Result<()> {
+    delete_keychain_credentials_for_service(super::KEYCHAIN_SERVICE)
+}
+
+pub(super) fn delete_keychain_credentials_for_service(service: &str) -> Result<()> {
     super::super::secure_backend::delete_generic_password(
         super::KEYCHAIN_BACKEND,
-        super::KEYCHAIN_SERVICE,
+        service,
         &keychain_account(),
     )
     .context("could not delete Claude Code credentials from the system keyring")
@@ -220,5 +297,43 @@ pub fn imported_profile_backend(source: &LiveCredentialSource) -> CredentialBack
 /// Returns `true` when Claude is actively reading from the macOS Keychain on
 /// this machine (as opposed to the `.credentials.json` file).
 pub fn uses_live_keychain(user_home: &Path) -> bool {
-    cfg!(target_os = "macos") && matches!(auth_storage(user_home), ClaudeAuthStorage::Keychain)
+    shared_keychain_platform() && matches!(auth_storage(user_home), ClaudeAuthStorage::Keychain)
+}
+
+pub fn keychain_service_for_config_dir(
+    config_dir: &Path,
+    user_home: &Path,
+    scheme: ClaudeKeychainScheme,
+) -> String {
+    if !matches!(scheme, ClaudeKeychainScheme::ScopedByConfigDir) {
+        return super::KEYCHAIN_SERVICE.to_owned();
+    }
+
+    let default_dir = user_home.join(".claude");
+    if normalized_path(config_dir) == normalized_path(&default_dir) {
+        return super::KEYCHAIN_SERVICE.to_owned();
+    }
+
+    let normalized = normalized_path(config_dir);
+    let hash = Sha256::digest(normalized.as_os_str().as_encoded_bytes());
+    format!(
+        "{}-{:02x}{:02x}{:02x}{:02x}",
+        super::KEYCHAIN_SERVICE,
+        hash[0],
+        hash[1],
+        hash[2],
+        hash[3]
+    )
+}
+
+fn normalized_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(path)
+        }
+    })
 }

@@ -86,7 +86,7 @@ During interactive OAuth, `aisw` spawns the upstream tool's native auth binary (
 
 For Gemini, `aisw` sets `GEMINI_CLI_HOME` to a temporary scratch directory so the OAuth cache is written there rather than to `~/.gemini/`. This prevents the OAuth flow from polluting the live account. The scratch directory is deleted after the flow completes, regardless of whether it succeeds or fails.
 
-For Claude Code, `aisw` intentionally does not set `CLAUDE_CONFIG_DIR` during OAuth capture. This allows Claude to run its native authentication flow without fallback-induced changes in behavior. `aisw` detects completion by polling the live credential file and OS keychain for changes.
+For Claude Code, `aisw` uses the most reliable auth target the installed Claude build supports. When Claude scopes auth by `CLAUDE_CONFIG_DIR`, `aisw` runs OAuth capture inside the profile-owned directory. When Claude still uses a shared live Keychain credential, `aisw` leaves login pointed at Claude's live state and detects completion by polling the live credential file and OS keychain for changes.
 
 ## Scope of access
 

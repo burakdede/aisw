@@ -51,6 +51,8 @@ pub enum AiswError {
         profile: String,
         imported_bootstrap: bool,
     },
+    /// Claude OAuth on macOS cannot provide durable isolated profile ownership.
+    UnsupportedClaudeMacosOauthIsolation { profile: String },
     /// A file operation was denied due to insufficient permissions.
     PermissionDenied { path: PathBuf },
     /// A backup with the given ID does not exist.
@@ -72,6 +74,9 @@ impl AiswError {
             AiswError::AuthFailed { .. } => "auth_failed",
             AiswError::UnsupportedCodexSharedChatgptAuthSwitch { .. } => {
                 "unsupported_codex_shared_chatgpt_auth_switch"
+            }
+            AiswError::UnsupportedClaudeMacosOauthIsolation { .. } => {
+                "unsupported_claude_macos_oauth_isolation"
             }
             AiswError::PermissionDenied { .. } => "permission_denied",
             AiswError::BackupNotFound { .. } => "backup_not_found",
@@ -127,6 +132,13 @@ impl AiswError {
                 Some(MachineRemediation {
                     kind: "run_command",
                     command: format!("aisw use codex {profile} --state-mode isolated"),
+                    safe: false,
+                })
+            }
+            AiswError::UnsupportedClaudeMacosOauthIsolation { profile } => {
+                Some(MachineRemediation {
+                    kind: "run_command",
+                    command: format!("aisw use claude {profile} --state-mode shared"),
                     safe: false,
                 })
             }
@@ -212,6 +224,15 @@ impl fmt::Display for AiswError {
                 }
                 Ok(())
             }
+            AiswError::UnsupportedClaudeMacosOauthIsolation { profile } => write!(
+                f,
+                "isolated-mode Claude OAuth switching is unsupported for profile '{}'.\n  \
+                 This Claude install uses the legacy shared live Keychain credential, so CLAUDE_CONFIG_DIR isolates config/history but not the live OAuth credential.\n  \
+                 This is an expected upstream limitation, not an aisw corruption bug.\n  \
+                 Use shared mode instead: aisw use claude {} --state-mode shared\n  \
+                 For repeatable automation or durable multi-profile setups, prefer an API key or long-lived auth token.",
+                profile, profile
+            ),
             AiswError::PermissionDenied { path } => write!(
                 f,
                 "permission denied: {}.\n  \
@@ -303,6 +324,17 @@ mod tests {
             }
             .code(),
             "unsupported_codex_shared_chatgpt_auth_switch"
+        );
+    }
+
+    #[test]
+    fn unsupported_claude_macos_oauth_isolation_code() {
+        assert_eq!(
+            AiswError::UnsupportedClaudeMacosOauthIsolation {
+                profile: "work".into(),
+            }
+            .code(),
+            "unsupported_claude_macos_oauth_isolation"
         );
     }
 

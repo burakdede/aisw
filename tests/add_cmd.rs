@@ -279,6 +279,7 @@ fn add_claude_oauth_succeeds_with_keychain_backed_credentials() {
 
     env.cmd()
         .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared")
         .env("USER", "tester")
         .args(["add", "claude", "work"])
         .assert()

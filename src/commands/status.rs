@@ -24,6 +24,7 @@ pub(crate) struct ToolStatus {
     pub active_profile: Option<String>,
     pub auth_method: Option<String>,
     pub credential_backend: Option<String>,
+    pub claude_auth_classification: Option<String>,
     pub codex_auth_classification: Option<String>,
     pub state_mode: Option<String>,
     pub active_profile_added_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -85,6 +86,7 @@ fn assess_live_state(
     tool: Tool,
     auth_method: AuthMethod,
     credential_backend: crate::config::CredentialBackend,
+    state_mode: crate::types::StateMode,
     profile_store: &ProfileStore,
     profile_name: &str,
     user_home: &Path,
@@ -95,6 +97,7 @@ fn assess_live_state(
             profile_name,
             credential_backend,
             user_home,
+            state_mode,
         )?,
         Tool::Codex => auth::codex::live_files_match(
             profile_store,
@@ -155,6 +158,7 @@ pub(crate) fn collect_status(
             active_profile,
             auth_method,
             credential_backend,
+            claude_auth_classification,
             codex_auth_classification,
             active_profile_added_at,
             active_profile_applied,
@@ -173,6 +177,21 @@ pub(crate) fn collect_status(
             let backend = profiles
                 .get(name)
                 .map(|m| m.credential_backend.display_name().to_owned());
+            let claude_auth_classification = if tool == Tool::Claude {
+                Some(
+                    auth::claude::classify_profile(
+                        user_home,
+                        &profile_store,
+                        name,
+                        profile_meta.auth_method,
+                        profile_meta.credential_backend,
+                    )?
+                    .as_str()
+                    .to_owned(),
+                )
+            } else {
+                None
+            };
             let codex_auth_classification = if tool == Tool::Codex {
                 Some(
                     auth::codex::classify_profile(
@@ -199,6 +218,7 @@ pub(crate) fn collect_status(
                                 tool,
                                 m.auth_method,
                                 m.credential_backend,
+                                config.state_mode_for(tool),
                                 &profile_store,
                                 name,
                                 user_home,
@@ -220,6 +240,7 @@ pub(crate) fn collect_status(
                 Some(name.to_owned()),
                 auth,
                 backend,
+                claude_auth_classification,
                 codex_auth_classification,
                 added_at,
                 applied,
@@ -227,7 +248,7 @@ pub(crate) fn collect_status(
                 perms,
             )
         } else {
-            (None, None, None, None, None, None, false, true)
+            (None, None, None, None, None, None, None, false, true)
         };
 
         statuses.push(ToolStatus {
@@ -237,6 +258,7 @@ pub(crate) fn collect_status(
             active_profile,
             auth_method,
             credential_backend,
+            claude_auth_classification,
             codex_auth_classification,
             state_mode,
             active_profile_added_at,
@@ -449,6 +471,9 @@ fn print_text(statuses: &[ToolStatus], context_status: Option<&DerivedContextSta
         if let Some(backend) = s.credential_backend.as_deref() {
             output::print_kv("Backend", output::ellipsize(backend, BACKEND_WIDTH));
         }
+        if let Some(classification) = s.claude_auth_classification.as_deref() {
+            output::print_kv("Claude auth", classification);
+        }
         if let Some(classification) = s.codex_auth_classification.as_deref() {
             output::print_kv("Codex auth", classification);
         }
@@ -477,6 +502,7 @@ fn print_json(
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
                 "credential_backend":   s.credential_backend,
+                "claude_auth_classification": s.claude_auth_classification,
                 "codex_auth_classification": s.codex_auth_classification,
                 "state_mode":           s.state_mode,
                 "active_profile_applied": s.active_profile_applied,
@@ -784,8 +810,14 @@ mod tests {
         .unwrap();
         cs.set_active(Tool::Claude, "work").unwrap();
 
-        auth::claude::apply_live_credentials(&ps, "work", CredentialBackend::File, tmp.path())
-            .unwrap();
+        auth::claude::apply_live_credentials(
+            &ps,
+            "work",
+            CredentialBackend::File,
+            tmp.path(),
+            crate::types::StateMode::Shared,
+        )
+        .unwrap();
 
         let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
         let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
@@ -859,6 +891,7 @@ mod tests {
             Tool::Gemini,
             AuthMethod::ApiKey,
             CredentialBackend::File,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -881,6 +914,7 @@ mod tests {
             "work",
             CredentialBackend::File,
             tmp.path(),
+            crate::types::StateMode::Shared,
         )
         .unwrap();
 
@@ -888,6 +922,7 @@ mod tests {
             Tool::Claude,
             AuthMethod::ApiKey,
             CredentialBackend::File,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -910,6 +945,7 @@ mod tests {
             Tool::Claude,
             AuthMethod::ApiKey,
             CredentialBackend::File,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -960,6 +996,7 @@ mod tests {
             Tool::Codex,
             AuthMethod::ApiKey,
             CredentialBackend::File,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -980,6 +1017,7 @@ mod tests {
             Tool::Codex,
             AuthMethod::ApiKey,
             CredentialBackend::File,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -1028,6 +1066,7 @@ mod tests {
             Tool::Codex,
             AuthMethod::ApiKey,
             CredentialBackend::SystemKeyring,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -1065,6 +1104,7 @@ mod tests {
             Tool::Gemini,
             AuthMethod::OAuth,
             CredentialBackend::File,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -1092,6 +1132,7 @@ mod tests {
             Tool::Gemini,
             AuthMethod::OAuth,
             CredentialBackend::File,
+            crate::types::StateMode::Shared,
             &profile_store,
             "work",
             tmp.path(),
@@ -1111,6 +1152,7 @@ mod tests {
                 active_profile: Some("work".to_owned()),
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
+                claude_auth_classification: Some("api_key".to_owned()),
                 codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(chrono::Utc::now()),
@@ -1125,6 +1167,7 @@ mod tests {
                 active_profile: None,
                 auth_method: None,
                 credential_backend: None,
+                claude_auth_classification: None,
                 codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: None,
@@ -1164,6 +1207,7 @@ mod tests {
                 active_profile: Some("old".to_owned()),
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
+                claude_auth_classification: Some("api_key".to_owned()),
                 codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(older),
@@ -1178,6 +1222,7 @@ mod tests {
                 active_profile: Some("new".to_owned()),
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
+                claude_auth_classification: None,
                 codex_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(newer),

@@ -874,7 +874,7 @@ fn add_oauth_progress_json_streams_ndjson_events() {
     let env = TestEnv::new();
     env.add_script_tool(
         "claude",
-        "#!/bin/sh\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"login\" ]; then\n  /bin/mkdir -p \"$HOME/.claude\"\n  printf '%s' '{\"oauthToken\":\"tok\"}' > \"$HOME/.claude/.credentials.json\"\n  exit 0\nfi\necho 'claude 2.3.0'\n",
+        "#!/bin/sh\nif [ \"$1\" = \"auth\" ] && [ \"$2\" = \"login\" ]; then\n  target_dir=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"\n  /bin/mkdir -p \"$target_dir\"\n  printf '%s' '{\"oauthToken\":\"tok\"}' > \"$target_dir/.credentials.json\"\n  exit 0\nfi\necho 'claude 2.3.0'\n",
     );
     env.cmd().args(["init", "--yes"]).assert().success();
 

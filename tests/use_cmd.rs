@@ -171,6 +171,122 @@ fn use_claude_shared_emit_env_unsets_claude_config_dir() {
 }
 
 #[test]
+fn use_claude_macos_oauth_isolated_mode_is_blocked_before_live_mutation() {
+    let env = TestEnv::new();
+    let profile_dir = env.aisw_home.join("profiles").join("claude").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join(".credentials.json"),
+        r#"{"oauthToken":"tok"}"#,
+    )
+    .unwrap();
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 2,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {
+                    "work": {
+                        "added_at": "2026-07-16T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": null
+                    }
+                },
+                "codex": {},
+                "gemini": {}
+            },
+            "settings": {
+                "backup_on_switch": true,
+                "max_backups": 10,
+                "tool_settings": {
+                    "claude": {"state_mode": "isolated"},
+                    "codex": {"state_mode": "isolated"}
+                }
+            }
+        }),
+    );
+    let live_path = env.fake_home.join(".claude").join(".credentials.json");
+    std::fs::create_dir_all(live_path.parent().unwrap()).unwrap();
+    std::fs::write(&live_path, r#"{"sentinel":"keep"}"#).unwrap();
+
+    env.cmd()
+        .env("AISW_TEST_CLAUDE_PLATFORM", "macos")
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared")
+        .args(["use", "claude", "work", "--state-mode", "isolated"])
+        .assert()
+        .failure()
+        .stderr(contains("expected upstream limitation"))
+        .stderr(contains("state-mode shared"));
+
+    assert_eq!(
+        std::fs::read_to_string(&live_path).unwrap(),
+        r#"{"sentinel":"keep"}"#
+    );
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert!(config["active"]["claude"].is_null());
+    assert!(config["settings"]["claude"]["state_mode"].is_null());
+}
+
+#[test]
+fn use_claude_macos_oauth_shared_mode_still_succeeds() {
+    let env = TestEnv::new();
+    let profile_dir = env.aisw_home.join("profiles").join("claude").join("work");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join(".credentials.json"),
+        r#"{"oauthToken":"tok"}"#,
+    )
+    .unwrap();
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 2,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {
+                    "work": {
+                        "added_at": "2026-07-16T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": null
+                    }
+                },
+                "codex": {},
+                "gemini": {}
+            },
+            "settings": {
+                "backup_on_switch": true,
+                "max_backups": 10,
+                "tool_settings": {
+                    "claude": {"state_mode": "isolated"},
+                    "codex": {"state_mode": "isolated"}
+                }
+            }
+        }),
+    );
+
+    env.cmd()
+        .env("AISW_TEST_CLAUDE_PLATFORM", "macos")
+        .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared")
+        .args([
+            "use",
+            "claude",
+            "work",
+            "--state-mode",
+            "shared",
+            "--emit-env",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("unset CLAUDE_CONFIG_DIR"));
+}
+
+#[test]
 fn use_nonexistent_profile_fails() {
     TestEnv::new()
         .cmd()
@@ -718,6 +834,7 @@ fn use_claude_writes_keychain_when_keychain_backend_selected() {
 
     env.cmd()
         .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
+        .env("AISW_CLAUDE_KEYCHAIN_SCHEME", "shared")
         .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
         .env("USER", "tester")
         .args(["use", "claude", "work"])

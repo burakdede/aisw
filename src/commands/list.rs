@@ -15,6 +15,7 @@ pub(crate) struct Row {
     pub(crate) profile: String,
     pub(crate) active: bool,
     pub(crate) auth_method: &'static str,
+    pub(crate) claude_auth_classification: Option<String>,
     pub(crate) codex_auth_classification: Option<String>,
     #[allow(dead_code)]
     pub(crate) credential_backend: &'static str,
@@ -37,6 +38,7 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
     let profile_store = ProfileStore::new(home);
+    let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
 
     let selected_tool = args.tool.or(args.tool_filter);
     let tools: Vec<Tool> = match selected_tool {
@@ -59,6 +61,21 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
                 profile: name.to_owned(),
                 active: active == Some(name),
                 auth_method: auth_display(meta.auth_method),
+                claude_auth_classification: if tool == Tool::Claude {
+                    Some(
+                        crate::auth::claude::classify_profile(
+                            &user_home,
+                            &profile_store,
+                            name,
+                            meta.auth_method,
+                            meta.credential_backend,
+                        )?
+                        .as_str()
+                        .to_owned(),
+                    )
+                } else {
+                    None
+                },
                 codex_auth_classification: if tool == Tool::Codex {
                     Some(
                         crate::auth::codex::classify_profile(
@@ -186,6 +203,13 @@ fn print_table(rows: &[Row]) {
             }
             _ => String::new(),
         };
+        let claude_badge = match row.claude_auth_classification.as_deref() {
+            Some("oauth_macos_keychain_shared_live") => {
+                format!(" {}", style("[shared-live]").red())
+            }
+            Some("oauth_file_backed") => format!(" {}", style("[oauth-file]").blue()),
+            _ => String::new(),
+        };
 
         let label_part = match row.label.as_deref() {
             Some(l) => format!(
@@ -202,8 +226,8 @@ fn print_table(rows: &[Row]) {
         };
 
         println!(
-            "  {} {}{}{}{}{}",
-            bullet, name_part, auth_badge, codex_badge, label_part, active_tag
+            "  {} {}{}{}{}{}{}",
+            bullet, name_part, auth_badge, claude_badge, codex_badge, label_part, active_tag
         );
     }
 }
@@ -226,6 +250,7 @@ fn print_json(rows: &[Row]) -> Result<()> {
                 serde_json::json!({
                     "name": r.profile,
                     "auth": r.auth_method,
+                    "claude_auth_classification": r.claude_auth_classification,
                     "codex_auth_classification": r.codex_auth_classification,
                     "label": r.label,
                 })
