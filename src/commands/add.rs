@@ -1753,12 +1753,11 @@ mod tests {
                 CredentialBackend::File => ProfileStore::new(&aisw_home)
                     .read_file(Tool::Claude, "work", ".credentials.json")
                     .unwrap(),
-                CredentialBackend::SystemKeyring => auth::secure_store::read_profile_secret(
-                    Tool::Claude,
-                    "work",
-                )
-                .unwrap()
-                .expect("stored Claude shared-keychain profile secret"),
+                CredentialBackend::SystemKeyring => {
+                    auth::secure_store::read_profile_secret(Tool::Claude, "work")
+                        .unwrap()
+                        .expect("stored Claude shared-keychain profile secret")
+                }
             };
             let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
             assert_eq!(stored_json["oauthToken"], "new-token");
