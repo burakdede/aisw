@@ -82,14 +82,7 @@ pub fn live_credentials_snapshot_for_import(
                 }));
             }
 
-            let Some(bytes) = read_live_keychain_credentials_for_import()? else {
-                return Ok(None);
-            };
-
-            Ok(Some(LiveCredentialSnapshot {
-                bytes,
-                source: LiveCredentialSource::Keychain,
-            }))
+            Ok(None)
         }
     }
 }

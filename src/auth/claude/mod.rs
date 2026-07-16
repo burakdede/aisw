@@ -973,6 +973,196 @@ mod tests {
     }
 
     #[test]
+    fn live_credentials_snapshot_prefers_keychain_when_runtime_storage_is_keychain() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let keyring_dir = dir.path().join("keyring");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(CREDENTIALS_FILE),
+            br#"{"oauthToken":"file-token"}"#,
+        )
+        .unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_dir);
+        let _user = EnvVarGuard::set("USER", "tester");
+
+        secure_backend::upsert_generic_password(
+            KEYCHAIN_BACKEND,
+            KEYCHAIN_SERVICE,
+            "tester",
+            br#"{"oauthToken":"keychain-token"}"#,
+        )
+        .unwrap();
+
+        let snapshot = oauth::live_credentials_snapshot_for_import(&user_home)
+            .unwrap()
+            .expect("snapshot should be present");
+
+        assert_eq!(snapshot.bytes, br#"{"oauthToken":"keychain-token"}"#);
+        assert!(matches!(snapshot.source, LiveCredentialSource::Keychain));
+    }
+
+    #[test]
+    fn live_credentials_snapshot_falls_back_to_file_when_keychain_is_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(CREDENTIALS_FILE),
+            br#"{"oauthToken":"file-token"}"#,
+        )
+        .unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keyring"));
+
+        let snapshot = oauth::live_credentials_snapshot_for_import(&user_home)
+            .unwrap()
+            .expect("snapshot should be present");
+
+        assert_eq!(snapshot.bytes, br#"{"oauthToken":"file-token"}"#);
+        assert!(matches!(snapshot.source, LiveCredentialSource::File(_)));
+    }
+
+    #[test]
+    fn restore_live_state_after_oauth_add_removes_live_credentials_and_oauth_metadata() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(CREDENTIALS_FILE),
+            br#"{"oauthToken":"live-token"}"#,
+        )
+        .unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"live@example.com"},"numStartups":7}"#,
+        )
+        .unwrap();
+
+        restore_live_state_after_oauth_add(None, None, &user_home).unwrap();
+
+        assert!(!user_home.join(".claude").join(CREDENTIALS_FILE).exists());
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&fs::read(user_home.join(".claude.json")).unwrap()).unwrap();
+        assert!(metadata.get("oauthAccount").is_none());
+        assert_eq!(metadata["numStartups"], 7);
+    }
+
+    #[test]
+    fn restore_live_state_after_oauth_add_recreates_metadata_when_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let live_credentials_path = user_home.join(".claude").join(CREDENTIALS_FILE);
+
+        restore_live_state_after_oauth_add(
+            Some(LiveCredentialSnapshot {
+                bytes: br#"{"oauthToken":"restored-token"}"#.to_vec(),
+                source: LiveCredentialSource::File(live_credentials_path.clone()),
+            }),
+            Some(br#"{"emailAddress":"restored@example.com"}"#.to_vec()),
+            &user_home,
+        )
+        .unwrap();
+
+        let restored = fs::read(&live_credentials_path).unwrap();
+        let restored_json: serde_json::Value = serde_json::from_slice(&restored).unwrap();
+        assert_eq!(restored_json["oauthToken"], "restored-token");
+
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&fs::read(user_home.join(".claude.json")).unwrap()).unwrap();
+        assert_eq!(
+            metadata["oauthAccount"]["emailAddress"],
+            "restored@example.com"
+        );
+    }
+
+    #[test]
+    fn sync_profile_from_live_if_same_identity_updates_stored_credentials() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(CREDENTIALS_FILE),
+            br#"{"oauthToken":"live-token","account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"org-live"}}"#,
+        )
+        .unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            CREDENTIALS_FILE,
+            br#"{"oauthToken":"stored-token","account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+
+        let synced = sync_profile_from_live_if_same_identity(
+            &ps,
+            "work",
+            CredentialBackend::File,
+            &user_home,
+        )
+        .unwrap();
+
+        assert!(synced);
+        let stored = ps
+            .read_file(Tool::Claude, "work", CREDENTIALS_FILE)
+            .unwrap();
+        let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(stored_json["oauthToken"], "live-token");
+
+        let metadata = ps
+            .read_file(Tool::Claude, "work", OAUTH_ACCOUNT_FILE)
+            .unwrap();
+        let metadata_json: serde_json::Value = serde_json::from_slice(&metadata).unwrap();
+        assert_eq!(metadata_json["emailAddress"], "work@example.com");
+        assert_eq!(metadata_json["organizationUuid"], "org-live");
+    }
+
+    #[test]
+    fn apply_live_oauth_account_metadata_creates_live_metadata_file_when_missing() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            OAUTH_ACCOUNT_FILE,
+            br#"{"emailAddress":"new@example.com","organizationUuid":"org-new"}"#,
+        )
+        .unwrap();
+
+        oauth::apply_live_oauth_account_metadata(&ps, "work", &user_home).unwrap();
+
+        let live_metadata: serde_json::Value =
+            serde_json::from_slice(&fs::read(user_home.join(".claude.json")).unwrap()).unwrap();
+        assert_eq!(
+            live_metadata["oauthAccount"]["emailAddress"],
+            "new@example.com"
+        );
+        assert_eq!(live_metadata["oauthAccount"]["organizationUuid"], "org-new");
+    }
+
+    #[test]
     #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_credentials_file_has_600_permissions() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());

@@ -1409,6 +1409,127 @@ mod tests {
     }
 
     #[test]
+    fn all_flag_json_emits_machine_result_for_switched_tools() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+        setup_claude_api_key_profile(&home, "work");
+        setup_codex_api_key_profile(&home, "work");
+
+        run_all_in("work", true, &home, &user_home).unwrap();
+
+        let config = ConfigStore::new(&home).load().unwrap();
+        assert_eq!(config.active_for(Tool::Claude), Some("work"));
+        assert_eq!(config.active_for(Tool::Codex), Some("work"));
+    }
+
+    #[test]
+    fn print_switch_summary_covers_codex_bootstrap_classification() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let cs = ConfigStore::new(&home);
+        ps.create(Tool::Codex, "work").unwrap();
+        ps.write_file(
+            Tool::Codex,
+            "work",
+            "auth.json",
+            br#"{"auth_mode":"chatgpt","tokens":{"refresh_token":"rt","account_id":"acct-123"},"primaryEmail":"dev@example.com"}"#,
+        )
+        .unwrap();
+        auth::codex::mark_imported_bootstrap(&ps, "work").unwrap();
+
+        let profile_meta = ProfileMeta {
+            added_at: chrono::Utc::now(),
+            auth_method: AuthMethod::OAuth,
+            credential_backend: crate::config::CredentialBackend::File,
+            label: None,
+        };
+        cs.add_profile(Tool::Codex, "work", profile_meta.clone())
+            .unwrap();
+
+        print_switch_summary(
+            &ResolvedProfileSwitch {
+                tool: Tool::Codex,
+                profile_name: "work".to_owned(),
+                profile_meta,
+                state_mode: StateMode::Isolated,
+                backup_on_switch: true,
+            },
+            &home,
+            &user_home,
+        );
+    }
+
+    #[test]
+    fn print_switch_summary_covers_claude_keychain_classifications() {
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
+
+        let ps = ProfileStore::new(&home);
+        let cs = ConfigStore::new(&home);
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            ".credentials.json",
+            br#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"refresh","expiresAt":2000},"oauthAccount":{"emailAddress":"team@example.com"}}"#,
+        )
+        .unwrap();
+
+        let profile_meta = ProfileMeta {
+            added_at: chrono::Utc::now(),
+            auth_method: AuthMethod::OAuth,
+            credential_backend: crate::config::CredentialBackend::File,
+            label: None,
+        };
+        cs.add_profile(Tool::Claude, "work", profile_meta.clone())
+            .unwrap();
+
+        {
+            let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "scoped");
+            print_switch_summary(
+                &ResolvedProfileSwitch {
+                    tool: Tool::Claude,
+                    profile_name: "work".to_owned(),
+                    profile_meta: profile_meta.clone(),
+                    state_mode: StateMode::Isolated,
+                    backup_on_switch: false,
+                },
+                &home,
+                &user_home,
+            );
+        }
+
+        {
+            let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "unknown");
+            print_switch_summary(
+                &ResolvedProfileSwitch {
+                    tool: Tool::Claude,
+                    profile_name: "work".to_owned(),
+                    profile_meta,
+                    state_mode: StateMode::Shared,
+                    backup_on_switch: false,
+                },
+                &home,
+                &user_home,
+            );
+        }
+    }
+
+    #[test]
     fn diff_backup_ids_returns_only_new_ids() {
         let before = vec!["b".to_owned(), "a".to_owned()];
         let after = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
