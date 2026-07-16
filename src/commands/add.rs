@@ -1851,6 +1851,40 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_from_env_is_rejected_before_tool_detection() {
+        with_env_lock(|| {
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            fs::create_dir_all(&home).unwrap();
+
+            let err = run_in(
+                from_env_args(Tool::Antigravity, "work"),
+                &home,
+                OsString::new(),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("does not document API-key or environment-variable authentication"),
+                "unexpected: {err}"
+            );
+        });
+    }
+
+    #[test]
+    fn antigravity_api_key_auth_is_rejected_before_tool_detection() {
+        with_env_lock(|| {
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            fs::create_dir_all(&home).unwrap();
+
+            let args = add_args_api_key(Tool::Antigravity, "work", "AIza-not-supported");
+            let err = run_in(args, &home, OsString::new()).unwrap_err();
+            assert!(err.to_string().contains("OAuth-only"), "unexpected: {err}");
+        });
+    }
+
+    #[test]
     fn claude_oauth_add_without_set_active_restores_live_state() {
         with_env_lock(|| {
             let _runtime = RuntimeGuard::set(false, false);
@@ -2017,6 +2051,26 @@ mod tests {
         let env = gemini_dir.join(".env");
         fs::write(&env, format!("GEMINI_API_KEY={key}\n")).unwrap();
         fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn write_antigravity_live_state(user_home: &Path, keyring_root: &Path, secret: &str) {
+        let app_dir = user_home.join(".gemini").join("antigravity-cli");
+        let shared_dir = user_home.join(".gemini").join("config");
+        fs::create_dir_all(app_dir.join("cache")).unwrap();
+        fs::create_dir_all(shared_dir.join("projects")).unwrap();
+        fs::write(app_dir.join("settings.json"), br#"{"theme":"terminal"}"#).unwrap();
+        fs::write(app_dir.join("cache").join("projects.json"), br#"{}"#).unwrap();
+        fs::write(shared_dir.join("hooks.json"), br#"{}"#).unwrap();
+        fs::write(shared_dir.join("projects").join("repo.json"), br#"{}"#).unwrap();
+
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", keyring_root.to_str().unwrap());
+        let keyring_ref = auth::antigravity::default_live_keyring_ref();
+        crate::auth::system_keyring::upsert_generic_password(
+            &keyring_ref.service,
+            &keyring_ref.account,
+            secret.as_bytes(),
+        )
+        .unwrap();
     }
 
     fn profile_meta(
@@ -2786,5 +2840,49 @@ mod tests {
             err.to_string().contains("no live credentials"),
             "unexpected: {err}"
         );
+    }
+
+    #[test]
+    fn from_live_antigravity_creates_profile_and_activates() {
+        with_env_lock(|| {
+            let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            let tmp = tempdir().unwrap();
+            let aisw_home = tmp.path().join("aisw");
+            let user_home = tmp.path().join("user");
+            let keyring_dir = tmp.path().join("keyring");
+            fs::create_dir_all(&aisw_home).unwrap();
+            fs::create_dir_all(&user_home).unwrap();
+            let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+            write_antigravity_live_state(&user_home, &keyring_dir, "{\"session\":\"live-secret\"}");
+
+            run_in(
+                from_live_args(Tool::Antigravity, "work"),
+                &aisw_home,
+                OsString::new(),
+            )
+            .unwrap();
+
+            let ps = ProfileStore::new(&aisw_home);
+            assert!(ps.exists(Tool::Antigravity, "work"));
+            assert_eq!(
+                String::from_utf8(
+                    ps.read_file(Tool::Antigravity, "work", "keyring-secret.json")
+                        .unwrap()
+                )
+                .unwrap(),
+                "{\"session\":\"live-secret\"}"
+            );
+            assert!(ps
+                .profile_dir(Tool::Antigravity, "work")
+                .join("app/settings.json")
+                .exists());
+            assert!(ps
+                .profile_dir(Tool::Antigravity, "work")
+                .join("shared/hooks.json")
+                .exists());
+
+            let config = ConfigStore::new(&aisw_home).load().unwrap();
+            assert_eq!(config.active_for(Tool::Antigravity), Some("work"));
+        });
     }
 }
