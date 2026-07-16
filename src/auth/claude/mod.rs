@@ -709,8 +709,9 @@ mod tests {
         let body = if write_creds {
             "[ \"$1\" = \"auth\" ] || exit 9\n\
              [ \"$2\" = \"login\" ] || exit 8\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             echo '{\"oauthToken\":\"tok\"}' > \"$HOME/.claude/.credentials.json\"\n\
+             target=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"\n\
+             mkdir -p \"$target\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$target/.credentials.json\"\n\
              exit 0\n"
         } else {
             "[ \"$1\" = \"auth\" ] || exit 9\n\
@@ -820,8 +821,9 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             echo '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$HOME/.claude/.credentials.json\"\n",
+             target=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"\n\
+             mkdir -p \"$target\"\n\
+             echo '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$target/.credentials.json\"\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -881,8 +883,9 @@ mod tests {
         fs::write(
             &bin,
             "#!/bin/sh\n\
-             mkdir -p \"$HOME/.claude\"\n\
-             printf '%s' '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$HOME/.claude/.credentials.json\"\n\
+             target=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"\n\
+             mkdir -p \"$target\"\n\
+             printf '%s' '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$target/.credentials.json\"\n\
              printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"burak@example.com\",\"organizationUuid\":\"org-b\"}}' > \"$HOME/.claude.json\"\n",
         )
         .unwrap();

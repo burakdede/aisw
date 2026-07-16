@@ -1747,10 +1747,19 @@ mod tests {
 
             let config = ConfigStore::new(&aisw_home).load().unwrap();
             assert_eq!(config.active_for(Tool::Claude), None);
+            let backend = config.profiles_for(Tool::Claude)["work"].credential_backend;
 
-            let stored = ProfileStore::new(&aisw_home)
-                .read_file(Tool::Claude, "work", ".credentials.json")
-                .unwrap();
+            let stored = match backend {
+                CredentialBackend::File => ProfileStore::new(&aisw_home)
+                    .read_file(Tool::Claude, "work", ".credentials.json")
+                    .unwrap(),
+                CredentialBackend::SystemKeyring => auth::secure_store::read_profile_secret(
+                    Tool::Claude,
+                    "work",
+                )
+                .unwrap()
+                .expect("stored Claude shared-keychain profile secret"),
+            };
             let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
             assert_eq!(stored_json["oauthToken"], "new-token");
 
