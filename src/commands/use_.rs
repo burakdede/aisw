@@ -1017,6 +1017,7 @@ mod tests {
 
     #[test]
     fn missing_profile_without_tty_fails_clearly() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _runtime = RuntimeModeGuard::set(false, false);
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
@@ -1041,6 +1042,7 @@ mod tests {
 
     #[test]
     fn missing_profile_with_emit_env_requires_explicit_name() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _runtime = RuntimeModeGuard::set(false, false);
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
@@ -1065,6 +1067,7 @@ mod tests {
 
     #[test]
     fn typo_suggestion_did_you_mean() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1079,6 +1082,7 @@ mod tests {
 
     #[test]
     fn claude_api_key_emit_env_updates_active() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1096,6 +1100,7 @@ mod tests {
 
     #[test]
     fn use_updates_active_in_config() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1111,6 +1116,7 @@ mod tests {
 
     #[test]
     fn use_creates_backup_when_enabled() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1348,6 +1354,7 @@ mod tests {
 
     #[test]
     fn all_flag_switches_all_tools_with_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1368,6 +1375,7 @@ mod tests {
 
     #[test]
     fn all_flag_skips_tools_without_profile() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -1409,6 +1417,7 @@ mod tests {
 
     #[test]
     fn active_and_state_mode_maps_reflect_current_config() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");

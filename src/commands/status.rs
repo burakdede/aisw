@@ -796,6 +796,7 @@ mod tests {
 
     #[test]
     fn active_profile_reflected_in_status() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
         let tmp = tempdir().unwrap();
         let ps = ProfileStore::new(tmp.path());

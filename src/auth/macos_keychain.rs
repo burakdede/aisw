@@ -292,6 +292,7 @@ mod tests {
 
     #[test]
     fn is_available_is_true_with_security_override() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
         let bin = dir.path().join("security");
         write_mock_security(&bin, "#!/bin/sh\nexit 0\n");
@@ -302,6 +303,7 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "macos"))]
     fn ensure_available_paths_error_without_overrides() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _security = EnvVarGuard::unset("AISW_SECURITY_BIN");
         let _keychain = EnvVarGuard::unset("AISW_SECURITY_KEYCHAIN");
         let err = read_generic_password("aisw", None).unwrap_err();
