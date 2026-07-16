@@ -29,9 +29,7 @@ use super::keychain::{
     read_keychain_credentials, read_keychain_credentials_for_service, watch_keychain_during_oauth,
     ClaudeAuthStorage,
 };
-use super::paths::{
-    live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
-};
+use super::paths::{live_account_metadata_path, live_credentials_path, live_credentials_paths};
 use super::{read_stored_credentials, LiveCredentialSnapshot, LiveCredentialSource};
 
 fn persist_oauth_storage(
@@ -54,51 +52,46 @@ pub fn live_credentials_snapshot_for_import(
     use super::keychain::read_live_keychain_credentials_for_import;
 
     let live_path = live_credentials_path(user_home);
-    let local_state = live_local_state_dir(user_home);
-
-    if cfg!(target_os = "macos") {
-        if local_state.is_some() {
+    match super::keychain::auth_storage(user_home) {
+        ClaudeAuthStorage::Keychain => {
             if let Some(bytes) = read_live_keychain_credentials_for_import()? {
                 return Ok(Some(LiveCredentialSnapshot {
                     bytes,
                     source: LiveCredentialSource::Keychain,
                 }));
             }
-        }
 
-        if live_path.exists() {
-            let bytes = std::fs::read(&live_path)
-                .with_context(|| format!("could not read {}", live_path.display()))?;
-            return Ok(Some(LiveCredentialSnapshot {
+            if live_path.exists() {
+                let bytes = std::fs::read(&live_path)
+                    .with_context(|| format!("could not read {}", live_path.display()))?;
+                return Ok(Some(LiveCredentialSnapshot {
+                    bytes,
+                    source: LiveCredentialSource::File(live_path),
+                }));
+            }
+
+            Ok(None)
+        }
+        ClaudeAuthStorage::File => {
+            if live_path.exists() {
+                let bytes = std::fs::read(&live_path)
+                    .with_context(|| format!("could not read {}", live_path.display()))?;
+                return Ok(Some(LiveCredentialSnapshot {
+                    bytes,
+                    source: LiveCredentialSource::File(live_path),
+                }));
+            }
+
+            let Some(bytes) = read_live_keychain_credentials_for_import()? else {
+                return Ok(None);
+            };
+
+            Ok(Some(LiveCredentialSnapshot {
                 bytes,
-                source: LiveCredentialSource::File(live_path),
-            }));
+                source: LiveCredentialSource::Keychain,
+            }))
         }
-
-        return Ok(None);
     }
-
-    if live_path.exists() {
-        let bytes = std::fs::read(&live_path)
-            .with_context(|| format!("could not read {}", live_path.display()))?;
-        return Ok(Some(LiveCredentialSnapshot {
-            bytes,
-            source: LiveCredentialSource::File(live_path),
-        }));
-    }
-
-    if local_state.is_none() {
-        return Ok(None);
-    }
-
-    let Some(bytes) = read_live_keychain_credentials_for_import()? else {
-        return Ok(None);
-    };
-
-    Ok(Some(LiveCredentialSnapshot {
-        bytes,
-        source: LiveCredentialSource::Keychain,
-    }))
 }
 
 // ---- OAuth account metadata ----
@@ -447,11 +440,19 @@ If you need a different Claude account, fully sign out of claude.com first, then
     let credential_path = target_config_dir
         .map(|config_dir| config_dir.join(super::CREDENTIALS_FILE))
         .unwrap_or_else(|| live_credentials_path(user_home));
+    let fallback_live_path = target_config_dir
+        .map(|_| live_credentials_path(user_home))
+        .filter(|path| path != &credential_path);
     let file_before = credential_path
         .exists()
         .then(|| fs::read(&credential_path))
         .transpose()
         .with_context(|| format!("could not read {}", credential_path.display()))?;
+    let fallback_file_before = fallback_live_path
+        .as_ref()
+        .filter(|path| path.exists())
+        .map(|path| fs::read(path).with_context(|| format!("could not read {}", path.display())))
+        .transpose()?;
 
     let mut cmd = Command::new(claude_bin);
     cmd.arg("auth").arg("login");
@@ -491,6 +492,19 @@ If you need a different Claude account, fully sign out of claude.com first, then
             }
         }
 
+        if let Some(fallback_live_path) = fallback_live_path.as_ref() {
+            if fallback_live_path.exists() {
+                let current = fs::read(fallback_live_path)
+                    .with_context(|| format!("could not read {}", fallback_live_path.display()))?;
+                let changed = fallback_file_before.as_deref() != Some(current.as_slice());
+                if changed {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Ok(current);
+                }
+            }
+        }
+
         if let Some(status) = child
             .try_wait()
             .with_context(|| format!("could not poll {}", claude_bin.display()))?
@@ -510,6 +524,14 @@ If you need a different Claude account, fully sign out of claude.com first, then
             if credential_path.exists() && status.success() {
                 return fs::read(&credential_path)
                     .with_context(|| format!("could not read {}", credential_path.display()));
+            }
+
+            if let Some(fallback_live_path) = fallback_live_path.as_ref() {
+                if fallback_live_path.exists() && status.success() {
+                    return fs::read(fallback_live_path).with_context(|| {
+                        format!("could not read {}", fallback_live_path.display())
+                    });
+                }
             }
 
             let exit_note = if status.success() {
