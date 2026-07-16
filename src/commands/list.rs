@@ -7,6 +7,7 @@ use console::style;
 use crate::cli::ListArgs;
 use crate::config::{AuthMethod, ConfigStore, CredentialBackend};
 use crate::output;
+use crate::profile::ProfileStore;
 use crate::types::Tool;
 
 pub(crate) struct Row {
@@ -14,6 +15,7 @@ pub(crate) struct Row {
     pub(crate) profile: String,
     pub(crate) active: bool,
     pub(crate) auth_method: &'static str,
+    pub(crate) codex_auth_classification: Option<String>,
     #[allow(dead_code)]
     pub(crate) credential_backend: &'static str,
     pub(crate) label: Option<String>,
@@ -34,6 +36,7 @@ fn backend_display(backend: CredentialBackend) -> &'static str {
 pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
+    let profile_store = ProfileStore::new(home);
 
     let selected_tool = args.tool.or(args.tool_filter);
     let tools: Vec<Tool> = match selected_tool {
@@ -56,6 +59,20 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
                 profile: name.to_owned(),
                 active: active == Some(name),
                 auth_method: auth_display(meta.auth_method),
+                codex_auth_classification: if tool == Tool::Codex {
+                    Some(
+                        crate::auth::codex::classify_profile(
+                            &profile_store,
+                            name,
+                            meta.auth_method,
+                            meta.credential_backend,
+                        )?
+                        .as_str()
+                        .to_owned(),
+                    )
+                } else {
+                    None
+                },
                 credential_backend: backend_display(meta.credential_backend),
                 label: meta.label.clone(),
                 added_at: meta.added_at,
@@ -162,6 +179,13 @@ fn print_table(rows: &[Row]) {
             "api_key" => format!(" {}", style("[api-key]").yellow()),
             other => format!(" [{}]", other),
         };
+        let codex_badge = match row.codex_auth_classification.as_deref() {
+            Some("chatgpt_managed_isolated") => format!(" {}", style("[chatgpt]").blue()),
+            Some("chatgpt_managed_imported_bootstrap") => {
+                format!(" {}", style("[bootstrap]").magenta())
+            }
+            _ => String::new(),
+        };
 
         let label_part = match row.label.as_deref() {
             Some(l) => format!(
@@ -178,8 +202,8 @@ fn print_table(rows: &[Row]) {
         };
 
         println!(
-            "  {} {}{}{}{}",
-            bullet, name_part, auth_badge, label_part, active_tag
+            "  {} {}{}{}{}{}",
+            bullet, name_part, auth_badge, codex_badge, label_part, active_tag
         );
     }
 }
@@ -202,6 +226,7 @@ fn print_json(rows: &[Row]) -> Result<()> {
                 serde_json::json!({
                     "name": r.profile,
                     "auth": r.auth_method,
+                    "codex_auth_classification": r.codex_auth_classification,
                     "label": r.label,
                 })
             })

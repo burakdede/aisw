@@ -9,7 +9,7 @@ description: Why aisw exists  -  the problems with manual credential switching a
 
 Claude Code, Codex CLI, and Gemini CLI each store credentials in different formats and different locations. When you need more than one account  -  work and personal, multiple clients, or team and individual licenses  -  you are left with manual options that all have the same failure mode: unclear state.
 
-Editing `~/.claude/.credentials.json` directly is fragile. Copying and swapping files is fragile. Managing multiple `ANTHROPIC_API_KEY` exports in shell profiles for different terminals is fragile. None of these approaches tell you what is currently active, and none of them recover cleanly when something goes wrong mid-switch.
+Editing `~/.claude/.credentials.json` directly is fragile. Copying and swapping files is fragile. Managing multiple `ANTHROPIC_API_KEY` exports in shell profiles for different terminals is fragile. None of these approaches tell you what is currently active, and none of them recover cleanly when something goes wrong mid-switch. For Codex ChatGPT-managed auth, copied shared session state is also not a durable primitive because upstream refreshes that session in place.
 
 The problem compounds across tools. If you maintain accounts for all three CLIs, you are managing three separate hidden credential locations, three sets of manual procedures, and no unified view of what is active.
 
@@ -129,7 +129,12 @@ aisw use claude personal
 
 **Can I manage multiple Codex CLI accounts?**
 
-Yes. Codex stores credentials in the OS keyring. `aisw` captures the keyring entry under a named profile so you can switch without touching the keyring manually.
+Yes, with an important distinction:
+
+- API-key profiles are fully durable.
+- ChatGPT-managed Codex profiles are durable when each profile authenticates directly inside its own isolated `CODEX_HOME`.
+- `aisw add codex <name> --from-live` remains supported as a bootstrap import, but not as a durable interchangeable shared-session bundle.
+- Shared-mode ChatGPT switching is intentionally blocked because that upstream auth is refreshed in place.
 
 **Can I manage multiple Gemini CLI accounts?**
 

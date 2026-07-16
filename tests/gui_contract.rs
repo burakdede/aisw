@@ -581,6 +581,78 @@ fn rename_missing_profile_is_structured_in_machine_mode() {
 }
 
 #[test]
+fn use_codex_shared_chatgpt_switch_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    std::fs::create_dir_all(env.aisw_home.join("profiles").join("codex").join("work")).unwrap();
+    std::fs::write(
+        env.aisw_home
+            .join("profiles")
+            .join("codex")
+            .join("work")
+            .join("auth.json"),
+        br#"{"auth_mode":"chatgpt","primaryEmail":"test@example.com","tokens":{"refresh_token":"refresh-token","account_id":"acc-123"},"last_refresh":"2026-07-16T00:00:00Z"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        env.aisw_home
+            .join("profiles")
+            .join("codex")
+            .join("work")
+            .join("config.toml"),
+        "cli_auth_credentials_store = \"file\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "version": 2,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {
+                    "work": {
+                        "added_at": "2026-07-16T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": null
+                    }
+                },
+                "gemini": {}
+            },
+            "settings": {
+                "backup_on_switch": true,
+                "max_backups": 10,
+                "tool_settings": {
+                    "claude": {"state_mode": "isolated"},
+                    "codex": {"state_mode": "isolated"}
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let output = env.output(&["use", "codex", "work", "--state-mode", "shared", "--json"]);
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error"]["kind"],
+        "unsupported_codex_shared_chatgpt_auth_switch"
+    );
+    assert_eq!(
+        json["error"]["remediation"]["command"],
+        "aisw use codex work --state-mode isolated"
+    );
+    assert!(json["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("expected upstream limitation"));
+}
+
+#[test]
 fn backup_restore_json_reports_non_activation() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");

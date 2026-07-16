@@ -16,6 +16,7 @@ use crate::types::{StateMode, Tool};
 
 pub(crate) const AUTH_FILE: &str = "auth.json";
 const CONFIG_FILE: &str = "config.toml";
+const IMPORTED_BOOTSTRAP_MARKER_FILE: &str = ".aisw-chatgpt-bootstrap-from-live";
 
 // Codex reads credentials from a file rather than the OS keyring when this is set.
 // aisw always enforces file-backed auth: Codex's keyring account key is a SHA-256
@@ -60,6 +61,46 @@ impl LiveAuthStorage {
 pub struct LiveCredentialSnapshot {
     pub bytes: Vec<u8>,
     pub source_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexAuthClassification {
+    ApiKey,
+    ChatgptManagedIsolated,
+    ChatgptManagedImportedBootstrap,
+}
+
+impl CodexAuthClassification {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CodexAuthClassification::ApiKey => "api_key",
+            CodexAuthClassification::ChatgptManagedIsolated => "chatgpt_managed_isolated",
+            CodexAuthClassification::ChatgptManagedImportedBootstrap => {
+                "chatgpt_managed_imported_bootstrap"
+            }
+        }
+    }
+
+    pub fn human_label(self) -> &'static str {
+        match self {
+            CodexAuthClassification::ApiKey => "API key",
+            CodexAuthClassification::ChatgptManagedIsolated => "ChatGPT-managed isolated",
+            CodexAuthClassification::ChatgptManagedImportedBootstrap => {
+                "ChatGPT-managed bootstrap import"
+            }
+        }
+    }
+
+    pub fn is_chatgpt_managed(self) -> bool {
+        !matches!(self, CodexAuthClassification::ApiKey)
+    }
+
+    pub fn is_imported_bootstrap(self) -> bool {
+        matches!(
+            self,
+            CodexAuthClassification::ChatgptManagedImportedBootstrap
+        )
+    }
 }
 
 pub fn live_local_state_dir(user_home: &Path) -> Option<PathBuf> {
@@ -204,6 +245,7 @@ pub fn add_api_key_with_backend(
         Tool::Codex,
         name,
     )?;
+    clear_imported_bootstrap_marker(profile_store, name)?;
 
     config_store
         .add_profile(
@@ -342,6 +384,7 @@ fn store_oauth_profile(
         Tool::Codex,
         name,
     )?;
+    clear_imported_bootstrap_marker(profile_store, name)?;
 
     files::cleanup_profile_on_error(
         identity::ensure_unique_oauth_identity(
@@ -401,6 +444,76 @@ fn persist_managed_credentials(
             secure_store::write_profile_secret(Tool::Codex, name, auth_bytes)
         }
     }
+}
+
+fn imported_bootstrap_marker_path(profile_store: &ProfileStore, name: &str) -> PathBuf {
+    profile_store
+        .profile_dir(Tool::Codex, name)
+        .join(IMPORTED_BOOTSTRAP_MARKER_FILE)
+}
+
+pub fn mark_imported_bootstrap(profile_store: &ProfileStore, name: &str) -> Result<()> {
+    let path = imported_bootstrap_marker_path(profile_store, name);
+    fs::write(&path, b"chatgpt_from_live_bootstrap\n")
+        .with_context(|| format!("could not write {}", path.display()))?;
+    files::set_permissions_600(&path)
+}
+
+pub fn clear_imported_bootstrap_marker(profile_store: &ProfileStore, name: &str) -> Result<()> {
+    let path = imported_bootstrap_marker_path(profile_store, name);
+    if path.exists() {
+        fs::remove_file(&path).with_context(|| format!("could not remove {}", path.display()))?;
+    }
+    Ok(())
+}
+
+pub fn is_imported_bootstrap(profile_store: &ProfileStore, name: &str) -> bool {
+    imported_bootstrap_marker_path(profile_store, name).exists()
+}
+
+pub fn classify_profile(
+    profile_store: &ProfileStore,
+    name: &str,
+    auth_method: AuthMethod,
+    backend: CredentialBackend,
+) -> Result<CodexAuthClassification> {
+    if auth_method == AuthMethod::ApiKey {
+        return Ok(CodexAuthClassification::ApiKey);
+    }
+
+    let bytes = read_stored_credentials(profile_store, name, backend)?;
+    let _shape_hint = auth_bytes_look_chatgpt_managed(&bytes);
+
+    Ok(if is_imported_bootstrap(profile_store, name) {
+        CodexAuthClassification::ChatgptManagedImportedBootstrap
+    } else {
+        CodexAuthClassification::ChatgptManagedIsolated
+    })
+}
+
+fn auth_bytes_look_chatgpt_managed(bytes: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+
+    value
+        .get("auth_mode")
+        .and_then(|v| v.as_str())
+        .is_some_and(|mode| mode.eq_ignore_ascii_case("chatgpt"))
+        || value
+            .get("tokens")
+            .and_then(|v| v.get("refresh_token"))
+            .and_then(|v| v.as_str())
+            .is_some()
+        || value.get("refreshToken").and_then(|v| v.as_str()).is_some()
+        || value.get("oauthToken").and_then(|v| v.as_str()).is_some()
+        || value.get("primaryEmail").and_then(|v| v.as_str()).is_some()
+        || value
+            .get("tokens")
+            .and_then(|v| v.get("account_id"))
+            .and_then(|v| v.as_str())
+            .is_some()
+        || value.get("last_refresh").is_some()
 }
 
 fn oauth_capture_dir(profile_dir: &Path) -> PathBuf {

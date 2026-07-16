@@ -64,7 +64,7 @@ aisw add gemini personal
 ```
 
 - Claude: spawns `claude auth login`. `aisw` monitors the live credential file and Keychain for changes and captures the result when login completes.
-- Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into the profile.
+- Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into that profile-owned isolated state. This is the durable ChatGPT-managed Codex path.
 - Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting OAuth cache files into the profile. The scratch directory is removed after the flow regardless of outcome.
 
 Interactive OAuth requires a terminal and browser access. It is not available in `--non-interactive` mode.
@@ -80,6 +80,8 @@ aisw add gemini work --from-live
 ```
 
 This is the fastest path if you are already logged in. The captured profile is automatically set as active because those credentials are already live.
+
+For Codex ChatGPT-managed auth, `--from-live` is compatibility/bootstrap only. It captures the current live session, but the durable setup is to re-login directly into the profile with interactive `aisw add codex <name>` so future upstream refreshes stay tied to that profile's own `CODEX_HOME`.
 
 If a profile with that name already exists, use `--yes` to overwrite it:
 

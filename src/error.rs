@@ -46,6 +46,11 @@ pub enum AiswError {
     /// Authentication with the tool failed (OAuth capture timeout, bad key,
     /// etc.).
     AuthFailed { tool: Tool, reason: String },
+    /// Codex ChatGPT-managed auth cannot safely switch in shared mode.
+    UnsupportedCodexSharedChatgptAuthSwitch {
+        profile: String,
+        imported_bootstrap: bool,
+    },
     /// A file operation was denied due to insufficient permissions.
     PermissionDenied { path: PathBuf },
     /// A backup with the given ID does not exist.
@@ -65,6 +70,9 @@ impl AiswError {
             AiswError::ConfigLocked => "config_locked",
             AiswError::ConfigCorrupt { .. } => "config_corrupt",
             AiswError::AuthFailed { .. } => "auth_failed",
+            AiswError::UnsupportedCodexSharedChatgptAuthSwitch { .. } => {
+                "unsupported_codex_shared_chatgpt_auth_switch"
+            }
             AiswError::PermissionDenied { .. } => "permission_denied",
             AiswError::BackupNotFound { .. } => "backup_not_found",
         }
@@ -115,6 +123,13 @@ impl AiswError {
                 command: "aisw backup list --json".to_owned(),
                 safe: true,
             }),
+            AiswError::UnsupportedCodexSharedChatgptAuthSwitch { profile, .. } => {
+                Some(MachineRemediation {
+                    kind: "run_command",
+                    command: format!("aisw use codex {profile} --state-mode isolated"),
+                    safe: false,
+                })
+            }
             _ => None,
         }
     }
@@ -171,6 +186,32 @@ impl fmt::Display for AiswError {
                 "authentication failed for {}: {reason}.",
                 tool.display_name()
             ),
+            AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
+                profile,
+                imported_bootstrap,
+            } => {
+                write!(
+                    f,
+                    "shared-mode ChatGPT switching is unsupported for Codex profile '{}'.\n  \
+                     Codex refreshes ChatGPT auth in place, and those refresh/session tokens are not safely shareable across multiple live owners.\n  \
+                     This is an expected upstream limitation, not an aisw corruption bug.\n  \
+                     Use isolated mode instead: aisw use codex {} --state-mode isolated",
+                    profile, profile
+                )?;
+                if *imported_bootstrap {
+                    write!(
+                        f,
+                        "\n  This profile was imported from live state, so treat it as a bootstrap session.\n  \
+                         Re-login directly inside its profile-owned CODEX_HOME for a durable setup, or use an API key for automation-style repeatability."
+                    )?;
+                } else {
+                    write!(
+                        f,
+                        "\n  For repeatable automation, prefer an API key or Codex access token."
+                    )?;
+                }
+                Ok(())
+            }
             AiswError::PermissionDenied { path } => write!(
                 f,
                 "permission denied: {}.\n  \
@@ -251,6 +292,18 @@ mod tests {
     #[test]
     fn config_locked_code() {
         assert_eq!(AiswError::ConfigLocked.code(), "config_locked");
+    }
+
+    #[test]
+    fn unsupported_codex_shared_chatgpt_auth_switch_code() {
+        assert_eq!(
+            AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
+                profile: "work".into(),
+                imported_bootstrap: true,
+            }
+            .code(),
+            "unsupported_codex_shared_chatgpt_auth_switch"
+        );
     }
 
     #[test]

@@ -71,6 +71,8 @@ aisw add codex personal
 aisw add gemini personal
 ```
 
+For Codex ChatGPT-managed auth, this interactive path is the durable setup because login happens inside the profile-owned isolated `CODEX_HOME`.
+
 If you want machine-readable OAuth progress for a GUI:
 
 ```sh
@@ -133,6 +135,8 @@ aisw use claude work --state-mode shared
 ```
 
 The default is `isolated`. Use `shared` when you want the tool to behave as if it was never redirected  -  useful for quick one-off usage or when you rely on existing settings or CLAUDE.md files.
+
+For Codex, shared mode is for API-key profiles only. ChatGPT-managed Codex profiles stay in isolated mode because upstream refreshes that auth in place.
 
 ## 5. Inspect state
 

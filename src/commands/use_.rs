@@ -229,6 +229,7 @@ pub(crate) fn resolve_profile_switch_request(
         }
     };
     profile_meta.credential_backend.validate_for_tool(tool)?;
+    validate_state_mode_support(tool, &profile_name, &profile_meta, state_mode, home)?;
 
     Ok(ResolvedProfileSwitch {
         tool,
@@ -237,6 +238,36 @@ pub(crate) fn resolve_profile_switch_request(
         state_mode,
         backup_on_switch: config.settings.backup_on_switch,
     })
+}
+
+fn validate_state_mode_support(
+    tool: Tool,
+    profile_name: &str,
+    profile_meta: &ProfileMeta,
+    state_mode: StateMode,
+    home: &Path,
+) -> Result<()> {
+    if tool != Tool::Codex || state_mode != StateMode::Shared {
+        return Ok(());
+    }
+
+    let profile_store = ProfileStore::new(home);
+    let classification = auth::codex::classify_profile(
+        &profile_store,
+        profile_name,
+        profile_meta.auth_method,
+        profile_meta.credential_backend,
+    )?;
+
+    if classification.is_chatgpt_managed() {
+        return Err(AiswError::UnsupportedCodexSharedChatgptAuthSwitch {
+            profile: profile_name.to_owned(),
+            imported_bootstrap: classification.is_imported_bootstrap(),
+        }
+        .into());
+    }
+
+    Ok(())
 }
 
 pub(crate) fn apply_resolved_profile_switch(
@@ -449,6 +480,16 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
     );
     output::print_title(&title);
     output::print_kv("Auth", auth_label(resolved.profile_meta.auth_method));
+    if resolved.tool == Tool::Codex {
+        if let Ok(classification) = auth::codex::classify_profile(
+            &profile_store,
+            &resolved.profile_name,
+            resolved.profile_meta.auth_method,
+            resolved.profile_meta.credential_backend,
+        ) {
+            output::print_kv("Codex auth", classification.human_label());
+        }
+    }
     output::print_kv(
         "Backend",
         resolved.profile_meta.credential_backend.display_name(),
@@ -484,6 +525,28 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path) {
     }
     if resolved.backup_on_switch {
         output::print_effect("Backup created before switching.");
+    }
+    if resolved.tool == Tool::Codex {
+        if let Ok(classification) = auth::codex::classify_profile(
+            &profile_store,
+            &resolved.profile_name,
+            resolved.profile_meta.auth_method,
+            resolved.profile_meta.credential_backend,
+        ) {
+            match classification {
+                auth::codex::CodexAuthClassification::ChatgptManagedIsolated => {
+                    output::print_effect(
+                        "This Codex ChatGPT login is durable because it is tied to this profile-owned CODEX_HOME.",
+                    );
+                }
+                auth::codex::CodexAuthClassification::ChatgptManagedImportedBootstrap => {
+                    output::print_effect(
+                        "This Codex ChatGPT profile is a bootstrap import; re-login directly inside its isolated CODEX_HOME for the durable path.",
+                    );
+                }
+                auth::codex::CodexAuthClassification::ApiKey => {}
+            }
+        }
     }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_use());
