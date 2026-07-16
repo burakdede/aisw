@@ -14,6 +14,39 @@ const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 const VALID_GEMINI_KEY_ALT: &str = "AIzaalt0987654321FEDCBA";
+const ANTIGRAVITY_SECRET: &str = r#"{"email":"work@example.com","token":"live"}"#;
+
+fn antigravity_live_keyring_secret_path(env: &TestEnv) -> PathBuf {
+    env.fake_home
+        .join("keychain")
+        .join("gemini")
+        .join("antigravity")
+        .join("secret")
+}
+
+fn write_antigravity_live_state(env: &TestEnv, secret: &str) {
+    let app_dir = env.fake_home.join(".gemini").join("antigravity-cli");
+    let shared_dir = env.fake_home.join(".gemini").join("config");
+    fs::create_dir_all(app_dir.join("cache")).unwrap();
+    fs::create_dir_all(shared_dir.join("projects")).unwrap();
+    fs::write(app_dir.join("settings.json"), br#"{"theme":"terminal"}"#).unwrap();
+    fs::write(
+        app_dir.join("cache").join("projects.json"),
+        br#"{"current":"repo"}"#,
+    )
+    .unwrap();
+    fs::write(shared_dir.join("hooks.json"), br#"{"hooks":[]}"#).unwrap();
+    fs::write(
+        shared_dir.join("projects").join("repo.json"),
+        br#"{"mode":"plan"}"#,
+    )
+    .unwrap();
+
+    let secret_path = antigravity_live_keyring_secret_path(env);
+    fs::create_dir_all(secret_path.parent().unwrap()).unwrap();
+    fs::write(secret_path.parent().unwrap().join("account"), "antigravity").unwrap();
+    fs::write(secret_path, secret).unwrap();
+}
 
 fn write_config_only_profile(env: &TestEnv, tool: &str, profile: &str, backend: &str) {
     let mut config = serde_json::json!({
@@ -730,6 +763,138 @@ fn add_gemini_oauth_succeeds_with_mocked_binary() {
     );
     env.assert_home_file_exists("profiles/gemini/work/oauth_creds.json");
     env.assert_home_file_exists("profiles/gemini/work/settings.json");
+}
+
+#[test]
+fn add_antigravity_oauth_succeeds_with_mocked_binary() {
+    let env = TestEnv::new();
+    env.add_script_tool(
+        "agy",
+        &format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then\n\
+               echo 'agy 1.0.0'\n\
+               exit 0\n\
+             fi\n\
+             root=\"${{AISW_KEYRING_TEST_DIR:-$HOME/keychain}}/gemini/antigravity\"\n\
+             /bin/mkdir -p \"$root\" \"$HOME/.gemini/antigravity-cli/cache\" \"$HOME/.gemini/config/projects\"\n\
+             printf '%s' 'antigravity' > \"$root/account\"\n\
+             printf '%s' '{{}}' > \"$HOME/.gemini/antigravity-cli/cache/projects.json\"\n\
+             printf '%s' '{{}}' > \"$HOME/.gemini/config/hooks.json\"\n\
+             printf '%s' '{{}}' > \"$HOME/.gemini/config/projects/repo.json\"\n\
+             printf '%s' '{{\"theme\":\"terminal\"}}' > \"$HOME/.gemini/antigravity-cli/settings.json\"\n\
+             printf '%s' '{ANTIGRAVITY_SECRET}' > \"$root/secret\"\n"
+        ),
+    );
+
+    env.cmd()
+        .args(["add", "antigravity", "work"])
+        .assert()
+        .success()
+        .stdout(contains("Added profile"))
+        .stdout(contains("Antigravity CLI"))
+        .stdout(contains("oauth_shared_live_keyring"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["antigravity"]["work"]["auth_method"],
+        "o_auth"
+    );
+    assert_eq!(
+        config["profiles"]["antigravity"]["work"]["credential_backend"],
+        "file"
+    );
+    env.assert_home_file_exists("profiles/antigravity/work/keyring-secret.json");
+    env.assert_home_file_exists("profiles/antigravity/work/keyring.json");
+    env.assert_home_file_exists("profiles/antigravity/work/app/settings.json");
+    env.assert_home_file_exists("profiles/antigravity/work/shared/hooks.json");
+}
+
+#[test]
+fn add_antigravity_from_live_succeeds_and_activates_profile() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.0.0");
+    write_antigravity_live_state(&env, ANTIGRAVITY_SECRET);
+
+    env.cmd()
+        .args(["add", "antigravity", "work", "--from-live"])
+        .assert()
+        .success()
+        .stdout(contains("Added profile"))
+        .stdout(contains("Activation"))
+        .stdout(contains("active"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["antigravity"], "work");
+    assert_eq!(
+        fs::read_to_string(env.home_file("profiles/antigravity/work/keyring-secret.json")).unwrap(),
+        ANTIGRAVITY_SECRET
+    );
+}
+
+#[test]
+fn add_antigravity_from_live_supports_explicit_system_keyring_backend() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.0.0");
+    write_antigravity_live_state(&env, ANTIGRAVITY_SECRET);
+
+    env.cmd()
+        .args([
+            "add",
+            "antigravity",
+            "work",
+            "--from-live",
+            "--credential-backend",
+            "system-keyring",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("system_keyring"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(
+        config["profiles"]["antigravity"]["work"]["credential_backend"],
+        "system_keyring"
+    );
+    assert!(!env
+        .home_file("profiles/antigravity/work/keyring-secret.json")
+        .exists());
+}
+
+#[test]
+fn add_antigravity_from_live_fails_without_live_credentials() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.0.0");
+
+    env.cmd()
+        .args(["add", "antigravity", "work", "--from-live"])
+        .assert()
+        .failure()
+        .stderr(contains("no live Antigravity credentials found"));
+}
+
+#[test]
+fn add_antigravity_rejects_api_key_auth_paths() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.0.0");
+
+    env.cmd()
+        .args(["add", "antigravity", "work", "--api-key", VALID_GEMINI_KEY])
+        .assert()
+        .failure()
+        .stderr(contains("OAuth-only"))
+        .stderr(contains("Use 'aisw add antigravity <name>'"));
+
+    env.cmd()
+        .args(["add", "antigravity", "work", "--from-env"])
+        .assert()
+        .failure()
+        .stderr(contains(
+            "does not document API-key or environment-variable authentication",
+        ));
 }
 
 #[test]

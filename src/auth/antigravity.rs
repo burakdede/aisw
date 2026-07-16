@@ -732,4 +732,192 @@ mod tests {
             AntigravityAuthClassification::OauthSharedLiveKeyring
         );
     }
+
+    #[test]
+    fn live_credentials_snapshot_returns_none_when_live_state_is_empty() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
+        let user_home = temp.path().join("user");
+        fs::create_dir_all(&user_home).unwrap();
+
+        let snapshot = live_credentials_snapshot_for_import(&user_home).unwrap();
+        assert!(snapshot.is_none());
+    }
+
+    #[test]
+    fn write_profile_snapshot_system_keyring_backend_stores_secret_outside_profile_dir() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
+        let home = temp.path().join("home");
+        let user_home = temp.path().join("user");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+
+        let profile_store = ProfileStore::new(&home);
+        let config_store = ConfigStore::new(&home);
+        write_live_state(&user_home, br#"{"email":"work@example.com"}"#);
+        let snapshot = capture_live_snapshot(&user_home).unwrap();
+
+        profile_store.create(Tool::Antigravity, "work").unwrap();
+        write_profile_snapshot(
+            &profile_store,
+            &config_store,
+            "work",
+            None,
+            CredentialBackend::SystemKeyring,
+            &snapshot,
+            false,
+        )
+        .unwrap();
+
+        assert!(!profile_store
+            .profile_dir(Tool::Antigravity, "work")
+            .join(SECRET_FILE)
+            .exists());
+        assert_eq!(
+            read_managed_secret(&profile_store, "work", CredentialBackend::SystemKeyring)
+                .unwrap()
+                .unwrap(),
+            br#"{"email":"work@example.com"}"#
+        );
+    }
+
+    #[test]
+    fn sync_profile_from_live_if_same_identity_updates_managed_snapshot() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
+        let home = temp.path().join("home");
+        let user_home = temp.path().join("user");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+
+        let profile_store = ProfileStore::new(&home);
+        let config_store = ConfigStore::new(&home);
+        write_live_state(
+            &user_home,
+            br#"{"email":"work@example.com","token":"live"}"#,
+        );
+        let snapshot = capture_live_snapshot(&user_home).unwrap();
+
+        profile_store.create(Tool::Antigravity, "work").unwrap();
+        write_profile_snapshot(
+            &profile_store,
+            &config_store,
+            "work",
+            None,
+            CredentialBackend::File,
+            &snapshot,
+            false,
+        )
+        .unwrap();
+
+        fs::write(
+            live_app_dir(&user_home).join("settings.json"),
+            br#"{"theme":"light"}"#,
+        )
+        .unwrap();
+        super::super::system_keyring::upsert_generic_password(
+            KEYRING_SERVICE,
+            KEYRING_ACCOUNT,
+            br#"{"email":"work@example.com","token":"new-live"}"#,
+        )
+        .unwrap();
+
+        let synced = sync_profile_from_live_if_same_identity(
+            &profile_store,
+            "work",
+            CredentialBackend::File,
+            &user_home,
+        )
+        .unwrap();
+
+        assert!(synced);
+        assert_eq!(
+            read_managed_secret(&profile_store, "work", CredentialBackend::File)
+                .unwrap()
+                .unwrap(),
+            br#"{"email":"work@example.com","token":"new-live"}"#
+        );
+        assert_eq!(
+            profile_store
+                .read_file(Tool::Antigravity, "work", "app/settings.json")
+                .unwrap(),
+            br#"{"theme":"light"}"#
+        );
+    }
+
+    #[test]
+    fn restore_snapshot_to_live_removes_stale_files_and_deletes_secret() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
+        let user_home = temp.path().join("user");
+        fs::create_dir_all(&user_home).unwrap();
+        write_live_state(&user_home, br#"{"email":"work@example.com"}"#);
+
+        restore_snapshot_to_live(
+            &LiveSnapshot {
+                keyring_ref: default_live_keyring_ref(),
+                keyring_secret: None,
+                app_files: BTreeMap::new(),
+                shared_files: BTreeMap::new(),
+            },
+            &user_home,
+        )
+        .unwrap();
+
+        assert!(read_live_dir(&live_app_dir(&user_home)).unwrap().is_empty());
+        assert!(read_live_dir(&live_shared_dir(&user_home))
+            .unwrap()
+            .is_empty());
+        assert!(super::super::system_keyring::read_generic_password(
+            KEYRING_SERVICE,
+            Some(KEYRING_ACCOUNT),
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn live_state_matches_returns_false_when_live_secret_differs() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
+        let home = temp.path().join("home");
+        let user_home = temp.path().join("user");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+
+        let profile_store = ProfileStore::new(&home);
+        let config_store = ConfigStore::new(&home);
+        write_live_state(&user_home, br#"{"email":"work@example.com"}"#);
+        let snapshot = capture_live_snapshot(&user_home).unwrap();
+
+        profile_store.create(Tool::Antigravity, "work").unwrap();
+        write_profile_snapshot(
+            &profile_store,
+            &config_store,
+            "work",
+            None,
+            CredentialBackend::File,
+            &snapshot,
+            false,
+        )
+        .unwrap();
+
+        super::super::system_keyring::upsert_generic_password(
+            KEYRING_SERVICE,
+            KEYRING_ACCOUNT,
+            br#"{"email":"other@example.com"}"#,
+        )
+        .unwrap();
+
+        assert!(
+            !live_state_matches(&profile_store, "work", CredentialBackend::File, &user_home)
+                .unwrap()
+        );
+    }
 }

@@ -653,6 +653,8 @@ struct LegacyActiveProfiles {
     pub claude: Option<String>,
     pub codex: Option<String>,
     pub gemini: Option<String>,
+    #[serde(default)]
+    pub antigravity: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -660,6 +662,8 @@ struct LegacyAllProfiles {
     pub claude: HashMap<String, ProfileMeta>,
     pub codex: HashMap<String, ProfileMeta>,
     pub gemini: HashMap<String, ProfileMeta>,
+    #[serde(default)]
+    pub antigravity: HashMap<String, ProfileMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -685,6 +689,8 @@ struct LegacyContextProfiles {
     pub claude: Option<String>,
     pub codex: Option<String>,
     pub gemini: Option<String>,
+    #[serde(default)]
+    pub antigravity: Option<String>,
 }
 
 impl Serialize for ActiveProfiles {
@@ -696,6 +702,7 @@ impl Serialize for ActiveProfiles {
             claude: self.get(Tool::Claude).cloned().flatten(),
             codex: self.get(Tool::Codex).cloned().flatten(),
             gemini: self.get(Tool::Gemini).cloned().flatten(),
+            antigravity: self.get(Tool::Antigravity).cloned().flatten(),
         }
         .serialize(serializer)
     }
@@ -711,6 +718,7 @@ impl<'de> Deserialize<'de> for ActiveProfiles {
         inner.insert(Tool::Claude, legacy.claude);
         inner.insert(Tool::Codex, legacy.codex);
         inner.insert(Tool::Gemini, legacy.gemini);
+        inner.insert(Tool::Antigravity, legacy.antigravity);
         Ok(Self(inner))
     }
 }
@@ -724,6 +732,7 @@ impl Serialize for AllProfiles {
             claude: self.get(Tool::Claude).cloned().unwrap_or_default(),
             codex: self.get(Tool::Codex).cloned().unwrap_or_default(),
             gemini: self.get(Tool::Gemini).cloned().unwrap_or_default(),
+            antigravity: self.get(Tool::Antigravity).cloned().unwrap_or_default(),
         }
         .serialize(serializer)
     }
@@ -739,6 +748,7 @@ impl<'de> Deserialize<'de> for AllProfiles {
         inner.insert(Tool::Claude, legacy.claude);
         inner.insert(Tool::Codex, legacy.codex);
         inner.insert(Tool::Gemini, legacy.gemini);
+        inner.insert(Tool::Antigravity, legacy.antigravity);
         Ok(Self(inner))
     }
 }
@@ -752,6 +762,7 @@ impl Serialize for ContextProfiles {
             claude: self.get(Tool::Claude).map(str::to_owned),
             codex: self.get(Tool::Codex).map(str::to_owned),
             gemini: self.get(Tool::Gemini).map(str::to_owned),
+            antigravity: self.get(Tool::Antigravity).map(str::to_owned),
         }
         .serialize(serializer)
     }
@@ -772,6 +783,9 @@ impl<'de> Deserialize<'de> for ContextProfiles {
         }
         if let Some(profile) = legacy.gemini {
             inner.insert(Tool::Gemini, profile);
+        }
+        if let Some(profile) = legacy.antigravity {
+            inner.insert(Tool::Antigravity, profile);
         }
         Ok(Self(inner))
     }
@@ -831,6 +845,7 @@ impl From<ContextProfiles> for LegacyContextProfiles {
             claude: value.get(Tool::Claude).map(str::to_owned),
             codex: value.get(Tool::Codex).map(str::to_owned),
             gemini: value.get(Tool::Gemini).map(str::to_owned),
+            antigravity: value.get(Tool::Antigravity).map(str::to_owned),
         }
     }
 }
@@ -846,6 +861,9 @@ impl From<LegacyContextProfiles> for ContextProfiles {
         }
         if let Some(profile) = value.gemini {
             profiles.insert(Tool::Gemini, profile);
+        }
+        if let Some(profile) = value.antigravity {
+            profiles.insert(Tool::Antigravity, profile);
         }
         profiles
     }
@@ -1089,6 +1107,64 @@ mod tests {
         assert_eq!(work.profiles.get(Tool::Claude), Some("acme-claude"));
         assert_eq!(work.profiles.get(Tool::Codex), Some("acme-codex"));
         assert_eq!(work.profiles.get(Tool::Gemini), None);
+    }
+
+    #[test]
+    fn round_trip_preserves_antigravity_profiles() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .add_profile(Tool::Antigravity, "work", meta(AuthMethod::OAuth))
+            .unwrap();
+
+        let config = store.load().unwrap();
+        assert!(config.profiles_for(Tool::Antigravity).contains_key("work"));
+        assert_eq!(
+            config.profiles_for(Tool::Antigravity)["work"].auth_method,
+            AuthMethod::OAuth
+        );
+    }
+
+    #[test]
+    fn round_trip_preserves_active_antigravity_profile() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+
+        store
+            .add_profile(Tool::Antigravity, "work", meta(AuthMethod::OAuth))
+            .unwrap();
+        store.set_active(Tool::Antigravity, "work").unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(config.active_for(Tool::Antigravity), Some("work"));
+    }
+
+    #[test]
+    fn round_trip_preserves_antigravity_context_mapping() {
+        let dir = tempdir().unwrap();
+        let store = store(dir.path());
+        let now = Utc::now();
+        let mut profiles = ContextProfiles::default();
+        profiles.insert(Tool::Antigravity, "ag-work");
+        store
+            .create_context(
+                "work",
+                ContextEntry {
+                    profiles,
+                    created_at: now,
+                    updated_at: now,
+                },
+            )
+            .unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(
+            config
+                .context("work")
+                .and_then(|context| context.profiles.get(Tool::Antigravity)),
+            Some("ag-work")
+        );
     }
 
     #[test]

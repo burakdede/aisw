@@ -9,6 +9,8 @@
 mod common;
 
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use assert_cmd::Command;
@@ -219,6 +221,75 @@ fn seed_system_keyring_codex_profile(env: &TestEnv, name: &str, secret: &str) ->
     keychain_secret_path(env, "aisw", &account)
 }
 
+fn seed_system_keyring_antigravity_profile(env: &TestEnv, name: &str, secret: &str) -> PathBuf {
+    let profile_dir = env
+        .aisw_home
+        .join("profiles")
+        .join("antigravity")
+        .join(name);
+    fs::create_dir_all(profile_dir.join("app")).unwrap();
+    fs::create_dir_all(profile_dir.join("shared").join("projects")).unwrap();
+    fs::write(
+        profile_dir.join("keyring.json"),
+        br#"{"service":"gemini","account":"antigravity"}"#,
+    )
+    .unwrap();
+    fs::write(
+        profile_dir.join("app").join("settings.json"),
+        br#"{"theme":"terminal"}"#,
+    )
+    .unwrap();
+    fs::write(
+        profile_dir.join("shared").join("hooks.json"),
+        br#"{"hooks":["plan"]}"#,
+    )
+    .unwrap();
+    fs::write(
+        profile_dir
+            .join("shared")
+            .join("projects")
+            .join("repo.json"),
+        br#"{"mode":"plan"}"#,
+    )
+    .unwrap();
+    #[cfg(unix)]
+    for path in [
+        profile_dir.join("keyring.json"),
+        profile_dir.join("app").join("settings.json"),
+        profile_dir.join("shared").join("hooks.json"),
+        profile_dir
+            .join("shared")
+            .join("projects")
+            .join("repo.json"),
+    ] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    let account = format!("profile:agy:{}", name);
+    seed_keychain_item(env, "aisw", &account, secret);
+
+    let config_path = env.aisw_home.join("config.json");
+    let mut config: serde_json::Value = if config_path.exists() {
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap()
+    } else {
+        serde_json::json!({
+            "version": 2,
+            "active": {"claude": null, "codex": null, "gemini": null, "antigravity": null},
+            "profiles": {"claude": {}, "codex": {}, "gemini": {}, "antigravity": {}},
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        })
+    };
+    config["profiles"]["antigravity"][name] = serde_json::json!({
+        "added_at": "2026-01-01T00:00:00Z",
+        "auth_method": "o_auth",
+        "credential_backend": "system_keyring",
+        "label": null
+    });
+    fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+
+    keychain_secret_path(env, "aisw", &account)
+}
+
 fn cmd_with_secure_env(env: &TestEnv) -> Command {
     let mut cmd = env.cmd();
     cmd.env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
@@ -235,6 +306,7 @@ fn secure_cmd_for_tool(env: &TestEnv, tool: &str) -> Command {
         "codex" => {
             cmd.env("AISW_CODEX_AUTH_STORAGE", "keychain");
         }
+        "antigravity" => {}
         _ => unreachable!(),
     }
     cmd
@@ -432,6 +504,49 @@ fn use_codex_system_keyring_profile_applies_to_file_live_storage() {
     );
 }
 
+#[test]
+fn use_antigravity_system_keyring_profile_applies_to_live_keyring_and_files() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.0.0");
+
+    seed_system_keyring_antigravity_profile(
+        &env,
+        "work",
+        r#"{"email":"dev@example.com","token":"oauth-token"}"#,
+    );
+
+    secure_cmd_for_tool(&env, "antigravity")
+        .args(["use", "antigravity", "work"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read(keychain_secret_path(&env, "gemini", "antigravity")).unwrap(),
+        br#"{"email":"dev@example.com","token":"oauth-token"}"#
+    );
+    assert_eq!(
+        fs::read(
+            env.fake_home
+                .join(".gemini")
+                .join("antigravity-cli")
+                .join("settings.json")
+        )
+        .unwrap(),
+        br#"{"theme":"terminal"}"#
+    );
+    assert_eq!(
+        fs::read(
+            env.fake_home
+                .join(".gemini")
+                .join("config")
+                .join("projects")
+                .join("repo.json")
+        )
+        .unwrap(),
+        br#"{"mode":"plan"}"#
+    );
+}
+
 // ---------------------------------------------------------------------------
 // `aisw status` with keychain backend
 // ---------------------------------------------------------------------------
@@ -491,6 +606,35 @@ fn status_detects_keychain_mismatch_when_secret_changed_externally() {
     .unwrap();
 
     secure_cmd_for_tool(&env, "claude")
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("does not match"));
+}
+
+#[test]
+fn status_detects_antigravity_system_keyring_mismatch_when_secret_changed_externally() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.0.0");
+
+    seed_system_keyring_antigravity_profile(
+        &env,
+        "work",
+        r#"{"email":"dev@example.com","token":"oauth-token"}"#,
+    );
+
+    secure_cmd_for_tool(&env, "antigravity")
+        .args(["use", "antigravity", "work"])
+        .assert()
+        .success();
+
+    fs::write(
+        keychain_secret_path(&env, "gemini", "antigravity"),
+        br#"{"email":"tampered@example.com","token":"tampered"}"#,
+    )
+    .unwrap();
+
+    secure_cmd_for_tool(&env, "antigravity")
         .args(["status"])
         .assert()
         .success()
