@@ -86,7 +86,9 @@ impl CredentialBackend {
     pub fn validate_for_tool(self, tool: Tool) -> Result<()> {
         match (self, tool) {
             (CredentialBackend::File, _) => Ok(()),
-            (CredentialBackend::SystemKeyring, Tool::Claude | Tool::Codex) => Ok(()),
+            (CredentialBackend::SystemKeyring, Tool::Claude | Tool::Codex | Tool::Antigravity) => {
+                Ok(())
+            }
             (CredentialBackend::SystemKeyring, Tool::Gemini) => bail!(
                 "credential backend '{}' is not supported for {}.\n  \
                  Gemini CLI auth remains file-managed because its local ~/.gemini state mixes \

@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.
+description: Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts in under five minutes.
 ---
 
 # Quickstart
@@ -33,7 +33,7 @@ aisw --version
 aisw init
 ```
 
-This creates `~/.aisw/`, offers to install the optional shell hook (recommended), and detects any accounts you are already logged into. If you are already signed into Claude Code, Codex, or Gemini, `init` will offer to import those credentials as named profiles so you start without re-authenticating.
+This creates `~/.aisw/`, offers to install the optional shell hook (recommended), and detects any accounts you are already logged into. If you are already signed into Claude Code, Codex, or Gemini, `init` will offer to import those credentials as named profiles so you start without re-authenticating. Antigravity support currently starts with explicit `add` flows rather than `init` auto-import.
 
 For GUI or other machine-driven onboarding, use the non-prompting bootstrap path instead:
 
@@ -69,9 +69,12 @@ aisw add codex ci --from-env
 aisw add claude personal
 aisw add codex personal
 aisw add gemini personal
+aisw add antigravity work --from-live
 ```
 
 For Codex ChatGPT-managed auth, this interactive path is the durable setup because login happens inside the profile-owned isolated `CODEX_HOME`.
+
+For Antigravity, `aisw add antigravity <name>` captures the shared live keyring-backed OAuth session that `agy` creates and stores the documented Antigravity config roots alongside it. Upstream does not currently document an isolated per-profile auth root.
 
 If you want machine-readable OAuth progress for a GUI:
 

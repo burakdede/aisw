@@ -70,6 +70,45 @@ pub fn list_regular_files(dir: &Path) -> Result<Vec<RegularFile>> {
     Ok(files)
 }
 
+pub fn list_regular_files_recursive(dir: &Path) -> Result<Vec<RegularFile>> {
+    let mut files = Vec::new();
+    list_regular_files_recursive_inner(dir, dir, &mut files)?;
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+fn list_regular_files_recursive_inner(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<RegularFile>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(current)
+        .with_context(|| format!("could not read {}", current.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            list_regular_files_recursive_inner(root, &path, files)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)
+            .with_context(|| format!("could not relativize {}", path.display()))?;
+        files.push(RegularFile {
+            file_name: relative.as_os_str().to_owned(),
+            path,
+        });
+    }
+    Ok(())
+}
+
 pub fn json_equal(a: &[u8], b: &[u8]) -> Result<bool> {
     let va = serde_json::from_slice::<serde_json::Value>(a)
         .context("could not parse JSON for comparison")?;
@@ -189,6 +228,24 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name, OsString::from("real.txt"));
         assert_eq!(files[0].path, file);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_regular_files_recursive_returns_relative_paths() {
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        let root_file = dir.path().join("root.txt");
+        let nested_file = nested.join("child.txt");
+
+        std::fs::write(&root_file, "root").unwrap();
+        std::fs::write(&nested_file, "child").unwrap();
+
+        let files = list_regular_files_recursive(dir.path()).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].file_name, OsString::from("nested/child.txt"));
+        assert_eq!(files[1].file_name, OsString::from("root.txt"));
     }
 
     #[test]

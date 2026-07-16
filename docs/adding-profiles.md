@@ -49,6 +49,7 @@ aisw add gemini personal
 - Claude: spawns `claude auth login`. When the installed Claude build supports profile-scoped auth, `aisw` runs login inside the profile-owned `CLAUDE_CONFIG_DIR`; otherwise it monitors the live credential file and Keychain for changes and captures the result there.
 - Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into that profile-owned isolated state. This is the durable ChatGPT-managed Codex path.
 - Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting OAuth cache files into the profile. The scratch directory is removed after the flow regardless of outcome.
+- Antigravity: spawns `agy`, captures the resulting live keyring-backed OAuth session plus the documented `~/.gemini/antigravity-cli/` and `~/.gemini/config/` state, then restores the prior live state unless `--set-active` is requested.
 
 Claude OAuth support depends on how the installed Claude build scopes auth:
 - File-backed or profile-scoped keychain auth: the interactive login is a durable isolated profile path.
@@ -65,6 +66,7 @@ Import what the tool is currently using, without launching a browser:
 aisw add claude work --from-live
 aisw add codex work --from-live
 aisw add gemini work --from-live
+aisw add antigravity work --from-live
 ```
 
 This is the fastest path if you are already logged in. The captured profile is automatically set as active because those credentials are already live.
@@ -72,6 +74,8 @@ This is the fastest path if you are already logged in. The captured profile is a
 For Codex ChatGPT-managed auth, `--from-live` is compatibility/bootstrap only. It captures the current live session, but the durable setup is to re-login directly into the profile with interactive `aisw add codex <name>` so future upstream refreshes stay tied to that profile's own `CODEX_HOME`.
 
 For Claude OAuth, `--from-live` captures whatever Claude is currently using, but it does not upgrade a shared live session into an independently isolated auth owner. If the install still uses Claude's legacy shared Keychain credential, treat the imported profile as a captured shared-live session rather than as a durable isolated OAuth bundle.
+
+For Antigravity OAuth, both interactive add and `--from-live` operate on the same shared live upstream model: `aisw` stores the current keyring-backed session and documented Antigravity config roots, then restores them on switch. Upstream does not currently document an isolated per-profile auth root or profile selector.
 
 If a profile with that name already exists, use `--yes` to overwrite it:
 
@@ -106,6 +110,7 @@ All credential files are written with `0600` permissions. The profile name is re
 - `file`: portable and backup-friendly
 - `system-keyring`: stronger local secret storage for Claude and Codex where the OS keyring is usable. Stored config and status output use `system_keyring`.
 - Gemini remains file-managed because its auth is coupled to broader `~/.gemini/` state
+- Antigravity supports `file` and `system-keyring` for the managed profile, but live auth is always restored into Antigravity's shared OS keyring entry.
 
 ## Duplicate account detection
 

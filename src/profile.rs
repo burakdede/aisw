@@ -129,6 +129,10 @@ impl ProfileStore {
         let dir = self.profile_dir(tool, name);
         let dest = dir.join(filename);
         reject_symlink(&dest)?;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("could not create {}", parent.display()))?;
+        }
         let tmp = dest.with_extension("tmp");
         fs::write(&tmp, contents).with_context(|| format!("could not write {}", tmp.display()))?;
         set_permissions_600(&tmp)?;
@@ -147,6 +151,10 @@ impl ProfileStore {
         let dir = self.profile_dir(tool, name);
         let dest = dir.join(dest_filename);
         reject_symlink(&dest)?;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("could not create {}", parent.display()))?;
+        }
         fs::copy(src, &dest)
             .with_context(|| format!("could not copy {} to {}", src.display(), dest.display()))?;
         set_permissions_600(&dest)
@@ -419,6 +427,39 @@ mod tests {
         s.copy_file_into(Tool::Codex, "work", &src, "auth.json")
             .unwrap();
         let contents = s.read_file(Tool::Codex, "work", "auth.json").unwrap();
+        assert_eq!(contents, b"auth-data");
+    }
+
+    #[test]
+    fn write_file_creates_nested_parent_directories() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+
+        s.create(Tool::Gemini, "work").unwrap();
+        s.write_file(Tool::Gemini, "work", "nested/deeper/state.json", b"{}")
+            .unwrap();
+
+        let contents = s
+            .read_file(Tool::Gemini, "work", "nested/deeper/state.json")
+            .unwrap();
+        assert_eq!(contents, b"{}");
+    }
+
+    #[test]
+    fn copy_file_into_creates_nested_parent_directories() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        s.create(Tool::Codex, "work").unwrap();
+
+        let src_dir = tempdir().unwrap();
+        let src = src_dir.path().join("auth.json");
+        fs::write(&src, b"auth-data").unwrap();
+
+        s.copy_file_into(Tool::Codex, "work", &src, "nested/auth.json")
+            .unwrap();
+        let contents = s
+            .read_file(Tool::Codex, "work", "nested/auth.json")
+            .unwrap();
         assert_eq!(contents, b"auth-data");
     }
 

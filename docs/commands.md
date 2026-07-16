@@ -123,14 +123,16 @@ Notes:
 - `--from-live` always activates the profile because those credentials are already live.
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
 - For Codex ChatGPT-managed auth, `--from-live` is a bootstrap import, not a durable interchangeable account bundle.
+- For Antigravity, `--from-live` captures the current shared live keyring-backed session plus the documented Antigravity config roots.
 - When OAuth identity can be resolved, `add` blocks creating a duplicate profile for an already-stored account.
 - `--credential-backend` affects the managed `aisw` profile only. It does not force the upstream CLI's live auth backend.
-- Gemini supports only `file`. Claude and Codex support `file` and `system-keyring`. Stored config and status output use `system_keyring`.
+- Gemini supports only `file`. Claude, Codex, and Antigravity support `file` and `system-keyring`. Stored config and status output use `system_keyring`.
 
 Live credential locations by tool:
 - Claude: `~/.claude/.credentials.json` or the macOS Keychain
 - Codex: `~/.codex/auth.json` or the OS keyring
 - Gemini: `~/.gemini/.env` (API key) or OAuth files in `~/.gemini/`
+- Antigravity: live OS keyring auth plus config/state under `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
 
 ```sh
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
@@ -162,7 +164,7 @@ Activate a stored profile as the live account.
 | `--emit-env` | Print shell export/unset lines to stdout instead of writing them to the session |
 
 Notes:
-- `--state-mode` applies to Claude Code and Codex CLI only. Gemini does not support it.
+- `--state-mode` applies to Claude Code and Codex CLI only. Gemini and Antigravity do not support it.
 - Switching is atomic: the previous live state is snapshotted before any write. A failed write triggers a full rollback.
 - With shell hook active, `aisw use` also emits the environment variable exports into the current shell session.
 - `--emit-env` is used internally by the shell hook. You can use it directly to apply exports in a subshell: `eval "$(aisw use claude work --emit-env)"`.

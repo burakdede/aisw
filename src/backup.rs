@@ -65,21 +65,7 @@ impl BackupManager {
             secure_store::snapshot_profile_secret(tool, name, &backup_id)?;
         }
 
-        for entry in fs::read_dir(profile_dir)
-            .with_context(|| format!("could not read profile dir {}", profile_dir.display()))?
-        {
-            let entry = entry?;
-            let src = entry.path();
-            if src.is_symlink() || !src.is_file() {
-                continue;
-            }
-            let filename = entry.file_name();
-            let dst = dest.join(&filename);
-            fs::copy(&src, &dst).with_context(|| {
-                format!("could not copy {} to {}", src.display(), dst.display())
-            })?;
-            set_permissions_600(&dst)?;
-        }
+        copy_profile_tree(profile_dir, &dest)?;
 
         write_metadata(
             &dest.join(METADATA_FILE),
@@ -187,22 +173,7 @@ impl BackupManager {
                     restored += 1;
                 }
 
-                for file_entry in fs::read_dir(&profile_path)? {
-                    let file_entry = file_entry?;
-                    let src = file_entry.path();
-                    if src.is_symlink() || !src.is_file() {
-                        continue;
-                    }
-                    if file_entry.file_name() == METADATA_FILE {
-                        continue;
-                    }
-                    let dst = dest_dir.join(file_entry.file_name());
-                    fs::copy(&src, &dst).with_context(|| {
-                        format!("could not restore {} to {}", src.display(), dst.display())
-                    })?;
-                    set_permissions_600(&dst)?;
-                    restored += 1;
-                }
+                restored += restore_profile_tree(&profile_path, &dest_dir)?;
             }
         }
 
@@ -258,6 +229,51 @@ impl BackupManager {
 
         Ok(())
     }
+}
+
+fn copy_profile_tree(src_root: &Path, dest_root: &Path) -> Result<()> {
+    for file in crate::auth::files::list_regular_files_recursive(src_root)? {
+        let relative = file.file_name.to_string_lossy().into_owned();
+        let dst = dest_root.join(&relative);
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("could not create {}", parent.display()))?;
+        }
+        fs::copy(&file.path, &dst).with_context(|| {
+            format!(
+                "could not copy {} to {}",
+                file.path.display(),
+                dst.display()
+            )
+        })?;
+        set_permissions_600(&dst)?;
+    }
+    Ok(())
+}
+
+fn restore_profile_tree(src_root: &Path, dest_root: &Path) -> Result<usize> {
+    let mut restored = 0usize;
+    for file in crate::auth::files::list_regular_files_recursive(src_root)? {
+        if file.file_name == METADATA_FILE {
+            continue;
+        }
+        let relative = file.file_name.to_string_lossy().into_owned();
+        let dst = dest_root.join(&relative);
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("could not create {}", parent.display()))?;
+        }
+        fs::copy(&file.path, &dst).with_context(|| {
+            format!(
+                "could not restore {} to {}",
+                file.path.display(),
+                dst.display()
+            )
+        })?;
+        set_permissions_600(&dst)?;
+        restored += 1;
+    }
+    Ok(restored)
 }
 
 fn backup_id_now() -> String {
@@ -344,6 +360,7 @@ fn infer_auth_method(tool: Tool, profile_path: &Path) -> Result<AuthMethod> {
                 Ok(AuthMethod::OAuth)
             }
         }
+        Tool::Antigravity => Ok(AuthMethod::OAuth),
     }
 }
 

@@ -33,6 +33,7 @@ struct ToolCapabilitiesSet {
     claude: ToolCapabilities,
     codex: ToolCapabilities,
     gemini: ToolCapabilities,
+    antigravity: ToolCapabilities,
 }
 
 #[derive(Serialize)]
@@ -66,6 +67,7 @@ pub fn run(args: CapabilitiesArgs) -> Result<()> {
             claude: tool_capabilities(Tool::Claude),
             codex: tool_capabilities(Tool::Codex),
             gemini: tool_capabilities(Tool::Gemini),
+            antigravity: tool_capabilities(Tool::Antigravity),
         },
     };
 
@@ -99,6 +101,12 @@ fn tool_capabilities(tool: Tool) -> ToolCapabilities {
             auth_methods: vec!["oauth", "api_key", "from_env", "from_live"],
             state_modes: vec!["isolated"],
             credential_backends: vec!["file"],
+            fail_closed_keyring_identity: None,
+        },
+        Tool::Antigravity => ToolCapabilities {
+            auth_methods: vec!["oauth", "from_live"],
+            state_modes: Vec::new(),
+            credential_backends: vec!["file", "system_keyring"],
             fail_closed_keyring_identity: None,
         },
     }

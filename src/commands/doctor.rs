@@ -256,6 +256,7 @@ fn credentials_filename(tool: Tool) -> &'static str {
         Tool::Claude => ".credentials.json",
         Tool::Codex => "auth.json",
         Tool::Gemini => "oauth_credentials.json",
+        Tool::Antigravity => "keyring-secret.json",
     }
 }
 

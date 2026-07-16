@@ -7,7 +7,7 @@ use crate::types::{StateMode, Tool};
 #[derive(Parser, Debug)]
 #[command(
     name = "aisw",
-    about = "Manage multiple accounts for Claude Code, Codex CLI, and Gemini CLI",
+    about = "Manage multiple accounts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI",
     long_about = None,
     version,
     propagate_version = true,
@@ -442,6 +442,10 @@ pub struct ContextCreateArgs {
     #[arg(long, value_name = "PROFILE")]
     pub gemini: Option<String>,
 
+    /// Antigravity profile to include
+    #[arg(long, value_name = "PROFILE")]
+    pub antigravity: Option<String>,
+
     /// Output result as JSON
     #[arg(long)]
     pub json: bool,
@@ -494,6 +498,10 @@ pub struct ContextSetArgs {
     #[arg(long, value_name = "PROFILE")]
     pub gemini: Option<String>,
 
+    /// Antigravity profile to set
+    #[arg(long, value_name = "PROFILE")]
+    pub antigravity: Option<String>,
+
     /// Output result as JSON
     #[arg(long)]
     pub json: bool,
@@ -515,6 +523,10 @@ pub struct ContextUnsetArgs {
     /// Remove the Gemini mapping
     #[arg(long)]
     pub gemini: bool,
+
+    /// Remove the Antigravity mapping
+    #[arg(long)]
+    pub antigravity: bool,
 
     /// Output result as JSON
     #[arg(long)]

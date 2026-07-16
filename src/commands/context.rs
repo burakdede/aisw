@@ -36,11 +36,11 @@ pub fn run(args: ContextArgs, home: &Path) -> Result<()> {
 
 fn create(args: ContextCreateArgs, home: &Path) -> Result<()> {
     validate_profile_name(&args.context_name)?;
-    let profiles = profile_map_from_options(args.claude, args.codex, args.gemini);
+    let profiles = profile_map_from_options(args.claude, args.codex, args.gemini, args.antigravity);
     if profiles.is_empty() {
         bail!(
             "context create requires at least one tool mapping.\n  \
-             Re-run with one or more of: --claude <profile>, --codex <profile>, --gemini <profile>"
+             Re-run with one or more of: --claude <profile>, --codex <profile>, --gemini <profile>, --antigravity <profile>"
         );
     }
 
@@ -147,11 +147,11 @@ fn set(args: ContextSetArgs, home: &Path) -> Result<()> {
                 name: args.context_name.clone(),
             })?;
 
-    let updates = profile_map_from_options(args.claude, args.codex, args.gemini);
+    let updates = profile_map_from_options(args.claude, args.codex, args.gemini, args.antigravity);
     if updates.is_empty() {
         bail!(
             "context set requires at least one mapping.\n  \
-             Re-run with one or more of: --claude <profile>, --codex <profile>, --gemini <profile>"
+             Re-run with one or more of: --claude <profile>, --codex <profile>, --gemini <profile>, --antigravity <profile>"
         );
     }
     ensure_profiles_exist(&config, &updates)?;
@@ -207,6 +207,7 @@ fn unset(args: ContextUnsetArgs, home: &Path) -> Result<()> {
         (Tool::Claude, args.claude),
         (Tool::Codex, args.codex),
         (Tool::Gemini, args.gemini),
+        (Tool::Antigravity, args.antigravity),
     ] {
         if selected {
             changed = true;
@@ -216,7 +217,7 @@ fn unset(args: ContextUnsetArgs, home: &Path) -> Result<()> {
     if !changed {
         bail!(
             "context unset requires at least one tool flag.\n  \
-             Re-run with one or more of: --claude, --codex, --gemini"
+             Re-run with one or more of: --claude, --codex, --gemini, --antigravity"
         );
     }
     if profiles.is_empty() {
@@ -422,6 +423,7 @@ fn profile_map_from_options(
     claude: Option<String>,
     codex: Option<String>,
     gemini: Option<String>,
+    antigravity: Option<String>,
 ) -> HashMap<Tool, String> {
     let mut profiles = HashMap::new();
     if let Some(profile) = claude {
@@ -432,6 +434,9 @@ fn profile_map_from_options(
     }
     if let Some(profile) = gemini {
         profiles.insert(Tool::Gemini, profile);
+    }
+    if let Some(profile) = antigravity {
+        profiles.insert(Tool::Antigravity, profile);
     }
     profiles
 }
@@ -535,6 +540,9 @@ enum LiveStateSnapshot {
         dir: std::path::PathBuf,
         files: Vec<NamedFileSnapshot>,
     },
+    Antigravity {
+        snapshot: auth::antigravity::LiveSnapshot,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -575,6 +583,9 @@ fn snapshot_live_state_for_context(
                     dir,
                 }
             }
+            Tool::Antigravity => LiveStateSnapshot::Antigravity {
+                snapshot: auth::antigravity::capture_live_snapshot(user_home)?,
+            },
         };
         snapshots.insert(switch.tool, snapshot);
     }
@@ -600,6 +611,9 @@ fn restore_live_state_for_context(
             )?,
             LiveStateSnapshot::Codex { files } => restore_file_snapshots(files)?,
             LiveStateSnapshot::Gemini { dir, files } => restore_regular_files(dir, files)?,
+            LiveStateSnapshot::Antigravity { snapshot } => {
+                auth::antigravity::restore_snapshot_to_live(snapshot, user_home)?
+            }
         }
     }
     Ok(())
@@ -671,6 +685,7 @@ fn normalized_profiles_json(profiles: &ContextProfiles) -> serde_json::Value {
         "claude": profiles.get(Tool::Claude),
         "codex": profiles.get(Tool::Codex),
         "gemini": profiles.get(Tool::Gemini),
+        "antigravity": profiles.get(Tool::Antigravity),
     })
 }
 

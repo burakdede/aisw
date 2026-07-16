@@ -6,16 +6,18 @@ pub enum Tool {
     Claude,
     Codex,
     Gemini,
+    Antigravity,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 3] = [Tool::Claude, Tool::Codex, Tool::Gemini];
+    pub const ALL: [Tool; 4] = [Tool::Claude, Tool::Codex, Tool::Gemini, Tool::Antigravity];
 
     pub fn binary_name(&self) -> &'static str {
         match self {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
             Tool::Gemini => "gemini",
+            Tool::Antigravity => "agy",
         }
     }
 
@@ -24,6 +26,7 @@ impl Tool {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
             Tool::Gemini => "gemini",
+            Tool::Antigravity => "antigravity",
         }
     }
 
@@ -32,6 +35,7 @@ impl Tool {
             Tool::Claude => "Claude Code",
             Tool::Codex => "Codex CLI",
             Tool::Gemini => "Gemini CLI",
+            Tool::Antigravity => "Antigravity CLI",
         }
     }
 
