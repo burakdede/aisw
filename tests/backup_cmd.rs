@@ -4,6 +4,9 @@ use common::TestEnv;
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
+const ANTIGRAVITY_SECRET_WORK: &str = r#"{"email":"work@example.com","token":"work-live"}"#;
+const ANTIGRAVITY_SECRET_ALT: &str = r#"{"email":"alt@example.com","token":"alt-live"}"#;
+
 fn strip_ansi(input: &str) -> String {
     let mut stripped = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -41,6 +44,42 @@ fn first_backup_id(list_output: &str) -> String {
             }
         })
         .expect("expected at least one backup entry")
+}
+
+fn write_antigravity_live_state(env: &TestEnv, secret: &str, theme: &str, mode: &str) {
+    let app_dir = env.fake_home.join(".gemini").join("antigravity-cli");
+    let shared_dir = env.fake_home.join(".gemini").join("config");
+    std::fs::create_dir_all(app_dir.join("cache")).unwrap();
+    std::fs::create_dir_all(shared_dir.join("projects")).unwrap();
+    std::fs::write(
+        app_dir.join("settings.json"),
+        format!(r#"{{"theme":"{theme}"}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        app_dir.join("cache").join("projects.json"),
+        br#"{"current":"repo"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        shared_dir.join("hooks.json"),
+        format!(r#"{{"hooks":["{mode}"]}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        shared_dir.join("projects").join("repo.json"),
+        format!(r#"{{"mode":"{mode}"}}"#),
+    )
+    .unwrap();
+    let secret_path = env
+        .fake_home
+        .join("keychain")
+        .join("gemini")
+        .join("antigravity")
+        .join("secret");
+    std::fs::create_dir_all(secret_path.parent().unwrap()).unwrap();
+    std::fs::write(secret_path.parent().unwrap().join("account"), "antigravity").unwrap();
+    std::fs::write(secret_path, secret).unwrap();
 }
 
 // ── help / parse tests ────────────────────────────────────────────────────────
@@ -265,6 +304,84 @@ fn backup_restore_yes_restores_credentials() {
         .success()
         .stdout(contains("Restored"))
         .stdout(contains("work"));
+}
+
+#[test]
+fn backup_restore_yes_restores_antigravity_live_state() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.0.0");
+
+    write_antigravity_live_state(&env, ANTIGRAVITY_SECRET_WORK, "terminal", "plan");
+    env.cmd()
+        .args(["add", "antigravity", "work", "--from-live"])
+        .assert()
+        .success();
+    write_antigravity_live_state(&env, ANTIGRAVITY_SECRET_ALT, "light", "chat");
+    env.cmd()
+        .args(["add", "antigravity", "alt", "--from-live"])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["use", "antigravity", "work"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "antigravity", "alt"])
+        .assert()
+        .success();
+
+    let list_out = env
+        .cmd()
+        .args(["backup", "list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let entries: serde_json::Value = serde_json::from_slice(&list_out).unwrap();
+    let backup_id = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["tool"] == "agy" && entry["profile"] == "work")
+        .and_then(|entry| entry["backup_id"].as_str())
+        .expect("expected Antigravity work backup entry")
+        .to_owned();
+
+    env.cmd()
+        .args(["backup", "restore", "--yes", &backup_id])
+        .assert()
+        .success()
+        .stdout(contains("Restored"))
+        .stdout(contains("work"));
+
+    env.cmd()
+        .args(["use", "antigravity", "work"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join("keychain")
+                .join("gemini")
+                .join("antigravity")
+                .join("secret")
+        )
+        .unwrap(),
+        ANTIGRAVITY_SECRET_WORK
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join(".gemini")
+                .join("antigravity-cli")
+                .join("settings.json")
+        )
+        .unwrap(),
+        r#"{"theme":"terminal"}"#
+    );
 }
 
 #[test]
