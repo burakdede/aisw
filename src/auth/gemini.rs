@@ -1633,7 +1633,7 @@ mod tests {
         let files = live_oauth_files_for_import(&user_home).unwrap();
         let names = files
             .iter()
-            .map(|file| file.file_name.to_string_lossy().into_owned())
+            .map(|file| file.file_name.to_string_lossy().replace('\\', "/"))
             .collect::<Vec<_>>();
 
         assert_eq!(names, vec!["mcp/state/token.json", "oauth_creds.json"]);

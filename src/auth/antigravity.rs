@@ -948,18 +948,22 @@ mod tests {
         .unwrap();
 
         let snapshot = capture_live_snapshot(&user_home).unwrap();
+        let app_files = snapshot
+            .app_files
+            .iter()
+            .map(|(path, bytes)| (path.replace('\\', "/"), bytes.as_slice()))
+            .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(
-            snapshot
-                .app_files
-                .get("profiles/work/settings.json")
-                .map(Vec::as_slice),
+            app_files.get("profiles/work/settings.json").copied(),
             Some(br#"{"theme":"dark"}"#.as_slice())
         );
+        let shared_files = snapshot
+            .shared_files
+            .iter()
+            .map(|(path, bytes)| (path.replace('\\', "/"), bytes.as_slice()))
+            .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(
-            snapshot
-                .shared_files
-                .get("repos/work/settings.json")
-                .map(Vec::as_slice),
+            shared_files.get("repos/work/settings.json").copied(),
             Some(br#"{"mode":"plan"}"#.as_slice())
         );
     }
@@ -992,14 +996,16 @@ mod tests {
 
         let stored = profile_tree_map(&profile_store, "work", APP_PREFIX).unwrap();
         assert_eq!(stored.len(), 2);
+        let stored = stored
+            .iter()
+            .map(|(path, bytes)| (path.replace('\\', "/"), bytes.as_slice()))
+            .collect::<std::collections::HashMap<_, _>>();
         assert_eq!(
-            stored.get("profiles/work/settings.json").map(Vec::as_slice),
+            stored.get("profiles/work/settings.json").copied(),
             Some(br#"{"theme":"dark"}"#.as_slice())
         );
         assert_eq!(
-            stored
-                .get("profiles/personal/settings.json")
-                .map(Vec::as_slice),
+            stored.get("profiles/personal/settings.json").copied(),
             Some(br#"{"theme":"light"}"#.as_slice())
         );
     }
