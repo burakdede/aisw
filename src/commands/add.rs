@@ -2053,7 +2053,11 @@ mod tests {
         fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
-    fn write_antigravity_live_state(user_home: &Path, keyring_root: &Path, secret: &str) {
+    fn write_antigravity_live_state(
+        user_home: &Path,
+        keyring_root: &Path,
+        secret: &str,
+    ) -> EnvVarGuard {
         let app_dir = user_home.join(".gemini").join("antigravity-cli");
         let shared_dir = user_home.join(".gemini").join("config");
         fs::create_dir_all(app_dir.join("cache")).unwrap();
@@ -2063,7 +2067,7 @@ mod tests {
         fs::write(shared_dir.join("hooks.json"), br#"{}"#).unwrap();
         fs::write(shared_dir.join("projects").join("repo.json"), br#"{}"#).unwrap();
 
-        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", keyring_root.to_str().unwrap());
+        let keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", keyring_root.to_str().unwrap());
         let keyring_ref = auth::antigravity::default_live_keyring_ref();
         crate::auth::system_keyring::upsert_generic_password(
             &keyring_ref.service,
@@ -2071,6 +2075,7 @@ mod tests {
             secret.as_bytes(),
         )
         .unwrap();
+        keyring
     }
 
     fn profile_meta(
@@ -2845,7 +2850,6 @@ mod tests {
     #[test]
     fn from_live_antigravity_creates_profile_and_activates() {
         with_env_lock(|| {
-            let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
             let tmp = tempdir().unwrap();
             let aisw_home = tmp.path().join("aisw");
             let user_home = tmp.path().join("user");
@@ -2853,7 +2857,11 @@ mod tests {
             fs::create_dir_all(&aisw_home).unwrap();
             fs::create_dir_all(&user_home).unwrap();
             let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
-            write_antigravity_live_state(&user_home, &keyring_dir, "{\"session\":\"live-secret\"}");
+            let _keyring = write_antigravity_live_state(
+                &user_home,
+                &keyring_dir,
+                "{\"session\":\"live-secret\"}",
+            );
 
             run_in(
                 from_live_args(Tool::Antigravity, "work"),
