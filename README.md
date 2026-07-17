@@ -3,11 +3,11 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-logo.png">
-    <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-logo.png" alt="aisw" width="160" />
+    <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-logo.png" alt="aisw" width="140" />
   </picture>
 </p>
 
-<p align="center"><strong>Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
+<p align="center"><strong>AI Switcher (`aisw`) for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
 
 <p align="center">Switch between work, personal, and client accounts without copying auth files, editing hidden config, or logging in again every time.</p>
 
@@ -30,9 +30,9 @@
 
 ---
 
-## Why people use aisw
+## Why people use AI Switcher
 
-`aisw` exists for a very specific kind of mess:
+AI Switcher (`aisw`) exists for a very specific kind of mess:
 
 - You use one Claude Code account for work and another for personal projects.
 - Codex CLI should use one OpenAI account for client A and a different one for client B, without relying on copied shared ChatGPT session files.
@@ -48,7 +48,7 @@ The underlying problem is not just "multiple accounts." It is that each upstream
 - Switch in one command with rollback if something fails.
 - Bind repos to expected contexts so the wrong account does not silently launch in the wrong workspace.
 
-If you have ever searched for "Claude Code account switcher", "multiple Codex CLI accounts", "Gemini CLI work and personal profiles", or "coding agent profile switch per repo", this is the tool that addresses that workflow directly.
+If you have ever searched for "AI account switcher for Claude Code", "multiple Codex CLI accounts", "Gemini CLI work and personal profiles", or "coding agent profile switch per repo", AI Switcher addresses that workflow directly.
 
 ## Common situations
 
@@ -104,6 +104,8 @@ Context workflow:
 
 ```sh
 # Homebrew (macOS and Linux)
+# If Homebrew asks you to trust the tap first
+brew trust burakdede/tap
 brew tap burakdede/tap
 brew install aisw
 
@@ -115,6 +117,127 @@ cargo install aisw
 ```
 
 ## Quick start
+
+The easiest mental model is:
+
+1. `aisw init` captures whatever Claude, Codex, and Gemini accounts are live right now.
+2. `aisw add ...` introduces another account directly under `aisw`.
+3. `aisw use ...` restores the saved credentials for the selected profile.
+4. After switching, start a fresh Claude/Codex/Gemini process.
+
+If you are setting up work and personal accounts, follow this order instead of logging out and back in repeatedly at the upstream CLI first.
+
+The top-level commands most people need are:
+
+- `aisw init`
+- `aisw add <tool> <profile>`
+- `aisw use <tool> <profile>`
+- `aisw use --all --profile <name>`
+- `aisw list`
+- `aisw status`
+
+### First account: import what is already live
+
+```sh
+# Bootstrap ~/.aisw/, install shell integration, and import
+# the accounts that are already live right now
+aisw init
+
+# Verify what got imported and marked active
+aisw list
+aisw status
+```
+
+If Claude, Codex, or Gemini were already logged in when you ran `aisw init`, you do not need to re-add that same first account with `--from-live`.
+
+### Second account: add it directly
+
+```sh
+# Preferred path for a second Claude account
+aisw add claude account-2 --label account-2@gmail.com
+
+# Preferred path for a second Codex account
+aisw add codex account-2 --label account-2@gmail.com
+
+# If you also use Gemini
+aisw add gemini account-2 --label account-2@gmail.com
+```
+
+This is the recommended path because AI Switcher drives the login flow itself instead of depending on whatever account happens to be live upstream at that moment.
+
+For Codex specifically, this distinction matters:
+
+- Durable: `aisw add codex <name>` for ChatGPT-managed auth, because login happens inside that profile's isolated `CODEX_HOME`.
+- Bootstrap only: `aisw add codex <name> --from-live` when you intentionally want to import the currently live ChatGPT-managed session.
+
+### Switch between saved accounts
+
+```sh
+aisw use claude account-1
+aisw use claude account-2
+
+# If profile names line up across tools
+aisw use --all --profile account-1
+aisw use --all --profile account-2
+```
+
+After `aisw use ...`, start a fresh Claude/Codex/Gemini process. You should not need to log out and log back in manually after every switch, but you should not rely on reusing an already running or resumable session from the previous account.
+
+### When to use `--from-live`
+
+Use `--from-live` when you intentionally want to capture whichever account is currently live in the upstream CLI.
+
+```sh
+# Example: import the account that is currently live upstream
+aisw add claude account-2 --from-live --label account-2@gmail.com
+```
+
+That workflow is:
+
+1. Exit the upstream CLI.
+2. Log out upstream.
+3. Log back in upstream as the account you want to capture.
+4. Run `aisw add ... --from-live`.
+
+That is a valid import path, but it is not the best default recommendation when AI Switcher can run the login flow directly.
+
+<details>
+<summary>Common variants</summary>
+
+Use these when your setup is a little different from the normal two-account OAuth flow above.
+
+```sh
+# API-key-backed profiles
+aisw add claude work --api-key "$ANTHROPIC_API_KEY"
+aisw add codex work --api-key "$OPENAI_API_KEY"
+aisw add gemini work --api-key "$GEMINI_API_KEY"
+
+# Switch every tool when the profile names line up
+aisw use --all --profile work
+
+# Create one mixed-tool context when names do not line up
+aisw context create acme \
+  --claude acme-claude \
+  --codex acme-codex \
+  --gemini acme-gemini
+
+aisw context use acme
+```
+</details>
+
+<details>
+<summary>Important tool-specific limits</summary>
+
+- Claude: after switching, start a fresh Claude process instead of relying on a resumed session from the previous account.
+- Codex: ChatGPT-managed `aisw add codex <name> --from-live` is bootstrap-only. The durable path is direct per-profile login with `aisw add codex <name>`.
+- Codex: shared-mode ChatGPT auth switching is explicitly unsupported.
+- Gemini: `aisw init` and `aisw add gemini ...` can capture the currently live Gemini state, but you should still start a fresh process after switching.
+
+</details>
+
+### Generic command examples
+
+Once the two-account flow above makes sense, these are the shorter building blocks:
 
 ```sh
 # Bootstrap: creates ~/.aisw/, offers shell-hook setup,
@@ -187,7 +310,7 @@ What you do not get from a context:
 
 The practical value is simple: `aisw use --all --profile personal` works when names line up, and `aisw context use acme` works when the real world does not.
 
-## Why aisw works better than manual switching
+## Why AI Switcher works better than manual switching
 
 - It writes the native upstream credential locations that Claude Code, Codex CLI, and Gemini CLI already use.
 - It snapshots live state before switching and rolls back on failure instead of leaving you mid-edit.
@@ -254,10 +377,12 @@ Credentials never leave the local machine. There is no remote service, no teleme
 
 ## Documentation
 
+Most users should be able to get productive from this README. For deeper workflows, edge cases, and tool-specific behavior, use the docs below.
+
 - [Common switching situations](https://burakdede.github.io/aisw/common-situations/)
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/)
 - [Commands](https://burakdede.github.io/aisw/commands/)
-- [Why aisw](https://burakdede.github.io/aisw/why-aisw/)
+- [Why AI Switcher](https://burakdede.github.io/aisw/why-aisw/)
 - [Workspace guardrails](https://burakdede.github.io/aisw/workspace/)
 - [How it works](https://burakdede.github.io/aisw/how-it-works/)
 - [Security](https://burakdede.github.io/aisw/security/)
