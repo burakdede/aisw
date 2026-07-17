@@ -66,6 +66,7 @@ pub struct LiveCredentialSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodexAuthClassification {
     ApiKey,
+    PersonalAccessToken,
     ChatgptManagedIsolated,
     ChatgptManagedImportedBootstrap,
 }
@@ -74,6 +75,7 @@ impl CodexAuthClassification {
     pub fn as_str(self) -> &'static str {
         match self {
             CodexAuthClassification::ApiKey => "api_key",
+            CodexAuthClassification::PersonalAccessToken => "personal_access_token",
             CodexAuthClassification::ChatgptManagedIsolated => "chatgpt_managed_isolated",
             CodexAuthClassification::ChatgptManagedImportedBootstrap => {
                 "chatgpt_managed_imported_bootstrap"
@@ -84,6 +86,7 @@ impl CodexAuthClassification {
     pub fn human_label(self) -> &'static str {
         match self {
             CodexAuthClassification::ApiKey => "API key",
+            CodexAuthClassification::PersonalAccessToken => "Personal access token",
             CodexAuthClassification::ChatgptManagedIsolated => "ChatGPT-managed isolated",
             CodexAuthClassification::ChatgptManagedImportedBootstrap => {
                 "ChatGPT-managed bootstrap import"
@@ -92,7 +95,11 @@ impl CodexAuthClassification {
     }
 
     pub fn is_chatgpt_managed(self) -> bool {
-        !matches!(self, CodexAuthClassification::ApiKey)
+        matches!(
+            self,
+            CodexAuthClassification::ChatgptManagedIsolated
+                | CodexAuthClassification::ChatgptManagedImportedBootstrap
+        )
     }
 
     pub fn is_imported_bootstrap(self) -> bool {
@@ -482,13 +489,22 @@ pub fn classify_profile(
     }
 
     let bytes = read_stored_credentials(profile_store, name, backend)?;
-    let _shape_hint = auth_bytes_look_chatgpt_managed(&bytes);
+    let imported_bootstrap = is_imported_bootstrap(profile_store, name);
+    Ok(classify_profile_bytes(&bytes, imported_bootstrap))
+}
 
-    Ok(if is_imported_bootstrap(profile_store, name) {
+pub fn classify_profile_bytes_for_import(bytes: &[u8]) -> CodexAuthClassification {
+    classify_profile_bytes(bytes, true)
+}
+
+fn classify_profile_bytes(bytes: &[u8], imported_bootstrap: bool) -> CodexAuthClassification {
+    if !auth_bytes_look_chatgpt_managed(bytes) {
+        CodexAuthClassification::PersonalAccessToken
+    } else if imported_bootstrap {
         CodexAuthClassification::ChatgptManagedImportedBootstrap
     } else {
         CodexAuthClassification::ChatgptManagedIsolated
-    })
+    }
 }
 
 fn auth_bytes_look_chatgpt_managed(bytes: &[u8]) -> bool {
@@ -982,6 +998,37 @@ mod tests {
         assert!(live_credentials_snapshot_for_import(&user_home)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn classify_profile_treats_non_chatgpt_oauth_payload_as_personal_access_token() {
+        let dir = tempdir().unwrap();
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Codex, "pat").unwrap();
+        write_file_store_config(&ps, "pat").unwrap();
+        ps.write_file(
+            Tool::Codex,
+            "pat",
+            AUTH_FILE,
+            br#"{"agentIdentity":{"id":"agent-123"},"issuedAt":"2026-07-17T00:00:00Z"}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Codex,
+            "pat",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        let classification =
+            classify_profile(&ps, "pat", AuthMethod::OAuth, CredentialBackend::File).unwrap();
+        assert_eq!(classification, CodexAuthClassification::PersonalAccessToken);
+        assert!(!classification.is_chatgpt_managed());
     }
 
     #[test]

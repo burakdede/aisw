@@ -242,6 +242,11 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                 (backend, AuthMethod::OAuth, None)
             }
             Tool::Gemini => {
+                if !runtime::is_machine_mode() {
+                    output::print_warning(
+                        "Upstream note: Gemini CLI currently documents 'Login with Google' as the recommended interactive path for local use. Some Google-account logins still require GOOGLE_CLOUD_PROJECT; for headless automation, prefer GEMINI_API_KEY or Vertex AI.",
+                    );
+                }
                 auth::gemini::add_oauth(
                     &profile_store,
                     &config_store,
@@ -257,19 +262,31 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                 let live_snapshot = (!args.set_active)
                     .then(|| auth::antigravity::capture_live_snapshot(&user_home))
                     .transpose()?;
-                auth::antigravity::add_oauth_with_backend(
+                let add_result = auth::antigravity::add_oauth_with_backend(
                     &profile_store,
                     &config_store,
                     &args.profile_name,
                     args.label.clone(),
                     &detected.binary_path,
                     backend,
-                )?;
-                if let Some(snapshot) = live_snapshot {
+                );
+                let restore_result = if let Some(snapshot) = live_snapshot {
                     auth::antigravity::restore_live_state_after_oauth_add(
                         Some(snapshot),
                         &user_home,
-                    )?;
+                    )
+                } else {
+                    Ok(())
+                };
+                match (add_result, restore_result) {
+                    (Ok(()), Ok(())) => {}
+                    (Err(add_err), Ok(())) => return Err(add_err),
+                    (Ok(()), Err(restore_err)) => return Err(restore_err),
+                    (Err(add_err), Err(restore_err)) => {
+                        return Err(add_err.context(format!(
+                            "also failed to restore the prior live Antigravity state: {restore_err:#}"
+                        )));
+                    }
                 }
                 (backend, AuthMethod::OAuth, None)
             }
@@ -627,14 +644,18 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
             )
         })?;
 
-    let is_api_key = json_string_field(&snapshot.bytes, "token").is_some();
-    let auth_method = if is_api_key {
+    let codex_classification = if json_string_field(&snapshot.bytes, "token").is_some() {
+        auth::codex::CodexAuthClassification::ApiKey
+    } else {
+        auth::codex::classify_profile_bytes_for_import(&snapshot.bytes)
+    };
+    let auth_method = if codex_classification == auth::codex::CodexAuthClassification::ApiKey {
         AuthMethod::ApiKey
     } else {
         AuthMethod::OAuth
     };
 
-    if is_api_key {
+    if codex_classification == auth::codex::CodexAuthClassification::ApiKey {
         if let Some(secret) = json_string_field(&snapshot.bytes, "token") {
             if let Some(existing) = identity::existing_api_key_profile_for_secret(
                 &profile_store,
@@ -728,7 +749,9 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    let marker_result = if auth_method == AuthMethod::OAuth {
+    let marker_result = if codex_classification
+        == auth::codex::CodexAuthClassification::ChatgptManagedImportedBootstrap
+    {
         auth::codex::mark_imported_bootstrap(&profile_store, &args.profile_name)
     } else {
         auth::codex::clear_imported_bootstrap_marker(&profile_store, &args.profile_name)
@@ -843,7 +866,7 @@ fn from_live_codex(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         return Err(e);
     }
 
-    finalize_from_live(&args, Tool::Codex, backend, auth_method, None)
+    finalize_from_live(&args, Tool::Codex, backend, auth_method, Some(user_home))
 }
 
 fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
@@ -1151,6 +1174,7 @@ fn finalize_from_live(
     auth_method: AuthMethod,
     user_home: Option<&Path>,
 ) -> Result<()> {
+    let codex_auth_classification = codex_add_classification(tool, auth_method, true, user_home);
     let warnings = add_warnings(tool, auth_method, user_home);
     let result = serde_json::json!({
         "tool": tool.binary_name(),
@@ -1160,7 +1184,7 @@ fn finalize_from_live(
         "active": true,
         "source": "from_live",
         "claude_auth_classification": claude_add_classification(tool, auth_method, user_home),
-        "codex_auth_classification": codex_add_classification(tool, auth_method, true),
+        "codex_auth_classification": codex_auth_classification,
         "antigravity_auth_classification": antigravity_add_classification(tool, auth_method),
         "warnings": warnings,
     });
@@ -1187,7 +1211,7 @@ fn finalize_from_live(
     if let Some(classification) = claude_add_classification(tool, auth_method, user_home) {
         output::print_kv("Claude auth", classification);
     }
-    if let Some(classification) = codex_add_classification(tool, auth_method, true) {
+    if let Some(classification) = codex_auth_classification {
         output::print_kv("Codex auth", classification);
     }
     if let Some(classification) = antigravity_add_classification(tool, auth_method) {
@@ -1199,13 +1223,23 @@ fn finalize_from_live(
     output::print_effect("Profile credentials stored in aisw.");
     output::print_effect("Live tool configuration updated.");
     output::print_effect("Active profile updated.");
-    if tool == Tool::Codex && auth_method == AuthMethod::OAuth {
-        output::print_effect(
-            "This Codex ChatGPT profile was imported from live state as a bootstrap session.",
-        );
-        output::print_effect(
-            "Re-login directly inside this profile's isolated CODEX_HOME for the durable path.",
-        );
+    if tool == Tool::Codex {
+        match codex_auth_classification {
+            Some("chatgpt_managed_imported_bootstrap") => {
+                output::print_effect(
+                    "This Codex ChatGPT profile was imported from live state as a bootstrap session.",
+                );
+                output::print_effect(
+                    "Re-login directly inside this profile's isolated CODEX_HOME for the durable path.",
+                );
+            }
+            Some("personal_access_token") => {
+                output::print_effect(
+                    "This Codex profile was imported from a personal access token session rather than a refresh-token-based ChatGPT login.",
+                );
+            }
+            _ => {}
+        }
     }
     if tool == Tool::Antigravity {
         output::print_effect(
@@ -1267,6 +1301,8 @@ fn print_add_summary(
     auth_method: AuthMethod,
     user_home: Option<&Path>,
 ) {
+    let codex_auth_classification =
+        codex_add_classification(args.tool, auth_method, false, user_home);
     output::print_title("Added profile");
     output::print_kv("Tool", args.tool.display_name());
     output::print_kv("Profile", &args.profile_name);
@@ -1281,7 +1317,7 @@ fn print_add_summary(
     if let Some(classification) = claude_add_classification(args.tool, auth_method, user_home) {
         output::print_kv("Claude auth", classification);
     }
-    if let Some(classification) = codex_add_classification(args.tool, auth_method, false) {
+    if let Some(classification) = codex_auth_classification {
         output::print_kv("Codex auth", classification);
     }
     if let Some(classification) = antigravity_add_classification(args.tool, auth_method) {
@@ -1300,7 +1336,7 @@ fn print_add_summary(
     if args.set_active {
         output::print_effect("Active profile updated.");
     }
-    if args.tool == Tool::Codex && auth_method == AuthMethod::OAuth {
+    if args.tool == Tool::Codex && codex_auth_classification == Some("chatgpt_managed_isolated") {
         output::print_effect(
             "Codex login ran inside this profile-owned CODEX_HOME, so future refreshes stay tied to this profile.",
         );
@@ -1333,6 +1369,8 @@ fn emit_add_result(
     user_home: Option<&Path>,
     progress: Option<&mut machine::ProgressReporter>,
 ) -> Result<()> {
+    let codex_auth_classification =
+        codex_add_classification(args.tool, auth_method, args.from_live, user_home);
     let warnings = add_warnings(args.tool, auth_method, user_home);
     let result = serde_json::json!({
         "tool": args.tool.binary_name(),
@@ -1342,7 +1380,7 @@ fn emit_add_result(
         "active": args.set_active || args.from_live,
         "source": source,
         "claude_auth_classification": claude_add_classification(args.tool, auth_method, user_home),
-        "codex_auth_classification": codex_add_classification(args.tool, auth_method, args.from_live),
+        "codex_auth_classification": codex_auth_classification,
         "antigravity_auth_classification": antigravity_add_classification(args.tool, auth_method),
         "warnings": warnings,
     });
@@ -1369,6 +1407,7 @@ fn codex_add_classification(
     tool: Tool,
     auth_method: AuthMethod,
     from_live: bool,
+    user_home: Option<&Path>,
 ) -> Option<&'static str> {
     if tool != Tool::Codex {
         return None;
@@ -1376,7 +1415,24 @@ fn codex_add_classification(
 
     Some(match auth_method {
         AuthMethod::ApiKey => "api_key",
-        AuthMethod::OAuth if from_live => "chatgpt_managed_imported_bootstrap",
+        AuthMethod::OAuth if from_live => {
+            let Some(user_home) = user_home else {
+                return Some("chatgpt_managed_imported_bootstrap");
+            };
+            let Ok(snapshot) = auth::codex::live_credentials_snapshot_for_import(user_home) else {
+                return Some("chatgpt_managed_imported_bootstrap");
+            };
+            let Some(snapshot) = snapshot else {
+                return Some("chatgpt_managed_imported_bootstrap");
+            };
+            if crate::auth::codex::classify_profile_bytes_for_import(&snapshot.bytes)
+                == crate::auth::codex::CodexAuthClassification::PersonalAccessToken
+            {
+                "personal_access_token"
+            } else {
+                "chatgpt_managed_imported_bootstrap"
+            }
+        }
         AuthMethod::OAuth => "chatgpt_managed_isolated",
     })
 }
@@ -1419,6 +1475,11 @@ fn add_warnings(tool: Tool, auth_method: AuthMethod, user_home: Option<&Path>) -
     if tool == Tool::Antigravity && auth_method == AuthMethod::OAuth {
         return vec![
             "Antigravity currently documents shared live OS-keyring auth, not an isolated per-profile auth root. aisw switches the live keyring-backed session and Antigravity config roots transactionally.".to_owned(),
+        ];
+    }
+    if tool == Tool::Gemini && auth_method == AuthMethod::OAuth {
+        return vec![
+            "Gemini CLI currently documents Google-account login as the recommended interactive local path. Some account types still require GOOGLE_CLOUD_PROJECT, and headless automation should prefer GEMINI_API_KEY or Vertex AI.".to_owned(),
         ];
     }
     match claude_add_classification(tool, auth_method, user_home) {
@@ -2017,6 +2078,18 @@ mod tests {
         write_codex_credentials_with_account_id(user_home, token, None);
     }
 
+    fn write_codex_personal_access_token_credentials(user_home: &Path) {
+        let codex_dir = user_home.join(".codex");
+        fs::create_dir_all(&codex_dir).unwrap();
+        let auth = codex_dir.join("auth.json");
+        fs::write(
+            &auth,
+            r#"{"agentIdentity":{"id":"agent-123"},"issuedAt":"2026-07-17T00:00:00Z"}"#,
+        )
+        .unwrap();
+        fs::set_permissions(&auth, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
     fn write_codex_credentials_with_account_id(
         user_home: &Path,
         token: &str,
@@ -2377,6 +2450,33 @@ mod tests {
         let stored = ps.read_file(Tool::Codex, "work", "auth.json").unwrap();
         let json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
         assert_eq!(json["oauthToken"], "codex-tok");
+    }
+
+    #[test]
+    fn from_live_codex_personal_access_token_is_not_marked_as_chatgpt_bootstrap() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&aisw_home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        write_codex_personal_access_token_credentials(&user_home);
+        let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+
+        let mut args = from_live_args(Tool::Codex, "pat");
+        args.json = true;
+        run_in(args, &aisw_home, OsString::new()).unwrap();
+
+        let ps = ProfileStore::new(&aisw_home);
+        assert!(ps.exists(Tool::Codex, "pat"));
+        assert!(!auth::codex::is_imported_bootstrap(&ps, "pat"));
+        let classification =
+            auth::codex::classify_profile(&ps, "pat", AuthMethod::OAuth, CredentialBackend::File)
+                .unwrap();
+        assert_eq!(
+            classification,
+            auth::codex::CodexAuthClassification::PersonalAccessToken
+        );
     }
 
     #[test]

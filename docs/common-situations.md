@@ -88,6 +88,8 @@ This is especially useful when:
 
 For Codex ChatGPT-managed auth, `--from-live` is bootstrap-only. After import, re-login directly inside the isolated profile if you want a durable profile that survives future upstream refreshes cleanly.
 
+For Gemini, this pattern applies to whichever auth mode is currently live on the machine. Upstream Gemini docs currently recommend Google-account login for interactive local use, but some account types still require `GOOGLE_CLOUD_PROJECT`, and non-interactive/headless use should rely on `GEMINI_API_KEY` or Vertex AI.
+
 ## GUI-safe and automation-safe secret entry
 
 If another application is driving `aisw`, passing API keys in process arguments is the wrong shape. `aisw` supports stdin-based secret entry for that path:

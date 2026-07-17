@@ -15,6 +15,7 @@ const VALID_CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
 const VALID_GEMINI_KEY_ALT: &str = "AIzaalt0987654321FEDCBA";
 const ANTIGRAVITY_SECRET: &str = r#"{"email":"work@example.com","token":"live"}"#;
+const ANTIGRAVITY_SECRET_ALT: &str = r#"{"email":"personal@example.com","token":"other"}"#;
 
 fn antigravity_live_keyring_secret_path(env: &TestEnv) -> PathBuf {
     env.fake_home
@@ -809,6 +810,93 @@ fn add_antigravity_oauth_succeeds_with_mocked_binary() {
     env.assert_home_file_exists("profiles/antigravity/work/keyring.json");
     env.assert_home_file_exists("profiles/antigravity/work/app/settings.json");
     env.assert_home_file_exists("profiles/antigravity/work/shared/hooks.json");
+}
+
+#[test]
+fn add_antigravity_oauth_restores_prior_live_state_when_profile_save_fails() {
+    let env = TestEnv::new();
+    write_antigravity_live_state(&env, ANTIGRAVITY_SECRET_ALT);
+
+    env.add_fake_tool("agy", "agy 1.0.0");
+    env.cmd()
+        .args(["add", "antigravity", "existing", "--from-live"])
+        .assert()
+        .success();
+
+    write_antigravity_live_state(&env, ANTIGRAVITY_SECRET);
+    env.add_script_tool(
+        "agy",
+        &format!(
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then\n\
+               echo 'agy 1.0.0'\n\
+               exit 0\n\
+             fi\n\
+             root=\"${{AISW_KEYRING_TEST_DIR:-$HOME/keychain}}/gemini/antigravity\"\n\
+             /bin/mkdir -p \"$root\" \"$HOME/.gemini/antigravity-cli/cache\" \"$HOME/.gemini/config/projects\"\n\
+             printf '%s' 'antigravity' > \"$root/account\"\n\
+             printf '%s' '{ANTIGRAVITY_SECRET_ALT}' > \"$root/secret\"\n\
+             printf '%s' '{{\"theme\":\"light\"}}' > \"$HOME/.gemini/antigravity-cli/settings.json\"\n\
+             printf '%s' '{{\"current\":\"other\"}}' > \"$HOME/.gemini/antigravity-cli/cache/projects.json\"\n\
+             printf '%s' '{{\"hooks\":[\"x\"]}}' > \"$HOME/.gemini/config/hooks.json\"\n\
+             printf '%s' '{{\"mode\":\"chat\"}}' > \"$HOME/.gemini/config/projects/repo.json\"\n"
+        ),
+    );
+
+    env.cmd()
+        .args(["add", "antigravity", "new-profile"])
+        .assert()
+        .failure()
+        .stderr(contains(
+            "An Antigravity OAuth profile for this account already exists as 'existing'.",
+        ));
+
+    assert_eq!(
+        fs::read_to_string(antigravity_live_keyring_secret_path(&env)).unwrap(),
+        ANTIGRAVITY_SECRET
+    );
+    assert_eq!(
+        fs::read_to_string(
+            env.fake_home
+                .join(".gemini")
+                .join("antigravity-cli")
+                .join("settings.json")
+        )
+        .unwrap(),
+        "{\"theme\":\"terminal\"}"
+    );
+    assert_eq!(
+        fs::read_to_string(
+            env.fake_home
+                .join(".gemini")
+                .join("antigravity-cli")
+                .join("cache")
+                .join("projects.json")
+        )
+        .unwrap(),
+        "{\"current\":\"repo\"}"
+    );
+    assert_eq!(
+        fs::read_to_string(
+            env.fake_home
+                .join(".gemini")
+                .join("config")
+                .join("hooks.json")
+        )
+        .unwrap(),
+        "{\"hooks\":[]}"
+    );
+    assert_eq!(
+        fs::read_to_string(
+            env.fake_home
+                .join(".gemini")
+                .join("config")
+                .join("projects")
+                .join("repo.json")
+        )
+        .unwrap(),
+        "{\"mode\":\"plan\"}"
+    );
 }
 
 #[test]

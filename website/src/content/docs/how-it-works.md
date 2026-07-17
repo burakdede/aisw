@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.7","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
 ---
 
 This page explains the design decisions behind `aisw`, how credentials are stored and applied, and the per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
@@ -87,7 +87,7 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 **How `aisw` captures credentials:**
 - `--api-key`: stores the key directly.
 - `--from-live`: reads the current live credentials from file or Keychain.
-- Interactive OAuth: spawns `claude auth login` without overriding `CLAUDE_CONFIG_DIR` so the native flow runs unmodified. `aisw` polls the live credential file and Keychain for changes to detect when login completes, then captures the result.
+- Interactive OAuth: spawns `claude auth login`. When the installed Claude build supports profile-owned auth, `aisw` points login at the profile `CLAUDE_CONFIG_DIR`; otherwise it polls Claude's live credential file and Keychain for changes and captures the result there.
 
 **How `aisw use` applies credentials:**
 - Detects whether the live tool is reading from file or Keychain.
@@ -127,13 +127,13 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 
 **How `aisw` captures credentials:**
 - `--api-key` / `--from-env`: stores the key in a profile `.env` file.
-- `--from-live`: copies everything under `~/.gemini/` into the profile directory.
-- Interactive OAuth: sets `GEMINI_CLI_HOME` to a temporary scratch directory, spawns `gemini` so it writes its OAuth cache there, then copies all resulting files from `<scratch>/.gemini/` into the profile directory. The scratch directory is always cleaned up, regardless of success or failure.
+- `--from-live`: copies the live Gemini regular-file tree under `~/.gemini/` into the profile directory.
+- Interactive OAuth: sets `GEMINI_CLI_HOME` to a temporary scratch directory, spawns `gemini` so it writes its OAuth cache there, then copies all resulting regular files from `<scratch>/.gemini/` into the profile directory. The scratch directory is always cleaned up, regardless of success or failure.
 
   `GEMINI_CLI_HOME` was introduced in Gemini CLI to override the home directory used for config storage. It is cleaner than overriding `HOME` because it does not affect other processes or macOS Keychain lookups that depend on the real home directory.
 
 **How `aisw use` applies credentials:**
-- Copies all profile files into `~/.gemini/`, replacing whatever is currently there.
+- Restores the managed Gemini regular-file tree into `~/.gemini/` and removes stale live files from the previously active Gemini profile.
 - There is no configurable shared mode because Gemini's auth and broader local state are tightly coupled under `~/.gemini/`. Separating them would risk corrupting the tool's session state.
 
 **State mode:** Gemini is always `isolated`. Each profile carries its own complete `~/.gemini/` state.

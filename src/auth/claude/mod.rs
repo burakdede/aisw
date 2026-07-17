@@ -24,7 +24,8 @@ use crate::profile::ProfileStore;
 use crate::types::{StateMode, Tool};
 
 use keychain::{
-    auth_storage, current_keychain_scheme, keychain_service_for_config_dir, ClaudeAuthStorage,
+    auth_storage, current_keychain_scheme,
+    keychain_service_for_config_dir as scoped_keychain_service_for_config_dir, ClaudeAuthStorage,
     ClaudeKeychainScheme as KeychainScheme,
 };
 use paths::live_credentials_path;
@@ -104,13 +105,15 @@ pub use keychain::ClaudeKeychainScheme;
 pub use keychain::{
     current_keychain_scheme as current_claude_keychain_scheme,
     detected_keychain_scheme as detected_claude_keychain_scheme, imported_profile_backend,
-    keychain_import_supported, oauth_stored_backend, preferred_import_backend,
-    read_live_keychain_credentials_for_import, storage_fallback_note, uses_live_keychain,
+    keychain_import_supported, keychain_service_for_config_dir, oauth_stored_backend,
+    preferred_import_backend, read_live_keychain_credentials_for_import, storage_fallback_note,
+    uses_live_keychain,
 };
 pub use oauth::{
     add_oauth, add_oauth_with_backend, capture_live_oauth_account_metadata,
     live_credentials_snapshot_for_import, read_live_oauth_account_metadata_for_import,
-    restore_live_state_after_oauth_add, sync_profile_from_live_if_same_identity,
+    restore_live_state_after_oauth_add, sync_profile_from_active_state_if_same_identity,
+    sync_profile_from_live_if_same_identity,
 };
 pub use paths::live_local_state_dir;
 
@@ -131,7 +134,7 @@ pub fn classify_profile(
                     }
                     KeychainScheme::ScopedByConfigDir => {
                         let profile_dir = profile_store.profile_dir(Tool::Claude, name);
-                        let service = keychain_service_for_config_dir(
+                        let service = scoped_keychain_service_for_config_dir(
                             &profile_dir,
                             user_home,
                             KeychainScheme::ScopedByConfigDir,
@@ -177,7 +180,7 @@ pub fn apply_live_credentials(
         ClaudeAuthStorage::Keychain => {
             let service = match state_mode {
                 StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
-                StateMode::Isolated => keychain_service_for_config_dir(
+                StateMode::Isolated => scoped_keychain_service_for_config_dir(
                     &profile_store.profile_dir(Tool::Claude, name),
                     user_home,
                     current_keychain_scheme(),
@@ -227,7 +230,7 @@ pub fn live_credentials_match(
         ClaudeAuthStorage::Keychain => {
             let service = match state_mode {
                 StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
-                StateMode::Isolated => keychain_service_for_config_dir(
+                StateMode::Isolated => scoped_keychain_service_for_config_dir(
                     &profile_store.profile_dir(Tool::Claude, name),
                     user_home,
                     current_keychain_scheme(),
@@ -1116,6 +1119,70 @@ mod tests {
             "work",
             CredentialBackend::File,
             &user_home,
+        )
+        .unwrap();
+
+        assert!(synced);
+        let stored = ps
+            .read_file(Tool::Claude, "work", CREDENTIALS_FILE)
+            .unwrap();
+        let stored_json: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(stored_json["oauthToken"], "live-token");
+
+        let metadata = ps
+            .read_file(Tool::Claude, "work", OAUTH_ACCOUNT_FILE)
+            .unwrap();
+        let metadata_json: serde_json::Value = serde_json::from_slice(&metadata).unwrap();
+        assert_eq!(metadata_json["emailAddress"], "work@example.com");
+        assert_eq!(metadata_json["organizationUuid"], "org-live");
+    }
+
+    #[test]
+    fn sync_profile_from_active_state_updates_scoped_keychain_credentials_for_isolated_mode() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(&user_home).unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"org-live"}}"#,
+        )
+        .unwrap();
+
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _platform = EnvVarGuard::set("AISW_TEST_CLAUDE_PLATFORM", "macos");
+        let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "scoped");
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            CREDENTIALS_FILE,
+            br#"{"oauthToken":"stored-token","account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+
+        let service = keychain::keychain_service_for_config_dir(
+            &ps.profile_dir(Tool::Claude, "work"),
+            &user_home,
+            keychain::ClaudeKeychainScheme::ScopedByConfigDir,
+        );
+        secure_backend::upsert_generic_password(
+            KEYCHAIN_BACKEND,
+            &service,
+            "tester",
+            br#"{"oauthToken":"live-token","account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+
+        let synced = sync_profile_from_active_state_if_same_identity(
+            &ps,
+            "work",
+            CredentialBackend::File,
+            &user_home,
+            StateMode::Isolated,
         )
         .unwrap();
 

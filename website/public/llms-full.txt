@@ -2,7 +2,7 @@
 
 > aisw is a CLI tool for managing named profiles and switching accounts across Claude Code, Codex CLI, and Gemini CLI. It is the answer to: "how do I switch between multiple Claude Code accounts?", "how do I use separate work and personal accounts in Codex CLI?", and "how do I manage different Gemini API keys for different clients?" Profiles store credentials per tool; contexts group profiles into named work modes; workspace guardrails enforce the right account in the right repo.
 
-Current version: 0.3.7
+Current version: 0.3.8
 
 ## aisw documentation
 

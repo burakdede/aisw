@@ -920,4 +920,87 @@ mod tests {
                 .unwrap()
         );
     }
+
+    #[test]
+    fn capture_live_snapshot_preserves_nested_relative_paths() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
+        let user_home = temp.path().join("user");
+        fs::create_dir_all(live_app_dir(&user_home).join("profiles/work")).unwrap();
+        fs::create_dir_all(live_shared_dir(&user_home).join("repos/work")).unwrap();
+
+        fs::write(
+            live_app_dir(&user_home).join("profiles/work/settings.json"),
+            br#"{"theme":"dark"}"#,
+        )
+        .unwrap();
+        fs::write(
+            live_shared_dir(&user_home).join("repos/work/settings.json"),
+            br#"{"mode":"plan"}"#,
+        )
+        .unwrap();
+        super::super::system_keyring::upsert_generic_password(
+            KEYRING_SERVICE,
+            KEYRING_ACCOUNT,
+            br#"{"email":"work@example.com"}"#,
+        )
+        .unwrap();
+
+        let snapshot = capture_live_snapshot(&user_home).unwrap();
+        assert_eq!(
+            snapshot
+                .app_files
+                .get("profiles/work/settings.json")
+                .map(Vec::as_slice),
+            Some(br#"{"theme":"dark"}"#.as_slice())
+        );
+        assert_eq!(
+            snapshot
+                .shared_files
+                .get("repos/work/settings.json")
+                .map(Vec::as_slice),
+            Some(br#"{"mode":"plan"}"#.as_slice())
+        );
+    }
+
+    #[test]
+    fn profile_tree_map_preserves_nested_duplicate_basenames() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        let profile_store = ProfileStore::new(&home);
+        profile_store.create(Tool::Antigravity, "work").unwrap();
+
+        profile_store
+            .write_file(
+                Tool::Antigravity,
+                "work",
+                "app/profiles/work/settings.json",
+                br#"{"theme":"dark"}"#,
+            )
+            .unwrap();
+        profile_store
+            .write_file(
+                Tool::Antigravity,
+                "work",
+                "app/profiles/personal/settings.json",
+                br#"{"theme":"light"}"#,
+            )
+            .unwrap();
+
+        let stored = profile_tree_map(&profile_store, "work", APP_PREFIX).unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(
+            stored.get("profiles/work/settings.json").map(Vec::as_slice),
+            Some(br#"{"theme":"dark"}"#.as_slice())
+        );
+        assert_eq!(
+            stored
+                .get("profiles/personal/settings.json")
+                .map(Vec::as_slice),
+            Some(br#"{"theme":"light"}"#.as_slice())
+        );
+    }
 }
