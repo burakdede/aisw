@@ -112,7 +112,16 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 
 **How `aisw` captures credentials:**
 - `--api-key` / `--from-env`: stores the key in a profile `.env` file.
-- `--from-live`: copies everything under `~/.gemini/` into the profile directory.
+- `--from-live`: copies the live Gemini regular-file tree under `~/.gemini/` into the profile directory.
+- Interactive OAuth: sets `GEMINI_CLI_HOME` to a temporary scratch directory, spawns `gemini` so it writes its OAuth cache there, then copies all resulting regular files from `<scratch>/.gemini/` into the profile directory. The scratch directory is always cleaned up, regardless of success or failure.
+
+  `GEMINI_CLI_HOME` was introduced in Gemini CLI to override the home directory used for config storage. It is cleaner than overriding `HOME` because it does not affect other processes or macOS Keychain lookups that depend on the real home directory.
+
+**How `aisw use` applies credentials:**
+- Restores the managed Gemini regular-file tree into `~/.gemini/` and removes stale live files from the previously active Gemini profile.
+- There is no configurable shared mode because Gemini's auth and broader local state are tightly coupled under `~/.gemini/`. Separating them would risk corrupting the tool's session state.
+
+**State mode:** Gemini is always `isolated`. Each profile carries its own complete `~/.gemini/` state.
 
 ### Antigravity CLI
 
@@ -123,15 +132,6 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 - `use`: restores the managed keyring secret into Antigravity's live keyring entry, then transactionally syncs the documented config roots.
 
 **Important Antigravity limitation:** upstream does not currently document an isolated per-profile auth/data root or profile selector. `aisw` therefore supports Antigravity through shared live switching rather than profile-owned isolated auth. This is a product limitation upstream, not `aisw` corruption.
-- Interactive OAuth: sets `GEMINI_CLI_HOME` to a temporary scratch directory, spawns `gemini` so it writes its OAuth cache there, then copies all resulting files from `<scratch>/.gemini/` into the profile directory. The scratch directory is always cleaned up, regardless of success or failure.
-
-  `GEMINI_CLI_HOME` was introduced in Gemini CLI to override the home directory used for config storage. It is cleaner than overriding `HOME` because it does not affect other processes or macOS Keychain lookups that depend on the real home directory.
-
-**How `aisw use` applies credentials:**
-- Copies all profile files into `~/.gemini/`, replacing whatever is currently there.
-- There is no configurable shared mode because Gemini's auth and broader local state are tightly coupled under `~/.gemini/`. Separating them would risk corrupting the tool's session state.
-
-**State mode:** Gemini is always `isolated`. Each profile carries its own complete `~/.gemini/` state.
 
 ## Automatic Synchronization
 

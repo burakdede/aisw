@@ -481,14 +481,13 @@ fn maybe_sync_active_profile_before_switch(
 
     match tool {
         Tool::Claude => {
-            if config.state_mode_for(Tool::Claude) == StateMode::Shared {
-                let _ = auth::claude::sync_profile_from_live_if_same_identity(
-                    profile_store,
-                    active_name,
-                    active_profile.credential_backend,
-                    user_home,
-                )?;
-            }
+            let _ = auth::claude::sync_profile_from_active_state_if_same_identity(
+                profile_store,
+                active_name,
+                active_profile.credential_backend,
+                user_home,
+                config.state_mode_for(Tool::Claude),
+            )?;
         }
         Tool::Codex => {
             if config.state_mode_for(Tool::Codex) == StateMode::Shared {
@@ -600,6 +599,11 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
                 auth::codex::CodexAuthClassification::ChatgptManagedImportedBootstrap => {
                     output::print_effect(
                         "This Codex ChatGPT profile is a bootstrap import; re-login directly inside its isolated CODEX_HOME for the durable path.",
+                    );
+                }
+                auth::codex::CodexAuthClassification::PersonalAccessToken => {
+                    output::print_effect(
+                        "This Codex profile uses a personal access token, so it is not coupled to the ChatGPT refresh-token lifecycle that shared-mode switching blocks.",
                     );
                 }
                 auth::codex::CodexAuthClassification::ApiKey => {}
@@ -1275,6 +1279,87 @@ mod tests {
             .unwrap();
         let refreshed_live = br#"{"claudeAiOauth":{"accessToken":"new","refreshToken":"new-refresh","expiresAt":2000}}"#;
         assert_eq!(stored, refreshed_live);
+
+        let config = cs.load().unwrap();
+        assert_eq!(config.active_for(Tool::Claude), Some("personal"));
+    }
+
+    #[test]
+    fn use_syncs_current_active_claude_scoped_keychain_profile_before_switching() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "keychain");
+        let _platform = EnvVarGuard::set("AISW_TEST_CLAUDE_PLATFORM", "macos");
+        let _scheme = EnvVarGuard::set("AISW_CLAUDE_KEYCHAIN_SCHEME", "scoped");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        let keyring_dir = tmp.path().join("keychain");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let _keyring = EnvVarGuard::set(
+            "AISW_KEYRING_TEST_DIR",
+            keyring_dir.to_str().expect("keyring path should be utf-8"),
+        );
+
+        let ps = ProfileStore::new(&home);
+        let cs = ConfigStore::new(&home);
+
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            ".credentials.json",
+            br#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"old-refresh","expiresAt":1000}}"#,
+        )
+        .unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            "oauth-account.json",
+            br#"{"emailAddress":"work@example.com","organizationUuid":"org-123"}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Claude,
+            "work",
+            crate::config::ProfileMeta {
+                added_at: chrono::Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: crate::config::CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+        setup_claude_api_key_profile(&home, "personal");
+        cs.set_active(Tool::Claude, "work").unwrap();
+        cs.set_state_mode(Tool::Claude, crate::types::StateMode::Isolated)
+            .unwrap();
+
+        let service = auth::claude::keychain_service_for_config_dir(
+            &ps.profile_dir(Tool::Claude, "work"),
+            &user_home,
+            auth::claude::ClaudeKeychainScheme::ScopedByConfigDir,
+        );
+        crate::auth::secure_backend::upsert_generic_password(
+            crate::auth::secure_backend::SecureBackend::SystemKeyring,
+            &service,
+            "tester",
+            br#"{"claudeAiOauth":{"accessToken":"new","refreshToken":"new-refresh","expiresAt":2000},"account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            user_home.join(".claude.json"),
+            br#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"org-123"}}"#,
+        )
+        .unwrap();
+
+        run_in(use_args(Tool::Claude, "personal", false), &home, &user_home).unwrap();
+
+        let stored = ps
+            .read_file(Tool::Claude, "work", ".credentials.json")
+            .unwrap();
+        let refreshed: serde_json::Value = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(refreshed["claudeAiOauth"]["accessToken"], "new");
 
         let config = cs.load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("personal"));

@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, supported tools, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.7","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, supported tools, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
 ---
 
 `aisw` supports three AI coding agent CLIs:
@@ -28,7 +28,7 @@ head:
 |---|---|---|---|---|---|
 | Claude Code | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
-| Gemini CLI | `gemini` | OAuth, API key | Full | Full | Full |
+| Gemini CLI | `gemini` | Google-account auth, Vertex AI, API key | Full | Full | Full |
 
 ## Binary detection
 
@@ -75,8 +75,9 @@ Codex uses `CODEX_HOME` to override its root directory. `aisw` sets this variabl
 Supported Codex auth models in `aisw`:
 - Durable: API-key profiles.
 - Durable: ChatGPT-managed profiles authenticated directly inside their own isolated `CODEX_HOME`.
+- Durable when already live upstream: personal access token sessions imported with `aisw add codex <name> --from-live` after `codex login --with-access-token`.
 - Bootstrap only: ChatGPT-managed profiles imported with `aisw add codex <name> --from-live`.
-- Unsupported: shared-mode ChatGPT auth switching.
+- Unsupported: shared-mode ChatGPT auth switching for ChatGPT-managed refresh-token auth.
 
 Codex's keyring account identifier is an opaque string, not the system username. `aisw` discovers the identifier from the live keyring entry during import and stores it so subsequent switches write to the correct account. `aisw` will not fabricate a keyring account name if it cannot read the live identifier.
 
@@ -88,9 +89,15 @@ Codex's keyring account identifier is an opaque string, not the system username.
 | Linux | `~/.gemini/` | Not supported |
 | Windows | `~/.gemini/` | Not supported |
 
-Gemini stores all auth and local state under `~/.gemini/`. `aisw` captures and restores the complete directory contents. This includes OAuth tokens, settings, and any MCP OAuth token files.
+Gemini stores all auth and local state under `~/.gemini/`. `aisw` captures and restores the complete regular-file tree for that directory and removes stale live files from the previously active Gemini profile. This includes OAuth tokens, settings, and any MCP OAuth token files stored as regular files under the Gemini state root.
 
-For interactive OAuth, `aisw` uses `GEMINI_CLI_HOME` to redirect Gemini's config root to a scratch directory during the login flow, then copies the resulting files into the profile. This was introduced in Gemini CLI as the clean way to redirect config storage without overriding `HOME`.
+Upstream Gemini CLI docs currently recommend Google-account login for interactive local use. Some account types still require `GOOGLE_CLOUD_PROJECT`. `aisw` can manage:
+
+- API-key-backed Gemini profiles (`GEMINI_API_KEY`)
+- Vertex AI-backed Gemini profiles
+- Google-account Gemini logins, including the standard local browser-login flow and Workspace / Code Assist-style flows that may require `GOOGLE_CLOUD_PROJECT`
+
+For interactive Google-account / OAuth-style capture, `aisw` uses `GEMINI_CLI_HOME` to redirect Gemini's config root to a scratch directory during the login flow, then copies the resulting files into the profile. This was introduced in Gemini CLI as the clean way to redirect config storage without overriding `HOME`.
 
 API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is the format Gemini reads natively from `~/.gemini/.env`.
 

@@ -159,6 +159,51 @@ fn write_codex_chatgpt_oauth_profile(env: &TestEnv, name: &str, imported_bootstr
     );
 }
 
+fn write_codex_personal_access_token_profile(env: &TestEnv, name: &str) {
+    env.add_fake_tool("codex", "codex 1.0.0");
+    let profile_dir = env.aisw_home.join("profiles").join("codex").join(name);
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("auth.json"),
+        r#"{"agentIdentity":{"id":"agent-123"},"issuedAt":"2026-07-17T00:00:00Z"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = \"file\"\n",
+    )
+    .unwrap();
+    write_config_json(
+        env,
+        serde_json::json!({
+            "version": 2,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {
+                    name: {
+                        "added_at": "2026-07-17T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": null
+                    }
+                },
+                "gemini": {},
+                "antigravity": {}
+            },
+            "contexts": {},
+            "settings": {
+                "backup_on_switch": true,
+                "max_backups": 10,
+                "tool_settings": {
+                    "claude": {"state_mode": "isolated"},
+                    "codex": {"state_mode": "isolated"}
+                }
+            }
+        }),
+    );
+}
+
 #[test]
 fn use_claude_oauth_emit_env_prints_claude_config_dir() {
     let env = TestEnv::new();
@@ -593,6 +638,24 @@ fn use_codex_imported_chatgpt_shared_mode_mentions_bootstrap_remediation() {
 }
 
 #[test]
+fn use_codex_personal_access_token_shared_mode_is_allowed() {
+    let env = TestEnv::new();
+    write_codex_personal_access_token_profile(&env, "pat");
+
+    env.cmd()
+        .args(["use", "codex", "pat", "--state-mode", "shared"])
+        .assert()
+        .success()
+        .stdout(contains("Codex CLI"))
+        .stdout(contains("Personal access token"));
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["codex"], "pat");
+    assert_eq!(config["settings"]["codex"]["state_mode"], "shared");
+}
+
+#[test]
 fn use_without_emit_env_prints_switched_message() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");
@@ -895,6 +958,59 @@ fn failed_gemini_oauth_switch_rolls_back_partial_live_writes() {
         std::fs::read(gemini_dir.join("state.json")).unwrap(),
         state_before
     );
+}
+
+#[test]
+fn use_gemini_oauth_removes_stale_live_files() {
+    let env = TestEnv::new();
+
+    let work_dir = env.aisw_home.join("profiles").join("gemini").join("work");
+    std::fs::create_dir_all(&work_dir).unwrap();
+    std::fs::write(work_dir.join("oauth_creds.json"), r#"{"token":"work"}"#).unwrap();
+    std::fs::write(work_dir.join("settings.json"), r#"{"account":"work"}"#).unwrap();
+
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 1,
+            "active": {"claude": null, "codex": null, "gemini": null},
+            "profiles": {
+                "claude": {},
+                "codex": {},
+                "gemini": {
+                    "work": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "label": null
+                    }
+                }
+            },
+            "settings": {"backup_on_switch": true, "max_backups": 10}
+        }),
+    );
+
+    let gemini_dir = env.fake_home.join(".gemini");
+    std::fs::create_dir_all(&gemini_dir).unwrap();
+    std::fs::write(gemini_dir.join("oauth_creds.json"), r#"{"token":"old"}"#).unwrap();
+    std::fs::write(gemini_dir.join("settings.json"), r#"{"account":"old"}"#).unwrap();
+    std::fs::write(gemini_dir.join("stale.json"), br#"{"stale":true}"#).unwrap();
+
+    env.cmd()
+        .args(["use", "gemini", "work"])
+        .assert()
+        .success()
+        .stdout(contains("Gemini CLI"))
+        .stdout(contains("Active profile updated"));
+
+    assert_eq!(
+        std::fs::read_to_string(gemini_dir.join("oauth_creds.json")).unwrap(),
+        r#"{"token":"work"}"#
+    );
+    assert_eq!(
+        std::fs::read_to_string(gemini_dir.join("settings.json")).unwrap(),
+        r#"{"account":"work"}"#
+    );
+    assert!(!gemini_dir.join("stale.json").exists());
 }
 
 #[test]

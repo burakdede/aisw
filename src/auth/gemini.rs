@@ -77,7 +77,7 @@ pub fn live_oauth_files_for_import(user_home: &Path) -> Result<Vec<files::Regula
         return Ok(Vec::new());
     }
 
-    let mut files = files::list_regular_files(&gemini_dir)?
+    let mut files = files::list_regular_files_recursive(&gemini_dir)?
         .into_iter()
         .filter(|file| file.file_name != OsStr::new(ENV_FILE))
         .collect::<Vec<_>>();
@@ -88,11 +88,17 @@ pub fn live_oauth_files_for_import(user_home: &Path) -> Result<Vec<files::Regula
 pub fn preferred_live_oauth_file(files: &[files::RegularFile]) -> Option<&files::RegularFile> {
     files
         .iter()
-        .find(|file| file.file_name == OsStr::new("settings.json"))
+        .find(|file| {
+            Path::new(&file.file_name)
+                .file_name()
+                .is_some_and(|name| name == OsStr::new("settings.json"))
+        })
         .or_else(|| {
-            files
-                .iter()
-                .find(|file| file.file_name == OsStr::new("oauth_creds.json"))
+            files.iter().find(|file| {
+                Path::new(&file.file_name)
+                    .file_name()
+                    .is_some_and(|name| name == OsStr::new("oauth_creds.json"))
+            })
         })
         .or_else(|| files.first())
 }
@@ -597,7 +603,7 @@ fn capture_oauth_cache_into_profile(cache_dir: &Path, profile_dir: &Path) -> Res
         return Ok(0);
     }
     let mut count = 0;
-    for file in files::list_regular_files(cache_dir)? {
+    for file in files::list_regular_files_recursive(cache_dir)? {
         let dst = profile_dir.join(&file.file_name);
         std::fs::copy(&file.path, &dst).with_context(|| {
             format!(
@@ -613,8 +619,11 @@ fn capture_oauth_cache_into_profile(cache_dir: &Path, profile_dir: &Path) -> Res
 }
 
 fn has_oauth_credentials(cache_dir: &Path) -> Result<bool> {
-    for file in files::list_regular_files(cache_dir)? {
-        let name = file.file_name.to_string_lossy();
+    for file in files::list_regular_files_recursive(cache_dir)? {
+        let Some(name) = Path::new(&file.file_name).file_name() else {
+            continue;
+        };
+        let name = name.to_string_lossy();
         if OAUTH_PRIMARY_FILES
             .iter()
             .any(|candidate| *candidate == name)
@@ -635,16 +644,27 @@ pub fn apply_token_cache(
         .with_context(|| format!("could not create {}", gemini_dir.display()))?;
 
     let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
+    let mut expected_files = std::collections::BTreeSet::new();
     let mut changes = Vec::new();
-    for file in files::list_regular_files(&profile_dir)? {
+    for file in files::list_regular_files_recursive(&profile_dir)? {
         // Skip the .env file — that's for API key profiles.
         if file.file_name == std::ffi::OsStr::new(ENV_FILE) {
             continue;
         }
+        expected_files.insert(file.file_name.clone());
         let dst = gemini_dir.join(&file.file_name);
         let contents = std::fs::read(&file.path)
             .with_context(|| format!("could not read {}", file.path.display()))?;
         changes.push(LiveFileChange::write(dst, contents));
+    }
+
+    for live_file in files::list_regular_files_recursive(gemini_dir)? {
+        if live_file.file_name == std::ffi::OsStr::new(ENV_FILE) {
+            continue;
+        }
+        if !expected_files.contains(&live_file.file_name) {
+            changes.push(LiveFileChange::delete(live_file.path));
+        }
     }
 
     let env_file = gemini_dir.join(ENV_FILE);
@@ -667,7 +687,7 @@ pub fn live_token_cache_matches(
     }
 
     let mut saw_file = false;
-    for file in files::list_regular_files(&profile_dir)? {
+    for file in files::list_regular_files_recursive(&profile_dir)? {
         saw_file = true;
         let live = gemini_dir.join(&file.file_name);
         if !live.exists() {
@@ -683,6 +703,20 @@ pub fn live_token_cache_matches(
                 return Ok(false);
             }
         } else if src_bytes != live_bytes {
+            return Ok(false);
+        }
+    }
+
+    let expected_names = files::list_regular_files_recursive(&profile_dir)?
+        .into_iter()
+        .filter(|file| file.file_name != OsStr::new(ENV_FILE))
+        .map(|file| file.file_name)
+        .collect::<std::collections::BTreeSet<_>>();
+    for live_file in files::list_regular_files_recursive(gemini_dir)? {
+        if live_file.file_name == OsStr::new(ENV_FILE) {
+            continue;
+        }
+        if !expected_names.contains(&live_file.file_name) {
             return Ok(false);
         }
     }
@@ -1492,6 +1526,83 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn apply_token_cache_removes_stale_live_oauth_files() {
+        let dir = tempdir().unwrap();
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Gemini, "default").unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "default",
+            "oauth_creds.json",
+            br#"{"token":"tok"}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Gemini,
+            "default",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        let dest_dir = dir.path().join("fake_gemini_home");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        std::fs::write(dest_dir.join("stale.json"), br#"{"stale":true}"#).unwrap();
+
+        apply_token_cache(&ps, "default", &dest_dir).unwrap();
+
+        assert!(!dest_dir.join("stale.json").exists());
+        assert!(dest_dir.join("oauth_creds.json").exists());
+    }
+
+    #[test]
+    fn apply_token_cache_restores_nested_profile_files() {
+        let dir = tempdir().unwrap();
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Gemini, "default").unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "default",
+            "oauth_creds.json",
+            br#"{"token":"tok"}"#,
+        )
+        .unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "default",
+            "mcp/state/token.json",
+            br#"{"nested":true}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Gemini,
+            "default",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        let dest_dir = dir.path().join("fake_gemini_home");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+
+        apply_token_cache(&ps, "default", &dest_dir).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dest_dir.join("mcp").join("state").join("token.json")).unwrap(),
+            r#"{"nested":true}"#
+        );
+    }
+
+    #[test]
     fn live_oauth_files_for_import_skips_env_and_sorts() {
         let dir = tempdir().unwrap();
         let user_home = dir.path().join("home");
@@ -1508,6 +1619,24 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(names, vec!["oauth_creds.json", "z.json"]);
+    }
+
+    #[test]
+    fn live_oauth_files_for_import_includes_nested_regular_files() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        std::fs::create_dir_all(gemini_dir.join("mcp/state")).unwrap();
+        std::fs::write(gemini_dir.join("oauth_creds.json"), "{}").unwrap();
+        std::fs::write(gemini_dir.join("mcp/state/token.json"), "{}").unwrap();
+
+        let files = live_oauth_files_for_import(&user_home).unwrap();
+        let names = files
+            .iter()
+            .map(|file| file.file_name.to_string_lossy().replace('\\', "/"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["mcp/state/token.json", "oauth_creds.json"]);
     }
 
     #[test]
@@ -1651,6 +1780,77 @@ mod tests {
             &bin,
             Duration::from_secs(2),
             TEST_POLL,
+        )
+        .unwrap();
+
+        let dest_dir = dir.path().join("fake_gemini_home");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        apply_token_cache(&ps, "default", &dest_dir).unwrap();
+
+        assert!(live_token_cache_matches(&ps, "default", &dest_dir).unwrap());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn live_token_cache_match_fails_when_stale_oauth_file_exists() {
+        let dir = tempdir().unwrap();
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Gemini, "default").unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "default",
+            "oauth_creds.json",
+            br#"{"token":"tok"}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Gemini,
+            "default",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
+        )
+        .unwrap();
+
+        let dest_dir = dir.path().join("fake_gemini_home");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        apply_token_cache(&ps, "default", &dest_dir).unwrap();
+        std::fs::write(dest_dir.join("stale.json"), br#"{"stale":true}"#).unwrap();
+
+        assert!(!live_token_cache_matches(&ps, "default", &dest_dir).unwrap());
+    }
+
+    #[test]
+    fn live_token_cache_matches_nested_files_after_apply_token_cache() {
+        let dir = tempdir().unwrap();
+        let (ps, cs) = stores(dir.path());
+        ps.create(Tool::Gemini, "default").unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "default",
+            "oauth_creds.json",
+            br#"{"token":"tok"}"#,
+        )
+        .unwrap();
+        ps.write_file(
+            Tool::Gemini,
+            "default",
+            "mcp/state/token.json",
+            br#"{"nested":true}"#,
+        )
+        .unwrap();
+        cs.add_profile(
+            Tool::Gemini,
+            "default",
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label: None,
+            },
         )
         .unwrap();
 

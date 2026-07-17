@@ -11,6 +11,8 @@ From install to switching accounts in five minutes.
 
 ```sh
 # Homebrew (macOS and Linux)
+# If Homebrew asks you to trust the tap first
+brew trust burakdede/tap
 brew tap burakdede/tap
 brew install aisw
 
@@ -73,6 +75,8 @@ aisw add antigravity work --from-live
 ```
 
 For Codex ChatGPT-managed auth, this interactive path is the durable setup because login happens inside the profile-owned isolated `CODEX_HOME`.
+
+Upstream Gemini CLI docs currently recommend Google-account login for interactive local use. Some account types still require `GOOGLE_CLOUD_PROJECT`, especially Workspace / Code Assist-style setups and certain region-limited cases. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI.
 
 For Antigravity, `aisw add antigravity <name>` captures the shared live keyring-backed OAuth session that `agy` creates and stores the documented Antigravity config roots alongside it. Upstream does not currently document an isolated per-profile auth root.
 

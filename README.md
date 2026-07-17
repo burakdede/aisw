@@ -230,8 +230,10 @@ aisw context use acme
 
 - Claude: after switching, start a fresh Claude process instead of relying on a resumed session from the previous account.
 - Codex: ChatGPT-managed `aisw add codex <name> --from-live` is bootstrap-only. The durable path is direct per-profile login with `aisw add codex <name>`.
+- Codex: personal access token sessions imported from live state are treated separately from ChatGPT-managed refresh-token auth, so the shared-mode ChatGPT block does not apply to them.
 - Codex: shared-mode ChatGPT auth switching is explicitly unsupported.
-- Gemini: `aisw init` and `aisw add gemini ...` can capture the currently live Gemini state, but you should still start a fresh process after switching.
+- Gemini: Google-account login is currently documented upstream as the recommended interactive local path. Some account types still require `GOOGLE_CLOUD_PROJECT`, and headless automation should prefer `GEMINI_API_KEY` or Vertex AI.
+- Gemini: `aisw init` and `aisw add gemini ...` can still capture the currently live Gemini state for supported upstream auth modes, but you should start a fresh process after switching.
 
 </details>
 

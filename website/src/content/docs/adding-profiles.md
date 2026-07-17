@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Adding Profiles","headline":"Adding Profiles","description":"How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.","url":"https://burakdede.github.io/aisw/adding-profiles/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, adding profiles, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.7","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Adding Profiles","item":"https://burakdede.github.io/aisw/adding-profiles/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Adding Profiles","headline":"Adding Profiles","description":"How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.","url":"https://burakdede.github.io/aisw/adding-profiles/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, adding profiles, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Adding Profiles","item":"https://burakdede.github.io/aisw/adding-profiles/"}]}]}
 ---
 
 ```text
@@ -65,9 +65,11 @@ aisw add gemini personal
 
 - Claude: spawns `claude auth login`. `aisw` monitors the live credential file and Keychain for changes and captures the result when login completes.
 - Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into that profile-owned isolated state. This is the durable ChatGPT-managed Codex path.
-- Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting OAuth cache files into the profile. The scratch directory is removed after the flow regardless of outcome.
+- Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting auth cache files into the profile. The scratch directory is removed after the flow regardless of outcome.
 
 Interactive OAuth requires a terminal and browser access. It is not available in `--non-interactive` mode.
+
+Important Gemini note: current upstream Gemini CLI docs again recommend `Login with Google` for interactive local use. Some account types still require `GOOGLE_CLOUD_PROJECT`, including Workspace / Code Assist-style setups and certain region-limited cases. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI.
 
 ## Capture current live credentials
 
@@ -82,6 +84,8 @@ aisw add gemini work --from-live
 This is the fastest path if you are already logged in. The captured profile is automatically set as active because those credentials are already live.
 
 For Codex ChatGPT-managed auth, `--from-live` is compatibility/bootstrap only. It captures the current live session, but the durable setup is to re-login directly into the profile with interactive `aisw add codex <name>` so future upstream refreshes stay tied to that profile's own `CODEX_HOME`.
+
+For Codex personal access token sessions, `--from-live` is the current `aisw` path: authenticate upstream with `codex login --with-access-token`, then import that live session. `aisw` treats those profiles separately from ChatGPT-managed refresh-token auth, so the shared-mode ChatGPT block does not apply to them.
 
 If a profile with that name already exists, use `--yes` to overwrite it:
 

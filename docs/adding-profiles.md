@@ -48,7 +48,7 @@ aisw add gemini personal
 
 - Claude: spawns `claude auth login`. When the installed Claude build supports profile-scoped auth, `aisw` runs login inside the profile-owned `CLAUDE_CONFIG_DIR`; otherwise it monitors the live credential file and Keychain for changes and captures the result there.
 - Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into that profile-owned isolated state. This is the durable ChatGPT-managed Codex path.
-- Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting OAuth cache files into the profile. The scratch directory is removed after the flow regardless of outcome.
+- Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting auth/state files into the profile. The scratch directory is removed after the flow regardless of outcome.
 - Antigravity: spawns `agy`, captures the resulting live keyring-backed OAuth session plus the documented `~/.gemini/antigravity-cli/` and `~/.gemini/config/` state, then restores the prior live state unless `--set-active` is requested.
 
 Claude OAuth support depends on how the installed Claude build scopes auth:
@@ -57,6 +57,8 @@ Claude OAuth support depends on how the installed Claude build scopes auth:
 - Unknown keychain behavior: `aisw` will warn that isolated switching may not be durable until the profile is validated on that install.
 
 Interactive OAuth requires a terminal and browser access. It is not available in `--non-interactive` mode.
+
+Important Gemini note: current upstream Gemini CLI docs again recommend `Login with Google` for interactive local use. Some account types still require `GOOGLE_CLOUD_PROJECT`, including Workspace / Code Assist-style setups and certain region-limited cases. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI.
 
 ## Capture current live credentials
 
@@ -72,6 +74,8 @@ aisw add antigravity work --from-live
 This is the fastest path if you are already logged in. The captured profile is automatically set as active because those credentials are already live.
 
 For Codex ChatGPT-managed auth, `--from-live` is compatibility/bootstrap only. It captures the current live session, but the durable setup is to re-login directly into the profile with interactive `aisw add codex <name>` so future upstream refreshes stay tied to that profile's own `CODEX_HOME`.
+
+For Codex personal access token sessions, `--from-live` is the current `aisw` path: authenticate upstream with `codex login --with-access-token`, then import that live session. `aisw` treats those profiles separately from ChatGPT-managed refresh-token auth, so the shared-mode ChatGPT block does not apply to them.
 
 For Claude OAuth, `--from-live` captures whatever Claude is currently using, but it does not upgrade a shared live session into an independently isolated auth owner. If the install still uses Claude's legacy shared Keychain credential, treat the imported profile as a captured shared-live session rather than as a durable isolated OAuth bundle.
 
