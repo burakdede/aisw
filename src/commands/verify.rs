@@ -248,6 +248,7 @@ mod tests {
             credential_backend: Some("file".to_owned()),
             claude_auth_classification: None,
             codex_auth_classification: None,
+            antigravity_auth_classification: None,
             state_mode: Some("isolated".to_owned()),
             active_profile_added_at: None,
             active_profile_applied: Some(true),

@@ -26,6 +26,7 @@ pub(crate) struct ToolStatus {
     pub credential_backend: Option<String>,
     pub claude_auth_classification: Option<String>,
     pub codex_auth_classification: Option<String>,
+    pub antigravity_auth_classification: Option<String>,
     pub state_mode: Option<String>,
     pub active_profile_added_at: Option<chrono::DateTime<chrono::Utc>>,
     pub active_profile_applied: Option<bool>,
@@ -117,6 +118,12 @@ fn assess_live_state(
                 &user_home.join(".gemini"),
             )?,
         },
+        Tool::Antigravity => auth::antigravity::live_state_matches(
+            profile_store,
+            profile_name,
+            credential_backend,
+            user_home,
+        )?,
     };
 
     if applied {
@@ -160,6 +167,7 @@ pub(crate) fn collect_status(
             credential_backend,
             claude_auth_classification,
             codex_auth_classification,
+            antigravity_auth_classification,
             active_profile_added_at,
             active_profile_applied,
             credentials_present,
@@ -195,6 +203,20 @@ pub(crate) fn collect_status(
             let codex_auth_classification = if tool == Tool::Codex {
                 Some(
                     auth::codex::classify_profile(
+                        &profile_store,
+                        name,
+                        profile_meta.auth_method,
+                        profile_meta.credential_backend,
+                    )?
+                    .as_str()
+                    .to_owned(),
+                )
+            } else {
+                None
+            };
+            let antigravity_auth_classification = if tool == Tool::Antigravity {
+                Some(
+                    auth::antigravity::classify_profile(
                         &profile_store,
                         name,
                         profile_meta.auth_method,
@@ -242,13 +264,14 @@ pub(crate) fn collect_status(
                 backend,
                 claude_auth_classification,
                 codex_auth_classification,
+                antigravity_auth_classification,
                 added_at,
                 applied,
                 creds,
                 perms,
             )
         } else {
-            (None, None, None, None, None, None, None, false, true)
+            (None, None, None, None, None, None, None, None, false, true)
         };
 
         statuses.push(ToolStatus {
@@ -260,6 +283,7 @@ pub(crate) fn collect_status(
             credential_backend,
             claude_auth_classification,
             codex_auth_classification,
+            antigravity_auth_classification,
             state_mode,
             active_profile_added_at,
             active_profile_applied,
@@ -477,6 +501,9 @@ fn print_text(statuses: &[ToolStatus], context_status: Option<&DerivedContextSta
         if let Some(classification) = s.codex_auth_classification.as_deref() {
             output::print_kv("Codex auth", classification);
         }
+        if let Some(classification) = s.antigravity_auth_classification.as_deref() {
+            output::print_kv("Antigravity auth", classification);
+        }
         if let Some(mode) = s.state_mode.as_deref() {
             output::print_kv("State mode", output::ellipsize(mode, STATE_MODE_WIDTH));
         }
@@ -504,6 +531,7 @@ fn print_json(
                 "credential_backend":   s.credential_backend,
                 "claude_auth_classification": s.claude_auth_classification,
                 "codex_auth_classification": s.codex_auth_classification,
+                "antigravity_auth_classification": s.antigravity_auth_classification,
                 "state_mode":           s.state_mode,
                 "active_profile_applied": s.active_profile_applied,
                 "credentials_present":  s.credentials_present,
@@ -776,7 +804,7 @@ mod tests {
     fn empty_config_no_path_all_not_found() {
         let tmp = tempdir().unwrap();
         let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
-        assert_eq!(statuses.len(), 3);
+        assert_eq!(statuses.len(), 4);
         assert!(statuses.iter().all(|s| !s.binary_found));
         assert!(statuses.iter().all(|s| s.active_profile.is_none()));
     }
@@ -1155,6 +1183,7 @@ mod tests {
                 credential_backend: Some("file".to_owned()),
                 claude_auth_classification: Some("api_key".to_owned()),
                 codex_auth_classification: None,
+                antigravity_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(chrono::Utc::now()),
                 active_profile_applied: Some(true),
@@ -1170,6 +1199,7 @@ mod tests {
                 credential_backend: None,
                 claude_auth_classification: None,
                 codex_auth_classification: None,
+                antigravity_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: None,
                 active_profile_applied: None,
@@ -1210,6 +1240,7 @@ mod tests {
                 credential_backend: Some("file".to_owned()),
                 claude_auth_classification: Some("api_key".to_owned()),
                 codex_auth_classification: None,
+                antigravity_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(older),
                 active_profile_applied: Some(true),
@@ -1225,6 +1256,7 @@ mod tests {
                 credential_backend: Some("file".to_owned()),
                 claude_auth_classification: None,
                 codex_auth_classification: None,
+                antigravity_auth_classification: None,
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(newer),
                 active_profile_applied: Some(true),

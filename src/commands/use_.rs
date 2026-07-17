@@ -190,7 +190,8 @@ pub(crate) fn resolve_profile_switch_request(
                 "--state-mode is currently supported only for claude and codex.\n  \
                  Gemini remains isolated-only because its native ~/.gemini directory mixes \
                  credentials with broader local state such as history, trusted folders, \
-                 project mappings, settings, and MCP config."
+                 project mappings, settings, and MCP config.\n  \
+                 Antigravity does not currently expose a documented isolated auth/data root, so aisw switches its shared live keyring-backed session without a state-mode selector."
             );
         }
         (_, None) => None,
@@ -445,6 +446,18 @@ pub(crate) fn apply_resolved_profile_switch(
                 }
             }
         }
+        Tool::Antigravity => {
+            if emit_env {
+                auth::antigravity::emit_shell_env();
+            } else {
+                auth::antigravity::apply_live_credentials(
+                    &profile_store,
+                    &resolved.profile_name,
+                    resolved.profile_meta.credential_backend,
+                    user_home,
+                )?;
+            }
+        }
     }
 
     Ok(())
@@ -494,6 +507,14 @@ fn maybe_sync_active_profile_before_switch(
                 user_home,
             )?;
         }
+        Tool::Antigravity => {
+            let _ = auth::antigravity::sync_profile_from_live_if_same_identity(
+                profile_store,
+                active_name,
+                active_profile.credential_backend,
+                user_home,
+            )?;
+        }
     }
     Ok(())
 }
@@ -515,6 +536,15 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
             resolved.profile_meta.credential_backend,
         ) {
             output::print_kv("Codex auth", classification.human_label());
+        }
+    } else if resolved.tool == Tool::Antigravity {
+        if let Ok(classification) = auth::antigravity::classify_profile(
+            &profile_store,
+            &resolved.profile_name,
+            resolved.profile_meta.auth_method,
+            resolved.profile_meta.credential_backend,
+        ) {
+            output::print_kv("Antigravity auth", classification.human_label());
         }
     }
     output::print_kv(
@@ -548,6 +578,7 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
                 "Codex will keep shared local state and only switch account credentials."
             }
             (Tool::Gemini, _) => unreachable!(),
+            (Tool::Antigravity, _) => unreachable!(),
         });
     }
     if resolved.backup_on_switch {
@@ -605,6 +636,13 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
                 );
             }
         }
+    } else if resolved.tool == Tool::Antigravity {
+        output::print_effect(
+            "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
+        );
+        output::print_effect(
+            "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
+        );
     }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_use());
@@ -845,9 +883,19 @@ fn extract_switch_identity(profile_store: &ProfileStore, tool: Tool, name: &str)
         Tool::Claude => ".credentials.json",
         Tool::Codex => "auth.json",
         Tool::Gemini => "oauth_creds.json",
+        Tool::Antigravity => "keyring-secret.json",
     };
 
-    let bytes = profile_store.read_file(tool, name, cred_file).ok()?;
+    let bytes = if tool == Tool::Antigravity {
+        profile_store
+            .read_file(tool, name, cred_file)
+            .or_else(|_| {
+                auth::secure_store::read_profile_secret(tool, name).map(|v| v.unwrap_or_default())
+            })
+            .ok()?
+    } else {
+        profile_store.read_file(tool, name, cred_file).ok()?
+    };
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
 
     // Try common email/identity fields in order of specificity.
@@ -867,7 +915,7 @@ fn extract_switch_identity(profile_store: &ProfileStore, tool: Tool, name: &str)
     }
 
     // For Codex API-key profiles the "token" field may be a JWT.
-    if tool == Tool::Codex {
+    if matches!(tool, Tool::Codex | Tool::Antigravity) {
         if let Some(jwt) = v.get("token").and_then(|t| t.as_str()) {
             if let Some(email) = decode_jwt_email(jwt) {
                 return Some(email);

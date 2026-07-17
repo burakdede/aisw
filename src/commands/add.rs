@@ -38,6 +38,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
 
     let requested_backend = args.credential_backend.map(map_cli_backend);
     validate_requested_backend(args.tool, requested_backend)?;
+    validate_auth_source_support(&args)?;
 
     // --from-live captures live credentials without launching any login flow.
     // Tool detection is intentionally skipped: the tool is already installed
@@ -89,6 +90,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
             Tool::Claude => CLAUDE_ENV_VAR,
             Tool::Codex => CODEX_ENV_VAR,
             Tool::Gemini => GEMINI_ENV_VAR,
+            Tool::Antigravity => unreachable!("validated above"),
         };
         let key = std::env::var(env_var).unwrap_or_default();
         if key.is_empty() {
@@ -119,6 +121,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                 args.label.clone(),
                 backend,
             )?,
+            Tool::Antigravity => unreachable!("validated above"),
         }
         if args.set_active {
             config_store.set_active(args.tool, &args.profile_name)?;
@@ -159,6 +162,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                 args.label.clone(),
                 backend,
             )?,
+            Tool::Antigravity => unreachable!("validated above"),
         }
         (backend, AuthMethod::ApiKey, None)
     } else {
@@ -247,6 +251,28 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                 )?;
                 (CredentialBackend::File, AuthMethod::OAuth, None)
             }
+            Tool::Antigravity => {
+                let backend = requested_backend.unwrap_or(CredentialBackend::File);
+                let user_home = dirs::home_dir().context("could not determine home directory")?;
+                let live_snapshot = (!args.set_active)
+                    .then(|| auth::antigravity::capture_live_snapshot(&user_home))
+                    .transpose()?;
+                auth::antigravity::add_oauth_with_backend(
+                    &profile_store,
+                    &config_store,
+                    &args.profile_name,
+                    args.label.clone(),
+                    &detected.binary_path,
+                    backend,
+                )?;
+                if let Some(snapshot) = live_snapshot {
+                    auth::antigravity::restore_live_state_after_oauth_add(
+                        Some(snapshot),
+                        &user_home,
+                    )?;
+                }
+                (backend, AuthMethod::OAuth, None)
+            }
         }
     };
 
@@ -315,7 +341,7 @@ fn prepare_from_live_target(
 
 struct FromLiveOverwriteSnapshot {
     config: Config,
-    files: Vec<(OsString, Vec<u8>)>,
+    files: Vec<(String, Vec<u8>)>,
     secure_secret: Option<Vec<u8>>,
     secure_backend_was_tracked: bool,
 }
@@ -328,14 +354,15 @@ impl FromLiveOverwriteSnapshot {
         name: &str,
     ) -> Result<Self> {
         let config = config_store.load()?;
-        let files = auth::files::list_regular_files(&profile_store.profile_dir(tool, name))?
-            .into_iter()
-            .map(|file| {
-                let bytes = fs::read(&file.path)
-                    .with_context(|| format!("could not read {}", file.path.display()))?;
-                Ok((file.file_name, bytes))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let files =
+            auth::files::list_regular_files_recursive(&profile_store.profile_dir(tool, name))?
+                .into_iter()
+                .map(|file| {
+                    let bytes = fs::read(&file.path)
+                        .with_context(|| format!("could not read {}", file.path.display()))?;
+                    Ok((file.file_name.to_string_lossy().into_owned(), bytes))
+                })
+                .collect::<Result<Vec<_>>>()?;
         let old_backend = config
             .profiles_for(tool)
             .get(name)
@@ -370,6 +397,9 @@ impl FromLiveOverwriteSnapshot {
                 if path.is_symlink() {
                     continue;
                 }
+                if let Some(parent) = path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
                 if fs::write(&path, bytes).is_ok() {
                     let _ = auth::files::set_permissions_600(&path);
                 }
@@ -392,6 +422,7 @@ fn from_live(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
         Tool::Claude => from_live_claude(args, home, user_home),
         Tool::Codex => from_live_codex(args, home, user_home),
         Tool::Gemini => from_live_gemini(args, home, user_home),
+        Tool::Antigravity => from_live_antigravity(args, home, user_home),
     }
 }
 
@@ -1014,6 +1045,105 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
     )
 }
 
+fn from_live_antigravity(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> {
+    let profile_store = ProfileStore::new(home);
+    let config_store = ConfigStore::new(home);
+    let backend = requested_backend(&args).unwrap_or(CredentialBackend::File);
+
+    let snapshot = auth::antigravity::live_credentials_snapshot_for_import(user_home)?
+        .with_context(|| {
+            format!(
+                "no live Antigravity credentials found — run 'agy' and sign in first, \
+                 then retry 'aisw add antigravity {} --from-live'.",
+                args.profile_name,
+            )
+        })?;
+
+    let overwriting = prepare_from_live_target(
+        &profile_store,
+        Tool::Antigravity,
+        &args.profile_name,
+        args.yes,
+    )?;
+    let overwrite_snapshot = if overwriting {
+        Some(FromLiveOverwriteSnapshot::capture(
+            &profile_store,
+            &config_store,
+            Tool::Antigravity,
+            &args.profile_name,
+        )?)
+    } else {
+        None
+    };
+
+    if let Err(e) = auth::antigravity::write_profile_snapshot(
+        &profile_store,
+        &config_store,
+        &args.profile_name,
+        args.label.clone(),
+        backend,
+        &snapshot,
+        overwriting,
+    ) {
+        if let Some(snapshot) = overwrite_snapshot.as_ref() {
+            snapshot.restore(
+                &profile_store,
+                &config_store,
+                Tool::Antigravity,
+                &args.profile_name,
+                backend,
+            );
+        } else {
+            let _ = profile_store.delete(Tool::Antigravity, &args.profile_name);
+            if backend == CredentialBackend::SystemKeyring {
+                let _ = crate::auth::secure_store::delete_profile_secret(
+                    Tool::Antigravity,
+                    &args.profile_name,
+                );
+            }
+        }
+        return Err(e);
+    }
+
+    if let Err(e) = auth::antigravity::apply_live_credentials(
+        &profile_store,
+        &args.profile_name,
+        backend,
+        user_home,
+    ) {
+        if let Some(snapshot) = overwrite_snapshot.as_ref() {
+            snapshot.restore(
+                &profile_store,
+                &config_store,
+                Tool::Antigravity,
+                &args.profile_name,
+                backend,
+            );
+        }
+        return Err(e);
+    }
+    if let Err(e) = config_store.activate_profile(Tool::Antigravity, &args.profile_name, None) {
+        if let Some(snapshot) = overwrite_snapshot.as_ref() {
+            snapshot.restore(
+                &profile_store,
+                &config_store,
+                Tool::Antigravity,
+                &args.profile_name,
+                backend,
+            );
+        }
+        return Err(e);
+    }
+
+    finalize_from_live(
+        &args,
+        Tool::Antigravity,
+        backend,
+        AuthMethod::OAuth,
+        Some(user_home),
+    )
+}
+
 fn finalize_from_live(
     args: &AddArgs,
     tool: Tool,
@@ -1031,6 +1161,7 @@ fn finalize_from_live(
         "source": "from_live",
         "claude_auth_classification": claude_add_classification(tool, auth_method, user_home),
         "codex_auth_classification": codex_add_classification(tool, auth_method, true),
+        "antigravity_auth_classification": antigravity_add_classification(tool, auth_method),
         "warnings": warnings,
     });
     if runtime::is_progress_json() {
@@ -1059,6 +1190,9 @@ fn finalize_from_live(
     if let Some(classification) = codex_add_classification(tool, auth_method, true) {
         output::print_kv("Codex auth", classification);
     }
+    if let Some(classification) = antigravity_add_classification(tool, auth_method) {
+        output::print_kv("Antigravity auth", classification);
+    }
     output::print_kv("Activation", "active");
     output::print_blank_line();
     output::print_effects_header();
@@ -1071,6 +1205,11 @@ fn finalize_from_live(
         );
         output::print_effect(
             "Re-login directly inside this profile's isolated CODEX_HOME for the durable path.",
+        );
+    }
+    if tool == Tool::Antigravity {
+        output::print_effect(
+            "Antigravity restores the shared live OS keyring credential and the documented ~/.gemini config roots when you switch profiles.",
         );
     }
     if let Some(warning) = add_warnings(tool, auth_method, user_home).first() {
@@ -1093,6 +1232,25 @@ fn validate_requested_backend(tool: Tool, requested: Option<CredentialBackend>) 
             "{}\n  Cannot add {} with --credential-backend system_keyring on this machine.",
             detail,
             tool.display_name()
+        );
+    }
+    Ok(())
+}
+
+fn validate_auth_source_support(args: &AddArgs) -> Result<()> {
+    if args.tool != Tool::Antigravity {
+        return Ok(());
+    }
+    if args.from_env {
+        bail!(
+            "Antigravity CLI does not document API-key or environment-variable authentication.\n  \
+             Use interactive OAuth or --from-live instead."
+        );
+    }
+    if args.api_key.is_some() || args.api_key_stdin {
+        bail!(
+            "Antigravity CLI support in aisw is OAuth-only because upstream documents system-keyring-backed sign-in, not API-key profile auth.\n  \
+             Use 'aisw add antigravity <name>' or 'aisw add antigravity <name> --from-live'."
         );
     }
     Ok(())
@@ -1126,6 +1284,9 @@ fn print_add_summary(
     if let Some(classification) = codex_add_classification(args.tool, auth_method, false) {
         output::print_kv("Codex auth", classification);
     }
+    if let Some(classification) = antigravity_add_classification(args.tool, auth_method) {
+        output::print_kv("Antigravity auth", classification);
+    }
     if let Some(source) = source {
         output::print_kv("Source", source);
     }
@@ -1144,6 +1305,14 @@ fn print_add_summary(
             "Codex login ran inside this profile-owned CODEX_HOME, so future refreshes stay tied to this profile.",
         );
         output::print_effect("This is the durable ChatGPT-managed Codex path.");
+    }
+    if args.tool == Tool::Antigravity {
+        output::print_effect(
+            "Antigravity OAuth is restored through the shared live OS keyring entry and the documented ~/.gemini config roots.",
+        );
+        output::print_effect(
+            "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
+        );
     }
     for warning in add_warnings(args.tool, auth_method, user_home) {
         output::print_effect(warning);
@@ -1174,6 +1343,7 @@ fn emit_add_result(
         "source": source,
         "claude_auth_classification": claude_add_classification(args.tool, auth_method, user_home),
         "codex_auth_classification": codex_add_classification(args.tool, auth_method, args.from_live),
+        "antigravity_auth_classification": antigravity_add_classification(args.tool, auth_method),
         "warnings": warnings,
     });
     if let Some(progress) = progress {
@@ -1211,6 +1381,11 @@ fn codex_add_classification(
     })
 }
 
+fn antigravity_add_classification(tool: Tool, auth_method: AuthMethod) -> Option<&'static str> {
+    (tool == Tool::Antigravity && auth_method == AuthMethod::OAuth)
+        .then_some("oauth_shared_live_keyring")
+}
+
 fn claude_add_classification(
     tool: Tool,
     auth_method: AuthMethod,
@@ -1241,6 +1416,11 @@ fn claude_add_classification(
 }
 
 fn add_warnings(tool: Tool, auth_method: AuthMethod, user_home: Option<&Path>) -> Vec<String> {
+    if tool == Tool::Antigravity && auth_method == AuthMethod::OAuth {
+        return vec![
+            "Antigravity currently documents shared live OS-keyring auth, not an isolated per-profile auth root. aisw switches the live keyring-backed session and Antigravity config roots transactionally.".to_owned(),
+        ];
+    }
     match claude_add_classification(tool, auth_method, user_home) {
         Some("oauth_macos_keychain_shared_live") => {
             vec![
@@ -1671,6 +1851,40 @@ mod tests {
     }
 
     #[test]
+    fn antigravity_from_env_is_rejected_before_tool_detection() {
+        with_env_lock(|| {
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            fs::create_dir_all(&home).unwrap();
+
+            let err = run_in(
+                from_env_args(Tool::Antigravity, "work"),
+                &home,
+                OsString::new(),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("does not document API-key or environment-variable authentication"),
+                "unexpected: {err}"
+            );
+        });
+    }
+
+    #[test]
+    fn antigravity_api_key_auth_is_rejected_before_tool_detection() {
+        with_env_lock(|| {
+            let tmp = tempdir().unwrap();
+            let home = tmp.path().join("home");
+            fs::create_dir_all(&home).unwrap();
+
+            let args = add_args_api_key(Tool::Antigravity, "work", "AIza-not-supported");
+            let err = run_in(args, &home, OsString::new()).unwrap_err();
+            assert!(err.to_string().contains("OAuth-only"), "unexpected: {err}");
+        });
+    }
+
+    #[test]
     fn claude_oauth_add_without_set_active_restores_live_state() {
         with_env_lock(|| {
             let _runtime = RuntimeGuard::set(false, false);
@@ -1837,6 +2051,31 @@ mod tests {
         let env = gemini_dir.join(".env");
         fs::write(&env, format!("GEMINI_API_KEY={key}\n")).unwrap();
         fs::set_permissions(&env, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    fn write_antigravity_live_state(
+        user_home: &Path,
+        keyring_root: &Path,
+        secret: &str,
+    ) -> EnvVarGuard {
+        let app_dir = user_home.join(".gemini").join("antigravity-cli");
+        let shared_dir = user_home.join(".gemini").join("config");
+        fs::create_dir_all(app_dir.join("cache")).unwrap();
+        fs::create_dir_all(shared_dir.join("projects")).unwrap();
+        fs::write(app_dir.join("settings.json"), br#"{"theme":"terminal"}"#).unwrap();
+        fs::write(app_dir.join("cache").join("projects.json"), br#"{}"#).unwrap();
+        fs::write(shared_dir.join("hooks.json"), br#"{}"#).unwrap();
+        fs::write(shared_dir.join("projects").join("repo.json"), br#"{}"#).unwrap();
+
+        let keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", keyring_root.to_str().unwrap());
+        let keyring_ref = auth::antigravity::default_live_keyring_ref();
+        crate::auth::system_keyring::upsert_generic_password(
+            &keyring_ref.service,
+            &keyring_ref.account,
+            secret.as_bytes(),
+        )
+        .unwrap();
+        keyring
     }
 
     fn profile_meta(
@@ -2606,5 +2845,52 @@ mod tests {
             err.to_string().contains("no live credentials"),
             "unexpected: {err}"
         );
+    }
+
+    #[test]
+    fn from_live_antigravity_creates_profile_and_activates() {
+        with_env_lock(|| {
+            let tmp = tempdir().unwrap();
+            let aisw_home = tmp.path().join("aisw");
+            let user_home = tmp.path().join("user");
+            let keyring_dir = tmp.path().join("keyring");
+            fs::create_dir_all(&aisw_home).unwrap();
+            fs::create_dir_all(&user_home).unwrap();
+            let _home = EnvVarGuard::set("HOME", user_home.to_str().unwrap());
+            let _keyring = write_antigravity_live_state(
+                &user_home,
+                &keyring_dir,
+                "{\"session\":\"live-secret\"}",
+            );
+
+            run_in(
+                from_live_args(Tool::Antigravity, "work"),
+                &aisw_home,
+                OsString::new(),
+            )
+            .unwrap();
+
+            let ps = ProfileStore::new(&aisw_home);
+            assert!(ps.exists(Tool::Antigravity, "work"));
+            assert_eq!(
+                String::from_utf8(
+                    ps.read_file(Tool::Antigravity, "work", "keyring-secret.json")
+                        .unwrap()
+                )
+                .unwrap(),
+                "{\"session\":\"live-secret\"}"
+            );
+            assert!(ps
+                .profile_dir(Tool::Antigravity, "work")
+                .join("app/settings.json")
+                .exists());
+            assert!(ps
+                .profile_dir(Tool::Antigravity, "work")
+                .join("shared/hooks.json")
+                .exists());
+
+            let config = ConfigStore::new(&aisw_home).load().unwrap();
+            assert_eq!(config.active_for(Tool::Antigravity), Some("work"));
+        });
     }
 }

@@ -10,6 +10,7 @@ const CLAUDE_CREDENTIALS_FILE: &str = ".credentials.json";
 const CLAUDE_OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
 const CODEX_AUTH_FILE: &str = "auth.json";
 const GEMINI_OAUTH_FILES: &[&str] = &["settings.json", "oauth_creds.json"];
+const ANTIGRAVITY_SECRET_FILE: &str = "keyring-secret.json";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum OAuthIdentity {
@@ -87,6 +88,18 @@ pub fn existing_claude_oauth_profile_for_live_state(
 ) -> Result<Option<String>> {
     let identity = resolve_claude_identity(Some(credential_bytes), account_bytes)?;
     existing_oauth_profile_for_identity(profile_store, config_store, Tool::Claude, identity)
+}
+
+pub fn existing_antigravity_oauth_profile_for_live_secret(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    secret_bytes: Option<&[u8]>,
+) -> Result<Option<String>> {
+    let identity = secret_bytes
+        .map(|bytes| resolve_identity_from_json_bytes_for_tool(Tool::Antigravity, bytes))
+        .transpose()?
+        .flatten();
+    existing_oauth_profile_for_identity(profile_store, config_store, Tool::Antigravity, identity)
 }
 
 fn existing_oauth_profile_for_identity(
@@ -177,6 +190,7 @@ fn read_api_key_for_profile(
         Tool::Claude => claude::read_api_key_with_backend(profile_store, profile_name, backend),
         Tool::Codex => codex::read_api_key_with_backend(profile_store, profile_name, backend),
         Tool::Gemini => gemini::read_api_key(profile_store, profile_name),
+        Tool::Antigravity => bail!("Antigravity CLI does not support API key profiles"),
     }
 }
 
@@ -220,6 +234,13 @@ fn resolve_oauth_identity(
             backend,
             GEMINI_OAUTH_FILES,
         ),
+        Tool::Antigravity => resolve_identity_from_optional_profile_files(
+            profile_store,
+            tool,
+            profile_name,
+            backend,
+            &[ANTIGRAVITY_SECRET_FILE],
+        ),
     }
 }
 
@@ -234,6 +255,7 @@ fn resolve_identity_from_optional_profile_files(
         let bytes = match tool {
             Tool::Claude | Tool::Codex => secure_store::read_profile_secret(tool, profile_name)?,
             Tool::Gemini => None,
+            Tool::Antigravity => secure_store::read_profile_secret(tool, profile_name)?,
         };
         return match bytes {
             Some(bytes) => resolve_identity_from_json_bytes_for_tool(tool, &bytes),
@@ -363,6 +385,10 @@ fn resolve_identity_from_value(tool: Tool, value: &Value) -> Option<OAuthIdentit
             })
         }
         Tool::Gemini => find_email(value)
+            .or_else(|| find_subject(value))
+            .map(normalize_identity)
+            .map(OAuthIdentity::Generic),
+        Tool::Antigravity => find_email(value)
             .or_else(|| find_subject(value))
             .map(normalize_identity)
             .map(OAuthIdentity::Generic),

@@ -171,6 +171,7 @@ fn print_table(rows: &[Row]) {
                 "claude" => Tool::Claude,
                 "codex" => Tool::Codex,
                 "gemini" => Tool::Gemini,
+                "agy" => Tool::Antigravity,
                 _ => unreachable!(),
             };
             output::print_tool_section(tool);

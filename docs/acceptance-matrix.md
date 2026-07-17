@@ -16,6 +16,7 @@ This matrix records the current end-to-end acceptance status for supported `aisw
 | Codex CLI | Local state configured for keyring without importable `auth.json` | Supported diagnostic | Not applicable | `init` reports that Codex appears keyring-backed but no importable credential file is available | `tests/init_cmd.rs`, `src/auth/codex.rs` unit coverage, full `cargo test` |
 | Gemini CLI | File-managed auth and local state | Supported | Supported | Imports managed Gemini files, preserves required local state files, reapplies live state under `~/.gemini` on switch | `tests/init_cmd.rs`, `tests/use_cmd.rs`, full `cargo test` |
 | Gemini CLI | System keyring | Not supported | Not supported | Gemini remains file-managed in `aisw` because upstream behavior is file-centric | Product policy; see [supported-tools.md](./supported-tools.md) |
+| Antigravity CLI | Shared live OAuth keyring auth plus documented `~/.gemini` config roots | Supported via `add` / `--from-live` | Supported | Restores the shared live OS keyring session plus `~/.gemini/antigravity-cli/` and `~/.gemini/config/`; upstream does not currently document an isolated per-profile auth root | `src/auth/antigravity.rs`, `src/commands/add.rs`, `src/commands/use_.rs`, full `cargo test` |
 
 ## Notes
 

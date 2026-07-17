@@ -1,0 +1,5 @@
+[env]
+# The unit/integration suites still rely on process-global auth override state
+# and mock executable setup. Running the Rust test harness single-threaded keeps
+# those tests deterministic in CI and local verification.
+RUST_TEST_THREADS = "1"

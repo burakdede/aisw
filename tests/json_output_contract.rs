@@ -57,6 +57,10 @@ fn list_json_contract_snapshot() {
 
     let json = run_json(&env, &["list", "--json"]);
     let expected = serde_json::json!({
+        "agy": {
+            "active": null,
+            "profiles": [],
+        },
         "claude": {
             "active": "work",
             "profiles": [{"name": "work", "auth": "api_key", "claude_auth_classification": "api_key", "codex_auth_classification": null, "label": null}],
@@ -96,6 +100,7 @@ fn status_json_contract_snapshot() {
             "credential_backend": "file",
             "claude_auth_classification": "api_key",
             "codex_auth_classification": null,
+            "antigravity_auth_classification": null,
             "state_mode": "isolated",
             "active_profile_applied": expected_claude_active_applied,
             "credentials_present": true,
@@ -110,6 +115,7 @@ fn status_json_contract_snapshot() {
             "credential_backend": "file",
             "claude_auth_classification": null,
             "codex_auth_classification": "api_key",
+            "antigravity_auth_classification": null,
             "state_mode": "isolated",
             "active_profile_applied": true,
             "credentials_present": true,
@@ -124,11 +130,27 @@ fn status_json_contract_snapshot() {
             "credential_backend": "file",
             "claude_auth_classification": null,
             "codex_auth_classification": null,
+            "antigravity_auth_classification": null,
             "state_mode": null,
             "active_profile_applied": true,
             "credentials_present": true,
             "permissions_ok": true,
-        }
+        },
+        {
+            "tool": "agy",
+            "binary_found": false,
+            "stored_profiles": 0,
+            "active_profile": null,
+            "auth_method": null,
+            "credential_backend": null,
+            "claude_auth_classification": null,
+            "codex_auth_classification": null,
+            "antigravity_auth_classification": null,
+            "state_mode": null,
+            "active_profile_applied": null,
+            "credentials_present": false,
+            "permissions_ok": true,
+        },
     ]);
 
     assert_eq!(json, expected);
@@ -197,8 +219,8 @@ fn list_json_contract_preserved_with_filter_and_sort_flags() {
     );
 
     let root = json.as_object().expect("list json should be object");
-    assert_eq!(root.len(), 3);
-    for tool in ["codex", "gemini"] {
+    assert_eq!(root.len(), 4);
+    for tool in ["agy", "codex", "gemini"] {
         let entry = root.get(tool).expect("tool key should exist");
         assert_eq!(entry["active"], serde_json::Value::Null);
         assert_eq!(
@@ -259,6 +281,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
         "credential_backend",
         "claude_auth_classification",
         "codex_auth_classification",
+        "antigravity_auth_classification",
         "state_mode",
         "active_profile_applied",
         "credentials_present",
@@ -270,7 +293,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
             "missing key `{key}` in status entry"
         );
     }
-    assert_eq!(entry.len(), 12);
+    assert_eq!(entry.len(), 13);
 }
 
 #[test]

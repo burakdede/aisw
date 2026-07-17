@@ -5,6 +5,7 @@ use predicates::str::contains;
 
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_CLAUDE_KEY_ALT: &str = "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const ANTIGRAVITY_SECRET: &str = r#"{"email":"work@example.com","token":"work-live"}"#;
 
 fn setup_profiles(env: &TestEnv) {
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -39,6 +40,47 @@ fn setup_profiles(env: &TestEnv) {
             "--api-key",
             "AIzatest1234567890ABCDEF",
         ])
+        .assert()
+        .success();
+}
+
+fn write_antigravity_live_state(env: &TestEnv, secret: &str, theme: &str) {
+    let app_dir = env.fake_home.join(".gemini").join("antigravity-cli");
+    let shared_dir = env.fake_home.join(".gemini").join("config");
+    std::fs::create_dir_all(app_dir.join("cache")).unwrap();
+    std::fs::create_dir_all(shared_dir.join("projects")).unwrap();
+    std::fs::write(
+        app_dir.join("settings.json"),
+        format!(r#"{{"theme":"{theme}"}}"#),
+    )
+    .unwrap();
+    std::fs::write(
+        app_dir.join("cache").join("projects.json"),
+        br#"{"current":"repo"}"#,
+    )
+    .unwrap();
+    std::fs::write(shared_dir.join("hooks.json"), br#"{"hooks":["plan"]}"#).unwrap();
+    std::fs::write(
+        shared_dir.join("projects").join("repo.json"),
+        br#"{"mode":"plan"}"#,
+    )
+    .unwrap();
+    let secret_path = env
+        .fake_home
+        .join("keychain")
+        .join("gemini")
+        .join("antigravity")
+        .join("secret");
+    std::fs::create_dir_all(secret_path.parent().unwrap()).unwrap();
+    std::fs::write(secret_path.parent().unwrap().join("account"), "antigravity").unwrap();
+    std::fs::write(secret_path, secret).unwrap();
+}
+
+fn add_antigravity_profile(env: &TestEnv, name: &str) {
+    env.add_fake_tool("agy", "agy 1.0.0");
+    write_antigravity_live_state(env, ANTIGRAVITY_SECRET, "terminal");
+    env.cmd()
+        .args(["add", "antigravity", name, "--from-live"])
         .assert()
         .success();
 }
@@ -310,6 +352,64 @@ fn context_use_json_reports_machine_activation_state() {
     assert_eq!(json["result"]["active"]["claude"], "acme-claude");
     assert_eq!(json["result"]["active"]["codex"], "acme-codex");
     assert_eq!(json["result"]["active"]["gemini"], serde_json::Value::Null);
+}
+
+#[test]
+fn context_use_with_antigravity_updates_live_state_and_active_profile() {
+    let env = TestEnv::new();
+    setup_profiles(&env);
+    add_antigravity_profile(&env, "acme-antigravity");
+
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "work",
+            "--claude",
+            "acme-claude",
+            "--antigravity",
+            "acme-antigravity",
+        ])
+        .assert()
+        .success();
+
+    write_antigravity_live_state(
+        &env,
+        r#"{"email":"other@example.com","token":"other"}"#,
+        "light",
+    );
+
+    env.cmd()
+        .args(["context", "use", "work"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join(".gemini")
+                .join("antigravity-cli")
+                .join("settings.json")
+        )
+        .unwrap(),
+        r#"{"theme":"terminal"}"#
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            env.fake_home
+                .join("keychain")
+                .join("gemini")
+                .join("antigravity")
+                .join("secret")
+        )
+        .unwrap(),
+        ANTIGRAVITY_SECRET
+    );
+
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["claude"], "acme-claude");
+    assert_eq!(config["active"]["antigravity"], "acme-antigravity");
 }
 
 #[test]

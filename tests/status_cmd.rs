@@ -10,6 +10,7 @@ use predicates::str::contains;
 const VALID_CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const VALID_CODEX_KEY: &str = "sk-codex-test-key-12345";
 const VALID_GEMINI_KEY: &str = "AIzatest1234567890ABCDEF";
+const ANTIGRAVITY_SECRET: &str = r#"{"email":"work@example.com","token":"work-live"}"#;
 
 fn add_and_activate_claude(env: &TestEnv, name: &str) {
     env.add_fake_tool("claude", "claude 2.3.0");
@@ -50,6 +51,47 @@ fn add_codex_profile(env: &TestEnv, name: &str, key: &str) {
     env.add_fake_tool("codex", "codex 1.0.0");
     env.cmd()
         .args(["add", "codex", name, "--api-key", key])
+        .assert()
+        .success();
+}
+
+fn write_antigravity_live_state(env: &TestEnv, secret: &str) {
+    let app_dir = env.fake_home.join(".gemini").join("antigravity-cli");
+    let shared_dir = env.fake_home.join(".gemini").join("config");
+    std::fs::create_dir_all(app_dir.join("cache")).unwrap();
+    std::fs::create_dir_all(shared_dir.join("projects")).unwrap();
+    std::fs::write(app_dir.join("settings.json"), br#"{"theme":"terminal"}"#).unwrap();
+    std::fs::write(
+        app_dir.join("cache").join("projects.json"),
+        br#"{"current":"repo"}"#,
+    )
+    .unwrap();
+    std::fs::write(shared_dir.join("hooks.json"), br#"{"hooks":["plan"]}"#).unwrap();
+    std::fs::write(
+        shared_dir.join("projects").join("repo.json"),
+        br#"{"mode":"plan"}"#,
+    )
+    .unwrap();
+    let secret_path = env
+        .fake_home
+        .join("keychain")
+        .join("gemini")
+        .join("antigravity")
+        .join("secret");
+    std::fs::create_dir_all(secret_path.parent().unwrap()).unwrap();
+    std::fs::write(secret_path.parent().unwrap().join("account"), "antigravity").unwrap();
+    std::fs::write(secret_path, secret).unwrap();
+}
+
+fn add_and_activate_antigravity(env: &TestEnv, name: &str) {
+    env.add_fake_tool("agy", "agy 1.0.0");
+    write_antigravity_live_state(env, ANTIGRAVITY_SECRET);
+    env.cmd()
+        .args(["add", "antigravity", name, "--from-live"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "antigravity", name])
         .assert()
         .success();
 }
@@ -138,7 +180,7 @@ fn status_json_has_expected_keys() {
     let json: serde_json::Value = serde_json::from_slice(&output).expect("invalid JSON");
     assert!(json.is_array());
     let arr = json.as_array().unwrap();
-    assert_eq!(arr.len(), 3); // one entry per tool
+    assert_eq!(arr.len(), 4); // one entry per tool
 
     let claude = arr.iter().find(|e| e["tool"] == "claude").unwrap();
     assert_eq!(claude["binary_found"], true);
@@ -153,6 +195,38 @@ fn status_json_has_expected_keys() {
     }
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
+}
+
+#[test]
+fn status_json_reports_antigravity_classification_and_live_state() {
+    let env = TestEnv::new();
+    add_and_activate_antigravity(&env, "work");
+
+    let output = env
+        .cmd()
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("invalid JSON");
+    let arr = json.as_array().unwrap();
+    let antigravity = arr.iter().find(|e| e["tool"] == "agy").unwrap();
+    assert_eq!(antigravity["binary_found"], true);
+    assert_eq!(antigravity["stored_profiles"], 1);
+    assert_eq!(antigravity["active_profile"], "work");
+    assert_eq!(antigravity["auth_method"], "oauth");
+    assert_eq!(antigravity["credential_backend"], "file");
+    assert_eq!(
+        antigravity["antigravity_auth_classification"],
+        "oauth_shared_live_keyring"
+    );
+    assert!(antigravity["state_mode"].is_null());
+    assert_eq!(antigravity["active_profile_applied"], true);
+    assert_eq!(antigravity["credentials_present"], true);
+    assert_eq!(antigravity["permissions_ok"], true);
 }
 
 #[test]
@@ -312,6 +386,30 @@ fn status_reports_live_tool_config_mismatch_for_active_codex_profile() {
     add_and_activate_codex(&env, "work");
 
     std::fs::remove_file(env.fake_home.join(".codex").join("auth.json")).unwrap();
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains(
+            "live tool config does not match the active profile",
+        ));
+}
+
+#[test]
+fn status_reports_live_tool_config_mismatch_for_active_antigravity_profile() {
+    let env = TestEnv::new();
+    add_and_activate_antigravity(&env, "work");
+
+    std::fs::write(
+        env.fake_home
+            .join("keychain")
+            .join("gemini")
+            .join("antigravity")
+            .join("secret"),
+        br#"{"email":"other@example.com","token":"other"}"#,
+    )
+    .unwrap();
 
     env.cmd()
         .args(["status"])
