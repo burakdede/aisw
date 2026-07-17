@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 
 use crate::types::Tool;
 
-const VERSION_TIMEOUT: Duration = Duration::from_millis(750);
+const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 type VersionFn = fn(&std::path::Path) -> Option<String>;
 
@@ -320,6 +320,6 @@ mod tests {
 
         let start = Instant::now();
         assert!(capture_version(&path).is_none());
-        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(start.elapsed() < Duration::from_secs(3));
     }
 }
