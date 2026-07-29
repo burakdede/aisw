@@ -400,7 +400,7 @@ fn run_oauth_flow(
     crate::output::print_info("  2. Stay in this terminal; aisw will detect completion");
 
     let result = (|| {
-        let terminal = TerminalGuard::capture();
+        let terminal = TerminalGuard::capture_for_restore();
         let mut child = spawn_oauth_child(gemini_bin, &scratch, &scratch_workdir)?;
 
         let cache_dir = scratch.join(GEMINI_CACHE_DIR);
