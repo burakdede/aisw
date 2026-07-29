@@ -54,7 +54,6 @@ pub fn run() -> Result<()> {
             err.exit()
         }
     };
-    let _terminal_guard = terminal::TerminalGuard::capture();
     runtime::configure(cli.non_interactive, cli.quiet, output_mode);
     output::configure(cli.no_color, cli.quiet);
     commands::dispatch(cli)
