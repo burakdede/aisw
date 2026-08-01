@@ -195,50 +195,74 @@ pub fn check_profile_permissions(
             continue;
         }
 
-        let cred_file = profile_store
-            .profile_dir(tool, name)
-            .join(credentials_filename(tool));
+        let profile_dir = profile_store.profile_dir(tool, name);
 
-        if !cred_file.exists() {
+        // Check every stored file rather than one hardcoded name per tool: the
+        // filename depends on the auth method (Gemini stores `.env` for API
+        // keys and `oauth_creds.json` for OAuth), so a fixed name reports a
+        // false "credentials file missing" failure for valid profiles.
+        let stored_files = match crate::auth::files::list_regular_files_recursive(&profile_dir) {
+            Ok(files) => files,
+            Err(e) => {
+                results.push(CheckResult::fail(
+                    &check_name,
+                    format!("could not read {}: {e}", profile_dir.display()),
+                ));
+                continue;
+            }
+        };
+
+        if stored_files.is_empty() {
             results.push(CheckResult::fail(
                 &check_name,
-                format!("credentials file missing: {}", cred_file.display()),
+                format!("no credential files stored in {}", profile_dir.display()),
             ));
             continue;
         }
 
-        match std::fs::metadata(&cred_file) {
-            Err(e) => results.push(CheckResult::fail(
-                &check_name,
-                format!("could not stat {}: {e}", cred_file.display()),
-            )),
-            Ok(m) => match file_mode_0600_check(&m) {
-                Some(0o600) => {
-                    results.push(CheckResult::pass(&check_name, "0600 ok".to_owned()));
-                }
-                Some(mode) => {
-                    results.push(CheckResult::fail(
-                        &check_name,
-                        format!(
-                            "{} has permissions {:04o}, expected 0600",
-                            cred_file.display(),
-                            mode
-                        ),
-                    ));
-                }
-                None => {
-                    results.push(CheckResult::warn(
-                        &check_name,
-                        "permission mode check not supported on this platform".to_owned(),
-                    ));
-                }
-            },
-        }
+        results.push(profile_permission_check(&check_name, &stored_files));
 
         let _ = home;
     }
 
     results
+}
+
+/// Summarize the permission state of a profile's stored files into one check.
+fn profile_permission_check(
+    check_name: &str,
+    stored_files: &[crate::auth::files::RegularFile],
+) -> CheckResult {
+    let mut checked = 0usize;
+    let mut broad: Vec<String> = Vec::new();
+
+    for file in stored_files {
+        let Ok(metadata) = std::fs::metadata(&file.path) else {
+            return CheckResult::fail(
+                check_name,
+                format!("could not stat {}", file.path.display()),
+            );
+        };
+        match file_mode_0600_check(&metadata) {
+            Some(0o600) => checked += 1,
+            Some(mode) => broad.push(format!("{} is {:04o}", file.path.display(), mode)),
+            None => {
+                return CheckResult::warn(
+                    check_name,
+                    "permission mode check not supported on this platform".to_owned(),
+                )
+            }
+        }
+    }
+
+    if broad.is_empty() {
+        CheckResult::pass(check_name, format!("0600 ok ({checked} file(s))"))
+    } else {
+        CheckResult::fail(
+            check_name,
+            format!("expected 0600, found: {}", broad.join(", ")),
+        )
+    }
 }
 
 #[cfg(unix)]
@@ -251,15 +275,6 @@ fn file_mode_0600_check(_metadata: &std::fs::Metadata) -> Option<u32> {
     None
 }
 
-fn credentials_filename(tool: Tool) -> &'static str {
-    match tool {
-        Tool::Claude => ".credentials.json",
-        Tool::Codex => "auth.json",
-        Tool::Gemini => "oauth_credentials.json",
-        Tool::Antigravity => "keyring-secret.json",
-    }
-}
-
 // ---- rc file path helper ----
 
 pub fn rc_path_for_shell(shell_exe: &str, user_home: &Path) -> Option<PathBuf> {
@@ -268,7 +283,7 @@ pub fn rc_path_for_shell(shell_exe: &str, user_home: &Path) -> Option<PathBuf> {
         "bash" => Some(user_home.join(".bashrc")),
         "zsh" => Some(user_home.join(".zshrc")),
         "fish" => Some(user_home.join(".config").join("fish").join("config.fish")),
-        "pwsh" => Some(crate::commands::init::rc_file(user_home, "pwsh")),
+        "pwsh" => crate::commands::init::rc_file(user_home, "pwsh"),
         _ => None,
     }
 }

@@ -102,13 +102,11 @@ pub fn add_api_key_with_backend(
 
 /// Validates that the given API key is non-empty.
 pub fn validate_api_key(key: &str) -> Result<()> {
-    if key.trim().is_empty() {
-        bail!(
-            "Claude API key must not be empty.\n  \
-             Get your API key at console.anthropic.com → API Keys.",
-        );
-    }
-    Ok(())
+    crate::auth::validate_api_key_charset(
+        key,
+        "Claude",
+        "Get your API key at console.anthropic.com → API Keys.",
+    )
 }
 
 /// Reads the stored API key from a profile's credentials file.

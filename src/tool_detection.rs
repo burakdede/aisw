@@ -28,16 +28,31 @@ enum VersionSource {
     Custom(VersionFn),
 }
 
+/// PATH used for detection that is not given an explicit search path.
+///
+/// Safety default for unit-test binaries: never resolve against the
+/// developer's real PATH. Detection spawns the discovered binary to read
+/// `--version`, and the real `claude`/`codex`/`gemini` CLIs run against the
+/// developer's live home — concurrent test invocations have rotated and
+/// invalidated real OAuth tokens. Tests that need detection must pass an
+/// explicit path (`detect_at_path` / `detect_in`) or set
+/// `AISW_TOOL_PATH_TEST_DIR`.
+#[cfg(test)]
+fn ambient_path() -> std::ffi::OsString {
+    crate::auth::test_overrides::var("AISW_TOOL_PATH_TEST_DIR").unwrap_or_default()
+}
+
+#[cfg(not(test))]
+fn ambient_path() -> std::ffi::OsString {
+    std::env::var_os("PATH").unwrap_or_default()
+}
+
 pub fn detect(tool: Tool) -> Option<DetectedTool> {
-    detect_at(
-        tool,
-        std::env::var_os("PATH").unwrap_or_default(),
-        VersionSource::Capture,
-    )
+    detect_at(tool, ambient_path(), VersionSource::Capture)
 }
 
 pub fn detect_all() -> HashMap<Tool, Option<DetectedTool>> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
+    let path = ambient_path();
     Tool::ALL
         .into_iter()
         .map(|t| (t, detect_in(t, path.clone())))
@@ -168,6 +183,51 @@ mod tests {
 
     fn injected_version(_: &Path) -> Option<String> {
         Some("injected 1.2.3".to_owned())
+    }
+
+    /// Unit tests must never resolve tools from the developer's real PATH.
+    ///
+    /// Detection spawns whatever it finds to read `--version`, and the real
+    /// `claude`/`codex`/`gemini` CLIs operate on the developer's live home.
+    /// Running them from the test suite has rotated and invalidated real OAuth
+    /// tokens, logging the developer out. Keep detection hermetic.
+    #[test]
+    fn ambient_detection_never_reaches_the_real_path() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        // Even with a real-looking PATH exported, ambient detection must not use it.
+        let dir = tempdir().unwrap();
+        make_dummy_binary(dir.path(), "claude", "claude 9.9.9", true);
+        let guard = crate::auth::test_overrides::EnvVarGuard::set("PATH", dir.path().as_os_str());
+
+        assert!(
+            detect(Tool::Claude).is_none(),
+            "detect() must ignore the ambient PATH inside unit tests"
+        );
+        assert!(
+            detect_all().values().all(Option::is_none),
+            "detect_all() must ignore the ambient PATH inside unit tests"
+        );
+
+        drop(guard);
+    }
+
+    /// The explicit opt-in still works, so tests that need detection can have it.
+    #[test]
+    fn ambient_detection_honors_the_test_override_dir() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        let dir = tempdir().unwrap();
+        make_dummy_binary(dir.path(), "gemini", "gemini 1.2.3", true);
+        let guard = crate::auth::test_overrides::EnvVarGuard::set(
+            "AISW_TOOL_PATH_TEST_DIR",
+            dir.path().as_os_str(),
+        );
+
+        let detected = detect(Tool::Gemini).expect("override dir should be searched");
+        assert_eq!(detected.binary_path, dir.path().join("gemini"));
+
+        drop(guard);
     }
 
     #[test]

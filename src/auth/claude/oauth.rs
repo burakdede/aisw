@@ -460,9 +460,13 @@ If you need a different Claude account, fully sign out of claude.com first, then
     if let Some(config_dir) = target_config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", config_dir);
     }
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("could not spawn {}", claude_bin.display()))?;
+    // Guarded so that a failure anywhere in the poll loop below (keychain read,
+    // credential read, child poll) still reaps the interactive login child
+    // instead of orphaning it with the terminal attached.
+    let mut child = crate::auth::child_guard::ChildGuard::new(
+        cmd.spawn()
+            .with_context(|| format!("could not spawn {}", claude_bin.display()))?,
+    );
 
     let deadline = Instant::now() + timeout;
 
@@ -475,8 +479,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
             if let Some(current) = current {
                 let changed = keychain_before.as_deref() != Some(current.as_slice());
                 if changed {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    child.terminate();
                     return Ok(current);
                 }
             }
@@ -487,8 +490,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
                 .with_context(|| format!("could not read {}", credential_path.display()))?;
             let changed = file_before.as_deref() != Some(current.as_slice());
             if changed {
-                let _ = child.kill();
-                let _ = child.wait();
+                child.terminate();
                 return Ok(current);
             }
         }
@@ -499,14 +501,14 @@ If you need a different Claude account, fully sign out of claude.com first, then
                     .with_context(|| format!("could not read {}", fallback_path.display()))?;
                 let changed = fallback_before.as_deref() != Some(current.as_slice());
                 if changed {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    child.terminate();
                     return Ok(current);
                 }
             }
         }
 
         if let Some(status) = child
+            .as_mut()
             .try_wait()
             .with_context(|| format!("could not poll {}", claude_bin.display()))?
         {
@@ -547,8 +549,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
         }
 
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            child.terminate();
             bail!(
                 "Claude login timed out after {}s. \
                  The browser window may still be open.",

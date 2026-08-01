@@ -18,7 +18,12 @@ enum VerifyStatus {
 
 #[derive(Debug, Clone, Serialize)]
 struct ToolVerification {
+    /// Binary name, which is the stable identifier in the JSON contract
+    /// (`agy` for Antigravity, not the enum's `antigravity`).
     tool: &'static str,
+    /// Typed counterpart used for presentation. Kept out of the JSON contract.
+    #[serde(skip)]
+    tool_kind: Tool,
     status: VerifyStatus,
     active_profile: Option<String>,
     stored_profiles: usize,
@@ -149,6 +154,7 @@ fn tool_verification(tool: &status::ToolStatus) -> ToolVerification {
 
     ToolVerification {
         tool: tool.tool.binary_name(),
+        tool_kind: tool.tool,
         status,
         active_profile: tool.active_profile.clone(),
         stored_profiles: tool.stored_profiles,
@@ -210,11 +216,7 @@ fn print_text(report: &VerifyReport) {
     crate::output::print_blank_line();
 
     for tool in &report.tools {
-        crate::output::print_tool_section(match tool.tool {
-            "claude" => Tool::Claude,
-            "codex" => Tool::Codex,
-            _ => Tool::Gemini,
-        });
+        crate::output::print_tool_section(tool.tool_kind);
         crate::output::print_kv(
             "Status",
             match tool.status {
@@ -244,6 +246,7 @@ mod tests {
             binary_found: true,
             stored_profiles: 1,
             active_profile: Some("work".to_owned()),
+            active_profile_registered: true,
             auth_method: Some("api_key".to_owned()),
             credential_backend: Some("file".to_owned()),
             claude_auth_classification: None,
@@ -359,6 +362,7 @@ mod tests {
             &[
                 ToolVerification {
                     tool: "claude",
+                    tool_kind: Tool::Claude,
                     status: VerifyStatus::Pass,
                     active_profile: Some("work".to_owned()),
                     stored_profiles: 1,
@@ -367,6 +371,7 @@ mod tests {
                 },
                 ToolVerification {
                     tool: "codex",
+                    tool_kind: Tool::Codex,
                     status: VerifyStatus::Fail,
                     active_profile: Some("work".to_owned()),
                     stored_profiles: 1,

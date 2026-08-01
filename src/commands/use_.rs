@@ -31,7 +31,14 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
         if profile_name.is_empty() {
             anyhow::bail!("--all requires --profile <name>");
         }
-        run_all_in(profile_name, args.json, home, &user_home)
+        run_all_in(
+            profile_name,
+            args.state_mode,
+            args.emit_env,
+            args.json,
+            home,
+            &user_home,
+        )
     } else {
         let tool = args
             .tool
@@ -50,6 +57,8 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
 
 pub(crate) fn run_all_in(
     profile_name: &str,
+    state_mode_override: Option<StateMode>,
+    emit_env: bool,
     json: bool,
     home: &Path,
     user_home: &Path,
@@ -64,17 +73,22 @@ pub(crate) fn run_all_in(
     for tool in Tool::ALL {
         let profiles = config.profiles_for(tool);
         if !profiles.contains_key(profile_name) {
-            output::print_info(format!(
-                "(skipped {} — no profile named '{}')",
-                tool, profile_name
-            ));
+            if !emit_env {
+                output::print_info(format!(
+                    "(skipped {} — no profile named '{}')",
+                    tool, profile_name
+                ));
+            }
             continue;
         }
+        // `--state-mode` only applies to tools that support it; passing it to
+        // the others would make the whole `--all` switch fail.
+        let tool_state_mode = state_mode_override.filter(|_| tool.supports_state_mode());
         match run_for_tool(
             tool,
             Some(profile_name),
-            None,
-            false,
+            tool_state_mode,
+            emit_env,
             false,
             home,
             user_home,
@@ -90,6 +104,25 @@ pub(crate) fn run_all_in(
     if switched == 0 && errors.is_empty() {
         anyhow::bail!("no tool has a profile named '{}'", profile_name);
     }
+
+    // A tool without a matching profile is a *skip* and stays successful, but a
+    // tool that was attempted and failed must not exit 0 — scripts rely on the
+    // exit code to know whether the switch actually happened.
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "{} of {} attempted tool switches failed:\n  {}",
+            errors.len(),
+            errors.len() + switched,
+            errors.join("\n  ")
+        );
+    }
+
+    // In --emit-env mode stdout is a shell script the caller evals; anything
+    // else written there would be executed as shell input.
+    if emit_env {
+        return Ok(());
+    }
+
     if json {
         let after_backup_ids = backup_ids_for(home, None)?;
         machine::print_success(
@@ -100,14 +133,11 @@ pub(crate) fn run_all_in(
                 "state_mode": state_mode_map(home, &affected_tools)?,
                 "live_match": live_match_map(home, user_home, &affected_tools)?,
                 "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
-                "warnings": errors,
+                "warnings": Vec::<String>::new(),
             }),
         )?;
-    } else {
-        for e in &errors {
-            output::print_warning(e);
-        }
     }
+
     Ok(())
 }
 
@@ -1498,7 +1528,7 @@ mod tests {
         setup_codex_api_key_profile(&home, "work");
         setup_gemini_api_key_profile(&home, "work");
 
-        run_all_in("work", false, &home, &user_home).unwrap();
+        run_all_in("work", None, false, false, &home, &user_home).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
@@ -1518,7 +1548,7 @@ mod tests {
         setup_claude_api_key_profile(&home, "work");
         // Only Claude has "work"
 
-        run_all_in("work", false, &home, &user_home).unwrap();
+        run_all_in("work", None, false, false, &home, &user_home).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
@@ -1533,7 +1563,7 @@ mod tests {
         let user_home = tmp.path().join("uhome");
         std::fs::create_dir_all(&home).unwrap();
 
-        let err = run_all_in("work", false, &home, &user_home).unwrap_err();
+        let err = run_all_in("work", None, false, false, &home, &user_home).unwrap_err();
         assert!(
             err.to_string().contains("no tool has a profile"),
             "unexpected: {}",
@@ -1553,7 +1583,7 @@ mod tests {
         setup_claude_api_key_profile(&home, "work");
         setup_codex_api_key_profile(&home, "work");
 
-        run_all_in("work", true, &home, &user_home).unwrap();
+        run_all_in("work", None, false, true, &home, &user_home).unwrap();
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("work"));

@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
@@ -18,12 +18,23 @@ impl ProfileStore {
         }
     }
 
+    /// Path a profile's files live under.
+    ///
+    /// This is the display/lookup form and does not validate `name`. Every
+    /// operation that reads or writes through the returned path goes via
+    /// [`Self::validated_profile_dir`] so a name that escaped validation
+    /// elsewhere can never resolve outside the profiles tree.
     pub fn profile_dir(&self, tool: Tool, name: &str) -> PathBuf {
         self.home.join("profiles").join(tool.dir_name()).join(name)
     }
 
+    fn validated_profile_dir(&self, tool: Tool, name: &str) -> Result<PathBuf> {
+        validate_profile_name(name)?;
+        Ok(self.profile_dir(tool, name))
+    }
+
     pub fn exists(&self, tool: Tool, name: &str) -> bool {
-        self.profile_dir(tool, name).is_dir()
+        validate_profile_name(name).is_ok() && self.profile_dir(tool, name).is_dir()
     }
 
     pub fn create(&self, tool: Tool, name: &str) -> Result<PathBuf> {
@@ -44,7 +55,7 @@ impl ProfileStore {
     }
 
     pub fn delete(&self, tool: Tool, name: &str) -> Result<()> {
-        let dir = self.profile_dir(tool, name);
+        let dir = self.validated_profile_dir(tool, name)?;
         if !dir.is_dir() {
             bail!(
                 "profile '{}' not found for {}.\n  \
@@ -59,9 +70,8 @@ impl ProfileStore {
     }
 
     pub fn rename(&self, tool: Tool, old_name: &str, new_name: &str) -> Result<()> {
-        validate_profile_name(new_name)?;
-        let old_dir = self.profile_dir(tool, old_name);
-        let new_dir = self.profile_dir(tool, new_name);
+        let old_dir = self.validated_profile_dir(tool, old_name)?;
+        let new_dir = self.validated_profile_dir(tool, new_name)?;
 
         if old_name == new_name {
             bail!("profile '{}' is already named '{}'.", old_name, new_name);
@@ -126,14 +136,13 @@ impl ProfileStore {
         filename: &str,
         contents: &[u8],
     ) -> Result<()> {
-        let dir = self.profile_dir(tool, name);
-        let dest = dir.join(filename);
+        let dest = self.profile_file_path(tool, name, filename)?;
         reject_symlink(&dest)?;
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("could not create {}", parent.display()))?;
         }
-        let tmp = dest.with_extension("tmp");
+        let tmp = staging_path_for(&dest);
         fs::write(&tmp, contents).with_context(|| format!("could not write {}", tmp.display()))?;
         set_permissions_600(&tmp)?;
         fs::rename(&tmp, &dest)
@@ -148,8 +157,7 @@ impl ProfileStore {
         dest_filename: &str,
     ) -> Result<()> {
         reject_symlink(src)?;
-        let dir = self.profile_dir(tool, name);
-        let dest = dir.join(dest_filename);
+        let dest = self.profile_file_path(tool, name, dest_filename)?;
         reject_symlink(&dest)?;
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)
@@ -161,9 +169,17 @@ impl ProfileStore {
     }
 
     pub fn read_file(&self, tool: Tool, name: &str, filename: &str) -> Result<Vec<u8>> {
-        let path = self.profile_dir(tool, name).join(filename);
+        let path = self.profile_file_path(tool, name, filename)?;
         reject_symlink(&path)?;
         fs::read(&path).with_context(|| format!("could not read {}", path.display()))
+    }
+
+    /// Resolve `filename` inside a profile directory, rejecting anything that
+    /// would escape it (absolute paths, `..`, drive/root prefixes).
+    fn profile_file_path(&self, tool: Tool, name: &str, filename: &str) -> Result<PathBuf> {
+        let dir = self.validated_profile_dir(tool, name)?;
+        validate_relative_filename(filename)?;
+        Ok(dir.join(filename))
     }
 
     pub fn check_permissions(&self, path: &Path) -> Result<()> {
@@ -194,11 +210,53 @@ pub fn validate_profile_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Reject a path that is itself a symlink.
+///
+/// Uses `symlink_metadata` rather than `Path::exists`: `exists()` follows
+/// links, so a *dangling* symlink reports as absent and would slip through,
+/// letting a later write create the link's target instead of the intended file.
 fn reject_symlink(path: &Path) -> Result<()> {
-    if path.exists() && path.is_symlink() {
-        bail!("refusing to operate on symlink: {}", path.display());
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            bail!("refusing to operate on symlink: {}", path.display())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Validate a profile-relative file name such as `auth.json` or
+/// `nested/state.json`.
+fn validate_relative_filename(filename: &str) -> Result<()> {
+    if filename.is_empty() {
+        bail!("profile file name must not be empty");
+    }
+
+    let path = Path::new(filename);
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => {}
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => bail!(
+                "profile file name '{}' must stay inside the profile directory",
+                filename
+            ),
+        }
     }
     Ok(())
+}
+
+/// Sibling temp path used to stage an atomic write.
+///
+/// Appends a suffix instead of replacing the extension so that sibling files
+/// sharing a stem (`auth.json` and `auth.toml`) never stage through the same
+/// temp path, and includes the pid so concurrent processes do not collide.
+fn staging_path_for(dest: &Path) -> PathBuf {
+    let file_name = dest
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "profile".to_owned());
+    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+    parent.join(format!(".{}.aisw-tmp-{}", file_name, std::process::id()))
 }
 
 #[cfg(unix)]
@@ -242,6 +300,103 @@ mod tests {
 
     fn store(dir: &Path) -> ProfileStore {
         ProfileStore::new(dir)
+    }
+
+    /// A name that escaped validation elsewhere must never resolve outside the
+    /// profiles tree, even though `profile_dir` itself does not validate.
+    #[test]
+    fn traversal_profile_names_are_rejected_by_every_file_operation() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+
+        for name in ["../escape", "..", "a/b", "/abs"] {
+            assert!(
+                !s.exists(Tool::Claude, name),
+                "exists() must not accept '{name}'"
+            );
+            assert!(s.delete(Tool::Claude, name).is_err(), "delete '{name}'");
+            assert!(
+                s.write_file(Tool::Claude, name, "f.json", b"{}").is_err(),
+                "write_file '{name}'"
+            );
+            assert!(
+                s.read_file(Tool::Claude, name, "f.json").is_err(),
+                "read_file '{name}'"
+            );
+            assert!(
+                s.rename(Tool::Claude, name, "ok").is_err(),
+                "rename from '{name}'"
+            );
+        }
+    }
+
+    /// A stored file name must not be able to climb out of its profile.
+    #[test]
+    fn traversal_file_names_are_rejected() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        s.create(Tool::Claude, "work").unwrap();
+
+        let outside = dir.path().join("stolen.json");
+        for filename in ["../../stolen.json", "/etc/passwd", ""] {
+            let err = s
+                .write_file(Tool::Claude, "work", filename, b"secret")
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("profile file name"),
+                "unexpected error for '{filename}': {err}"
+            );
+        }
+        assert!(!outside.exists(), "write must not escape the profile dir");
+    }
+
+    /// `Path::exists` follows symlinks, so a *dangling* link previously slipped
+    /// past the symlink guard and the write created the link's target.
+    #[test]
+    #[cfg(unix)]
+    fn write_file_refuses_to_follow_a_dangling_symlink() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        s.create(Tool::Codex, "work").unwrap();
+
+        let target = dir.path().join("outside-target.json");
+        let link = s.profile_dir(Tool::Codex, "work").join("auth.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(!target.exists(), "link target starts out dangling");
+
+        let err = s
+            .write_file(Tool::Codex, "work", "auth.json", b"secret")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("symlink"),
+            "expected a symlink refusal, got: {err}"
+        );
+        assert!(
+            !target.exists(),
+            "write must not create the symlink's target"
+        );
+    }
+
+    /// Sibling files sharing a stem must not stage through the same temp path.
+    #[test]
+    fn files_sharing_a_stem_do_not_collide_while_staging() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        s.create(Tool::Codex, "work").unwrap();
+
+        s.write_file(Tool::Codex, "work", "auth.json", b"json")
+            .unwrap();
+        s.write_file(Tool::Codex, "work", "auth.toml", b"toml")
+            .unwrap();
+
+        assert_eq!(
+            s.read_file(Tool::Codex, "work", "auth.json").unwrap(),
+            b"json"
+        );
+        assert_eq!(
+            s.read_file(Tool::Codex, "work", "auth.toml").unwrap(),
+            b"toml"
+        );
     }
 
     #[test]

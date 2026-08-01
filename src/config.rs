@@ -170,6 +170,14 @@ impl Config {
     pub fn context(&self, name: &str) -> Option<&ContextEntry> {
         self.contexts.get(name)
     }
+
+    /// Names of saved contexts that map `tool` to `profile_name`, sorted.
+    ///
+    /// A profile cannot be removed while any context still references it, so
+    /// callers must consult this *before* performing destructive work.
+    pub fn contexts_referencing_profile(&self, tool: Tool, profile_name: &str) -> Vec<String> {
+        contexts_referencing_profile(self, tool, profile_name)
+    }
 }
 
 pub struct ConfigStore {
@@ -238,6 +246,12 @@ impl ConfigStore {
         })
     }
 
+    /// Remove a profile and, in the same locked mutation, clear it from
+    /// `active` if it was the active profile for `tool`.
+    ///
+    /// Clearing `active` here rather than in a follow-up `clear_active` call
+    /// keeps the two writes atomic: a crash between them would otherwise leave
+    /// `active` pointing at a profile that no longer exists.
     pub fn remove_profile(&self, tool: Tool, name: &str) -> Result<Config> {
         self.with_mutating_config(|config| {
             let context_refs = contexts_referencing_profile(config, tool, name);
@@ -258,6 +272,10 @@ impl ConfigStore {
                     name: name.to_owned(),
                 }
                 .into());
+            }
+
+            if tool_active(config, tool).as_deref() == Some(name) {
+                *tool_active_mut(config, tool) = None;
             }
 
             Ok(())

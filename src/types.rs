@@ -30,6 +30,20 @@ impl Tool {
         }
     }
 
+    /// The long-flag name this tool is selected by on `aisw context` commands
+    /// (`--claude`, `--codex`, `--gemini`, `--antigravity`).
+    ///
+    /// This is deliberately separate from `binary_name`, which is `agy` for
+    /// Antigravity and would not be a valid flag.
+    pub fn context_flag(&self) -> &'static str {
+        match self {
+            Tool::Claude => "claude",
+            Tool::Codex => "codex",
+            Tool::Gemini => "gemini",
+            Tool::Antigravity => "antigravity",
+        }
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Tool::Claude => "Claude Code",

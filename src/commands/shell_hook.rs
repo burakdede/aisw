@@ -50,6 +50,10 @@ gemini() {
   command aisw workspace check --tool gemini || return $?
   command gemini \"$@\"
 }
+agy() {
+  command aisw workspace check --tool antigravity || return $?
+  command agy \"$@\"
+}
 __aisw_install_prompt_hook
 ";
 
@@ -94,6 +98,12 @@ function gemini
   command aisw workspace check --tool gemini
   or return $status
   command gemini $argv
+end
+
+function agy
+  command aisw workspace check --tool antigravity
+  or return $status
+  command agy $argv
 end
 ";
 
@@ -163,6 +173,12 @@ function global:gemini {
   if ($LASTEXITCODE -ne 0) { return }
   & (__aisw_get_command_path 'gemini') @ArgsRest
 }
+function global:agy {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$ArgsRest)
+  & (__aisw_bin) workspace check --tool antigravity
+  if ($LASTEXITCODE -ne 0) { return }
+  & (__aisw_get_command_path 'agy') @ArgsRest
+}
 "#;
 
 pub fn run(args: ShellHookArgs) -> Result<()> {
@@ -207,6 +223,31 @@ mod tests {
         assert!(BASH_ZSH_HOOK.contains("\"use\""));
         assert!(BASH_ZSH_HOOK.contains("\"context\""));
         assert!(BASH_ZSH_HOOK.contains("--emit-env"));
+    }
+
+    /// Every tool aisw manages must be wrapped, or its workspace guard is
+    /// silently unenforceable for that tool.
+    #[test]
+    fn every_tool_binary_is_guarded_in_all_hooks() {
+        for tool in crate::types::Tool::ALL {
+            let check = format!("workspace check --tool {}", tool.context_flag());
+            for (shell, hook) in [
+                ("bash/zsh", BASH_ZSH_HOOK),
+                ("fish", FISH_HOOK),
+                ("pwsh", POWERSHELL_HOOK),
+            ] {
+                assert!(
+                    hook.contains(&check),
+                    "{shell} hook is missing a guard for {}",
+                    tool.binary_name()
+                );
+                assert!(
+                    hook.contains(tool.binary_name()),
+                    "{shell} hook does not wrap the {} binary",
+                    tool.binary_name()
+                );
+            }
+        }
     }
 
     #[test]

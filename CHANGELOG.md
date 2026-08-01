@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Rejected API keys containing control characters. Gemini stores keys as `GEMINI_API_KEY=<key>` in a `.env` file the CLI sources, so a key containing a newline injected additional environment variables (for example `GOOGLE_CLOUD_PROJECT`) into that file. The same rule now applies to Claude and Codex.
+- Hardened profile file handling against path traversal, and switched the symlink guard to `symlink_metadata` so a dangling symlink can no longer redirect a credential write to its target.
+- `uninstall --remove-data` now purges the system-keyring secrets it created instead of stranding them, and refuses to run when `AISW_HOME` is the user's home directory.
+- Unit tests no longer resolve tool binaries from the developer's real `PATH`. Detection spawns whatever it finds to read `--version`, and running the real `claude`/`codex`/`gemini` CLIs from the test suite could rotate and invalidate live OAuth tokens.
+
+### Fixed
+
+- **Behavior change:** `aisw use --all` now exits non-zero when a tool switch fails. It previously exited `0` and reported success, contradicting the documented contract that a zero exit means success. On partial failure the `--json` output is now the standard failure envelope (`{"ok": false, "error": {...}}`) instead of `{"ok": true, ..., "warnings": [...]}`.
+- `aisw use --all` now honors `--emit-env` and `--state-mode`. `--emit-env` previously fell through to the human-readable summary, which a shell hook would then `eval`.
+- `aisw remove` no longer deletes credentials and profile files before checking whether a context still references the profile — the removal was rejected afterwards, leaving the data already destroyed.
+- Removing the active profile now clears `active` in the same locked config mutation, so config can no longer name a profile that does not exist.
+- `aisw status` no longer panics (`no entry found for key`) when `active` names a profile missing from the config; it reports the inconsistency instead.
+- `aisw init --json` no longer aborts on a shell it has no hook for (for example `/bin/sh`, the default in many containers).
+- `aisw doctor` no longer reports a false `credentials file missing` failure for every Gemini profile. It now checks the files a profile actually stores rather than one hardcoded name per tool, which also stopped `aisw verify` from inheriting the failure.
+- Antigravity is now guarded by the generated shell hooks and included in `workspace status --json` and `status --context --json`.
+- OAuth capture no longer leaves an orphaned interactive login process when a step inside the polling loop fails.
+
+### Performance
+
+- `aisw workspace check`, which the shell hook runs on every directory change, no longer probes tool binaries, credential files, and the OS keyring. It reads the active profiles from config instead.
+
 ## 0.3.6 - 2026-06-11
 
 ### Fixed

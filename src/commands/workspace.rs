@@ -297,11 +297,7 @@ fn status(args: WorkspaceStatusArgs, home: &Path) -> Result<()> {
                 "matched_rule": status.matched_rule,
                 "expected_context": status.expected_context,
                 "active_context": status.active_context,
-                "active_profiles": {
-                    "claude": status.active_profiles.get(&Tool::Claude).cloned().flatten(),
-                    "codex": status.active_profiles.get(&Tool::Codex).cloned().flatten(),
-                    "gemini": status.active_profiles.get(&Tool::Gemini).cloned().flatten(),
-                },
+                "active_profiles": active_profiles_json(&status.active_profiles),
                 "status": status.status.as_str(),
                 "recommended_command": status.recommended_command,
             }))?
@@ -584,6 +580,25 @@ fn remove_git_remote_rule(config: &mut WorkspaceConfig, pattern: &str) -> Option
         .iter()
         .position(|rule| rule.pattern == pattern)?;
     Some(config.git_remote_rules.remove(index).context)
+}
+
+/// Machine-readable active-profile map, keyed by tool.
+///
+/// Built from `Tool::ALL` so a newly supported tool cannot be silently omitted
+/// from the JSON contract the way Antigravity previously was.
+fn active_profiles_json(
+    active_profiles: &std::collections::HashMap<Tool, Option<String>>,
+) -> serde_json::Value {
+    let map = Tool::ALL
+        .iter()
+        .map(|tool| {
+            (
+                tool.context_flag().to_owned(),
+                json!(active_profiles.get(tool).cloned().flatten()),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    serde_json::Value::Object(map)
 }
 
 fn active_profiles_summary(
