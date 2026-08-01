@@ -3,10 +3,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
+use crate::auth::secure_store;
+use crate::backup::BackupManager;
 use crate::cli::UninstallArgs;
 use crate::commands::init::{rc_file, HOOK_MARKER};
+use crate::config::{ConfigStore, CredentialBackend};
 use crate::output;
 use crate::runtime;
+use crate::types::Tool;
 
 const SHELLS: [&str; 4] = ["bash", "zsh", "fish", "pwsh"];
 
@@ -50,7 +54,13 @@ pub(crate) fn run_inner(args: UninstallArgs, home: &Path, user_home: &Path) -> R
         removed_hooks.push(rc.display().to_string());
     }
 
+    let mut purged_secrets = 0usize;
     let removed_data = if args.remove_data && home.exists() {
+        ensure_safe_to_delete(home, user_home)?;
+        // Deleting AISW_HOME alone would strand credentials in the OS keyring,
+        // which is the opposite of what "remove my data" means. Purge them
+        // first, while the config and backup index that name them still exist.
+        purged_secrets = purge_managed_secrets(home);
         fs::remove_dir_all(home).with_context(|| format!("could not remove {}", home.display()))?;
         true
     } else {
@@ -71,6 +81,12 @@ pub(crate) fn run_inner(args: UninstallArgs, home: &Path, user_home: &Path) -> R
     output::print_effects_header();
     if removed_data {
         output::print_effect(format!("Deleted {}.", home.display()));
+        if purged_secrets > 0 {
+            output::print_effect(format!(
+                "Removed {purged_secrets} aisw-managed system keyring entr{}.",
+                if purged_secrets == 1 { "y" } else { "ies" }
+            ));
+        }
     } else if plan.data_dir_exists {
         output::print_effect(format!("Kept {}.", home.display()));
     } else {
@@ -101,7 +117,9 @@ struct Plan {
 fn build_plan(home: &Path, user_home: &Path) -> Result<Plan> {
     let mut shell_hook_files = Vec::new();
     for shell in SHELLS {
-        let rc = rc_file(user_home, shell);
+        let Some(rc) = rc_file(user_home, shell) else {
+            continue;
+        };
         if rc.exists() && file_contains_hook(&rc)? {
             shell_hook_files.push(rc);
         }
@@ -111,6 +129,71 @@ fn build_plan(home: &Path, user_home: &Path) -> Result<Plan> {
         shell_hook_files,
         data_dir_exists: home.exists(),
     })
+}
+
+/// Refuse to recursively delete a path that is clearly not an aisw home.
+///
+/// `AISW_HOME` is user-supplied, so a stray `AISW_HOME=$HOME` would otherwise
+/// turn `uninstall --remove-data --yes` into `rm -rf ~`.
+fn ensure_safe_to_delete(home: &Path, user_home: &Path) -> Result<()> {
+    if home.parent().is_none() {
+        bail!(
+            "refusing to delete {} — AISW_HOME must not be a filesystem root.",
+            home.display()
+        );
+    }
+    if home == user_home {
+        bail!(
+            "refusing to delete {} — AISW_HOME must not be your home directory.\n  \
+             Point AISW_HOME at a dedicated directory such as ~/.aisw and retry.",
+            home.display()
+        );
+    }
+    Ok(())
+}
+
+/// Delete every system-keyring secret aisw created under this home.
+///
+/// Best effort: a keyring that is locked or unavailable must not block the
+/// filesystem cleanup, so failures are counted as "not purged" rather than
+/// aborting the uninstall. Returns the number of entries removed.
+fn purge_managed_secrets(home: &Path) -> usize {
+    let mut purged = 0usize;
+
+    let mut keyring_profiles = Vec::new();
+    if let Ok(config) = ConfigStore::new(home).load() {
+        for tool in Tool::ALL {
+            for (name, meta) in config.profiles_for(tool) {
+                if meta.credential_backend == CredentialBackend::SystemKeyring {
+                    keyring_profiles.push((tool, name.clone()));
+                }
+            }
+        }
+    }
+
+    for (tool, name) in &keyring_profiles {
+        if secure_store::delete_profile_secret(*tool, name).is_ok() {
+            purged += 1;
+        }
+    }
+
+    // Backups only carry a keyring secret when their profile was keyring-backed,
+    // so restrict the sweep to those profiles rather than probing every backup.
+    if let Ok(backups) = BackupManager::new(home).list() {
+        for entry in backups {
+            let keyring_backed = keyring_profiles
+                .iter()
+                .any(|(tool, name)| *tool == entry.tool && *name == entry.profile);
+            if keyring_backed
+                && secure_store::delete_backup_secret(entry.tool, &entry.profile, &entry.backup_id)
+                    .is_ok()
+            {
+                purged += 1;
+            }
+        }
+    }
+
+    purged
 }
 
 fn file_contains_hook(path: &Path) -> Result<bool> {

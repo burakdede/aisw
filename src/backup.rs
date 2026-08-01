@@ -157,6 +157,12 @@ impl BackupManager {
                     Some(n) => n.to_owned(),
                     None => continue,
                 };
+                // Directory names under backups/ are only as trustworthy as the
+                // filesystem. Never let one steer a restore outside the
+                // profiles tree.
+                if crate::profile::validate_profile_name(&profile_name).is_err() {
+                    continue;
+                }
 
                 let dest_dir = profile_store.profile_dir(tool, &profile_name);
                 fs::create_dir_all(&dest_dir).with_context(|| {

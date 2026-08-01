@@ -11,7 +11,7 @@ use crate::profile::ProfileStore;
 use crate::types::Tool;
 
 pub(crate) struct Row {
-    pub(crate) tool: &'static str,
+    pub(crate) tool: Tool,
     pub(crate) profile: String,
     pub(crate) active: bool,
     pub(crate) auth_method: &'static str,
@@ -57,7 +57,7 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
         for name in names {
             let meta = &profiles[name];
             rows.push(Row {
-                tool: tool.binary_name(),
+                tool,
                 profile: name.to_owned(),
                 active: active == Some(name),
                 auth_method: auth_display(meta.auth_method),
@@ -112,20 +112,29 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
                         .unwrap_or_default()
                         .to_ascii_lowercase()
                         .contains(&needle)
-                    || row.tool.to_ascii_lowercase().contains(&needle)
+                    || row
+                        .tool
+                        .binary_name()
+                        .to_ascii_lowercase()
+                        .contains(&needle)
             });
         }
     }
 
     match args.sort {
         Some(crate::cli::SortBy::Name) => {
-            rows.sort_by(|a, b| a.tool.cmp(b.tool).then_with(|| a.profile.cmp(&b.profile)));
+            rows.sort_by(|a, b| {
+                a.tool
+                    .binary_name()
+                    .cmp(b.tool.binary_name())
+                    .then_with(|| a.profile.cmp(&b.profile))
+            });
         }
         Some(crate::cli::SortBy::Recent) => {
             rows.sort_by(|a, b| {
                 b.added_at
                     .cmp(&a.added_at)
-                    .then_with(|| a.tool.cmp(b.tool))
+                    .then_with(|| a.tool.binary_name().cmp(b.tool.binary_name()))
                     .then_with(|| a.profile.cmp(&b.profile))
             });
         }
@@ -160,21 +169,13 @@ fn print_table(rows: &[Row]) {
 
     output::print_title("Profiles");
 
-    let mut current_tool: Option<&str> = None;
+    let mut current_tool: Option<Tool> = None;
     for row in rows {
         if current_tool != Some(row.tool) {
             if current_tool.is_some() {
                 output::print_blank_line();
             }
-
-            let tool = match row.tool {
-                "claude" => Tool::Claude,
-                "codex" => Tool::Codex,
-                "gemini" => Tool::Gemini,
-                "agy" => Tool::Antigravity,
-                _ => unreachable!(),
-            };
-            output::print_tool_section(tool);
+            output::print_tool_section(row.tool);
             current_tool = Some(row.tool);
         }
 
@@ -239,7 +240,7 @@ fn print_json(rows: &[Row]) -> Result<()> {
 
     for tool in Tool::ALL {
         let tool_name = tool.binary_name();
-        let tool_rows: Vec<&Row> = rows.iter().filter(|r| r.tool == tool_name).collect();
+        let tool_rows: Vec<&Row> = rows.iter().filter(|r| r.tool == tool).collect();
         let active = tool_rows
             .iter()
             .find(|r| r.active)
@@ -315,7 +316,7 @@ mod tests {
 
         let rows = collect_rows(&list_args(None, false), tmp.path()).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].tool, "claude");
+        assert_eq!(rows[0].tool, Tool::Claude);
         assert_eq!(rows[0].profile, "work");
         assert_eq!(rows[0].auth_method, "api_key");
         assert_eq!(rows[0].credential_backend, "file");
@@ -344,7 +345,7 @@ mod tests {
 
         let rows = collect_rows(&list_args(Some(Tool::Claude), false), tmp.path()).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].tool, "claude");
+        assert_eq!(rows[0].tool, Tool::Claude);
     }
 
     #[test]
@@ -413,6 +414,6 @@ mod tests {
         args.active_only = true;
         let rows = collect_rows(&args, tmp.path()).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].tool, "claude");
+        assert_eq!(rows[0].tool, Tool::Claude);
     }
 }

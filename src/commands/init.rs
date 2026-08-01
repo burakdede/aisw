@@ -149,7 +149,8 @@ pub(crate) fn run_machine(
             shell: InitShellStatus {
                 rc_file: shell_name
                     .as_deref()
-                    .map(|shell| rc_file(user_home, shell).display().to_string()),
+                    .and_then(|shell| rc_file(user_home, shell))
+                    .map(|rc| rc.display().to_string()),
                 detected: shell_name,
                 action: "skipped",
             },
@@ -244,8 +245,14 @@ pub(crate) fn normalized_shell_name(shell_env: Option<&str>) -> Option<String> {
     }
 }
 
-pub(crate) fn rc_file(user_home: &Path, shell: &str) -> PathBuf {
-    match shell {
+/// Path of the rc file aisw would install the hook into for `shell`.
+///
+/// Returns `None` for any shell aisw has no hook for. `normalized_shell_name`
+/// passes through unrecognized shell names (`sh`, `dash`, `nu`, `ksh`, ...), so
+/// this must stay total — an unsupported `$SHELL` is an ordinary configuration,
+/// not a bug.
+pub(crate) fn rc_file(user_home: &Path, shell: &str) -> Option<PathBuf> {
+    let path = match shell {
         "bash" => {
             if cfg!(target_os = "macos") {
                 user_home.join(".bash_profile")
@@ -268,12 +275,18 @@ pub(crate) fn rc_file(user_home: &Path, shell: &str) -> PathBuf {
                     .join("Microsoft.PowerShell_profile.ps1")
             }
         }
-        _ => unreachable!(),
-    }
+        _ => return None,
+    };
+    Some(path)
 }
 
 fn install_shell_hook(user_home: &Path, shell: &str, confirmed: bool) -> Result<()> {
-    let rc = rc_file(user_home, shell);
+    let Some(rc) = rc_file(user_home, shell) else {
+        output::print_warning(format!(
+            "Shell '{shell}' has no aisw hook. Install one manually with 'aisw shell-hook <bash|zsh|fish|pwsh>'."
+        ));
+        return Ok(());
+    };
 
     if rc.exists() {
         let contents =
@@ -308,7 +321,8 @@ fn install_shell_hook(user_home: &Path, shell: &str, confirmed: bool) -> Result<
             "\n{}\naisw shell-hook pwsh | Out-String | Invoke-Expression\n",
             HOOK_MARKER
         ),
-        _ => unreachable!(),
+        // Unreachable: `rc_file` above already returned `None` for these.
+        other => anyhow::bail!("no aisw shell hook is defined for '{other}'"),
     };
 
     let mut file = fs::OpenOptions::new()

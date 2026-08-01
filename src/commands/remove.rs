@@ -94,6 +94,11 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
         bail!("operation cancelled by user.");
     }
 
+    // A profile referenced by a context cannot be removed. Check that *before*
+    // any destructive step, otherwise the credentials and profile directory are
+    // already gone by the time the config write rejects the removal.
+    ensure_not_referenced_by_context(&config, args.tool, profile_name)?;
+
     // Final backup before deleting.
     let profile_dir = profile_store.profile_dir(args.tool, profile_name);
     let profile_meta = config
@@ -121,11 +126,9 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
         auth::secure_store::delete_profile_secret(args.tool, profile_name)?;
     }
     profile_store.delete(args.tool, profile_name)?;
+    // `remove_profile` also clears `active` in the same locked mutation, so
+    // there is no window where `active` names a profile that no longer exists.
     config_store.remove_profile(args.tool, profile_name)?;
-
-    if is_active {
-        config_store.clear_active(args.tool)?;
-    }
 
     if args.json {
         machine::print_success(
@@ -190,7 +193,23 @@ fn precheck(args: &RemoveArgs, home: &Path) -> Result<()> {
             profile_name
         );
     }
-    Ok(())
+    ensure_not_referenced_by_context(&config, args.tool, profile_name)
+}
+
+fn ensure_not_referenced_by_context(config: &Config, tool: Tool, profile_name: &str) -> Result<()> {
+    let refs = config.contexts_referencing_profile(tool, profile_name);
+    if refs.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "cannot remove {} profile '{}' because it is referenced by contexts: {}.\n  \
+         Update or remove those contexts first, for example: aisw context unset {} --{}",
+        tool,
+        profile_name,
+        refs.join(", "),
+        refs[0],
+        tool.context_flag(),
+    )
 }
 
 fn resolve_profile_name(args: &RemoveArgs, home: &Path) -> Result<String> {

@@ -22,6 +22,8 @@ pub(crate) struct ToolStatus {
     pub binary_found: bool,
     pub stored_profiles: usize,
     pub active_profile: Option<String>,
+    /// False when `active` points at a profile with no config entry.
+    pub active_profile_registered: bool,
     pub auth_method: Option<String>,
     pub credential_backend: Option<String>,
     pub claude_auth_classification: Option<String>,
@@ -161,137 +163,165 @@ pub(crate) fn collect_status(
             None
         };
 
-        let (
-            active_profile,
-            auth_method,
-            credential_backend,
-            claude_auth_classification,
-            codex_auth_classification,
-            antigravity_auth_classification,
-            active_profile_added_at,
-            active_profile_applied,
-            credentials_present,
-            permissions_ok,
-        ) = if let Some(name) = active_name {
-            let profiles = config.profiles_for(tool);
-            let profile_meta = &profiles[name];
-            let profile_dir = profile_store.profile_dir(tool, name);
-            let (creds, perms) =
-                check_profile_storage(&profile_dir, tool, name, profile_meta.credential_backend);
-
-            let auth = profiles
-                .get(name)
-                .map(|m| auth_label(m.auth_method).to_owned());
-            let backend = profiles
-                .get(name)
-                .map(|m| m.credential_backend.display_name().to_owned());
-            let claude_auth_classification = if tool == Tool::Claude {
-                Some(
-                    auth::claude::classify_profile(
-                        user_home,
-                        &profile_store,
-                        name,
-                        profile_meta.auth_method,
-                        profile_meta.credential_backend,
-                    )?
-                    .as_str()
-                    .to_owned(),
-                )
-            } else {
-                None
-            };
-            let codex_auth_classification = if tool == Tool::Codex {
-                Some(
-                    auth::codex::classify_profile(
-                        &profile_store,
-                        name,
-                        profile_meta.auth_method,
-                        profile_meta.credential_backend,
-                    )?
-                    .as_str()
-                    .to_owned(),
-                )
-            } else {
-                None
-            };
-            let antigravity_auth_classification = if tool == Tool::Antigravity {
-                Some(
-                    auth::antigravity::classify_profile(
-                        &profile_store,
-                        name,
-                        profile_meta.auth_method,
-                        profile_meta.credential_backend,
-                    )?
-                    .as_str()
-                    .to_owned(),
-                )
-            } else {
-                None
-            };
-            let added_at = profiles.get(name).map(|m| m.added_at);
-            let applied = if creds {
-                profiles
-                    .get(name)
-                    .map(|m| {
-                        if should_skip_live_verification(tool, m.credential_backend) {
-                            Ok(None)
-                        } else {
-                            assess_live_state(
-                                tool,
-                                m.auth_method,
-                                m.credential_backend,
-                                config.state_mode_for(tool),
-                                &profile_store,
-                                name,
-                                user_home,
-                            )
-                            .map(|state| {
-                                Some(match state {
-                                    LiveActivation::Applied => true,
-                                    LiveActivation::NotApplied => false,
-                                })
-                            })
-                        }
-                    })
-                    .transpose()?
-                    .flatten()
-            } else {
-                Some(false)
-            };
-            (
-                Some(name.to_owned()),
-                auth,
-                backend,
-                claude_auth_classification,
-                codex_auth_classification,
-                antigravity_auth_classification,
-                added_at,
-                applied,
-                creds,
-                perms,
-            )
-        } else {
-            (None, None, None, None, None, None, None, None, false, true)
+        let active = match active_name {
+            Some(name) => {
+                collect_active_profile_status(&config, &profile_store, user_home, tool, name)?
+            }
+            None => ActiveProfileStatus::default(),
         };
 
         statuses.push(ToolStatus {
             tool,
             binary_found,
             stored_profiles,
-            active_profile,
-            auth_method,
-            credential_backend,
-            claude_auth_classification,
-            codex_auth_classification,
-            antigravity_auth_classification,
+            active_profile: active.profile,
+            active_profile_registered: active.registered,
+            auth_method: active.auth_method,
+            credential_backend: active.credential_backend,
+            claude_auth_classification: active.claude_auth_classification,
+            codex_auth_classification: active.codex_auth_classification,
+            antigravity_auth_classification: active.antigravity_auth_classification,
             state_mode,
-            active_profile_added_at,
-            active_profile_applied,
-            credentials_present,
-            permissions_ok,
+            active_profile_added_at: active.added_at,
+            active_profile_applied: active.applied,
+            credentials_present: active.credentials_present,
+            permissions_ok: active.permissions_ok,
         });
     }
     Ok(statuses)
+}
+
+/// The part of a tool's status that only exists when a profile is active.
+struct ActiveProfileStatus {
+    profile: Option<String>,
+    /// False when `active` names a profile with no entry in `profiles`. Config
+    /// can reach that state through hand-editing or an interrupted `remove`;
+    /// reporting it beats indexing into the map and panicking.
+    registered: bool,
+    auth_method: Option<String>,
+    credential_backend: Option<String>,
+    claude_auth_classification: Option<String>,
+    codex_auth_classification: Option<String>,
+    antigravity_auth_classification: Option<String>,
+    added_at: Option<chrono::DateTime<chrono::Utc>>,
+    applied: Option<bool>,
+    credentials_present: bool,
+    permissions_ok: bool,
+}
+
+impl Default for ActiveProfileStatus {
+    fn default() -> Self {
+        Self {
+            profile: None,
+            registered: true,
+            auth_method: None,
+            credential_backend: None,
+            claude_auth_classification: None,
+            codex_auth_classification: None,
+            antigravity_auth_classification: None,
+            added_at: None,
+            applied: None,
+            credentials_present: false,
+            permissions_ok: true,
+        }
+    }
+}
+
+fn collect_active_profile_status(
+    config: &Config,
+    profile_store: &ProfileStore,
+    user_home: &Path,
+    tool: Tool,
+    name: &str,
+) -> Result<ActiveProfileStatus> {
+    let Some(meta) = config.profiles_for(tool).get(name) else {
+        return Ok(ActiveProfileStatus {
+            profile: Some(name.to_owned()),
+            registered: false,
+            ..ActiveProfileStatus::default()
+        });
+    };
+
+    let profile_dir = profile_store.profile_dir(tool, name);
+    let (credentials_present, permissions_ok) =
+        check_profile_storage(&profile_dir, tool, name, meta.credential_backend);
+
+    // Only the owning tool's classifier runs; the others stay `None`.
+    let mut claude_auth_classification = None;
+    let mut codex_auth_classification = None;
+    let mut antigravity_auth_classification = None;
+    match tool {
+        Tool::Claude => {
+            claude_auth_classification = Some(
+                auth::claude::classify_profile(
+                    user_home,
+                    profile_store,
+                    name,
+                    meta.auth_method,
+                    meta.credential_backend,
+                )?
+                .as_str()
+                .to_owned(),
+            );
+        }
+        Tool::Codex => {
+            codex_auth_classification = Some(
+                auth::codex::classify_profile(
+                    profile_store,
+                    name,
+                    meta.auth_method,
+                    meta.credential_backend,
+                )?
+                .as_str()
+                .to_owned(),
+            );
+        }
+        Tool::Antigravity => {
+            antigravity_auth_classification = Some(
+                auth::antigravity::classify_profile(
+                    profile_store,
+                    name,
+                    meta.auth_method,
+                    meta.credential_backend,
+                )?
+                .as_str()
+                .to_owned(),
+            );
+        }
+        Tool::Gemini => {}
+    }
+
+    let applied = if !credentials_present {
+        Some(false)
+    } else if should_skip_live_verification(tool, meta.credential_backend) {
+        None
+    } else {
+        Some(
+            assess_live_state(
+                tool,
+                meta.auth_method,
+                meta.credential_backend,
+                config.state_mode_for(tool),
+                profile_store,
+                name,
+                user_home,
+            )? == LiveActivation::Applied,
+        )
+    };
+
+    Ok(ActiveProfileStatus {
+        profile: Some(name.to_owned()),
+        registered: true,
+        auth_method: Some(auth_label(meta.auth_method).to_owned()),
+        credential_backend: Some(meta.credential_backend.display_name().to_owned()),
+        claude_auth_classification,
+        codex_auth_classification,
+        antigravity_auth_classification,
+        added_at: Some(meta.added_at),
+        applied,
+        credentials_present,
+        permissions_ok,
+    })
 }
 
 fn apply_status_filters(statuses: &mut Vec<ToolStatus>, args: &StatusArgs) {
@@ -405,6 +435,9 @@ fn status_message(s: &ToolStatus) -> &'static str {
             return "profiles stored, but none is active";
         }
         return "no active profile";
+    }
+    if !s.active_profile_registered {
+        return "active profile is missing from aisw config \u{2014} run 'aisw repair --apply' or re-add it";
     }
     if !s.credentials_present {
         return match s.credential_backend.as_deref() {
@@ -545,13 +578,11 @@ fn print_json(
             "active": context_status.active,
             "matches": context_status.matches,
             "drift_candidates": context_status.drift_candidates,
-            "profiles": context_status.mapped_profiles.as_ref().map(|profiles| {
-                serde_json::json!({
-                    "claude": profiles.get(&Tool::Claude),
-                    "codex": profiles.get(&Tool::Codex),
-                    "gemini": profiles.get(&Tool::Gemini),
-                })
-            }).unwrap_or(serde_json::Value::Null),
+            "profiles": context_status
+                .mapped_profiles
+                .as_ref()
+                .map(mapped_profiles_json)
+                .unwrap_or(serde_json::Value::Null),
             "unmanaged_tools": context_status.unmanaged_tools.iter().map(|(tool, active_profile)| {
                 serde_json::json!({
                     "tool": tool.binary_name(),
@@ -578,6 +609,39 @@ fn print_json(
     Ok(())
 }
 
+/// Context-to-profile mapping as JSON, keyed by tool.
+///
+/// Iterates `Tool::ALL` so newly supported tools appear automatically rather
+/// than being forgotten in a hand-written object literal.
+fn mapped_profiles_json(
+    mapped_profiles: &std::collections::HashMap<Tool, String>,
+) -> serde_json::Value {
+    let map = Tool::ALL
+        .iter()
+        .map(|tool| {
+            (
+                tool.context_flag().to_owned(),
+                serde_json::json!(mapped_profiles.get(tool)),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    serde_json::Value::Object(map)
+}
+
+/// Map of each tool to its active profile name, read straight from config.
+///
+/// Context classification only needs profile *names*, so callers that do not
+/// otherwise need a full `collect_status` (binary detection, credential reads,
+/// keyring access, live-match comparison) should use this instead.
+pub(crate) fn active_profiles_from_config(
+    config: &Config,
+) -> std::collections::HashMap<Tool, Option<String>> {
+    Tool::ALL
+        .iter()
+        .map(|tool| (*tool, config.active_for(*tool).map(str::to_owned)))
+        .collect()
+}
+
 pub(crate) fn derive_context_status(
     config: &Config,
     statuses: &[ToolStatus],
@@ -594,7 +658,13 @@ pub(crate) fn derive_context_status(
             )
         })
         .collect::<std::collections::HashMap<_, _>>();
+    derive_context_status_from_active(config, &active_profiles)
+}
 
+pub(crate) fn derive_context_status_from_active(
+    config: &Config,
+    active_profiles: &std::collections::HashMap<Tool, Option<String>>,
+) -> DerivedContextStatus {
     let mut matches = Vec::new();
     let mut drift_candidates = Vec::new();
     for (name, context) in config.contexts() {
@@ -1179,6 +1249,7 @@ mod tests {
                 binary_found: true,
                 stored_profiles: 1,
                 active_profile: Some("work".to_owned()),
+                active_profile_registered: true,
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
                 claude_auth_classification: Some("api_key".to_owned()),
@@ -1195,6 +1266,7 @@ mod tests {
                 binary_found: true,
                 stored_profiles: 1,
                 active_profile: None,
+                active_profile_registered: true,
                 auth_method: None,
                 credential_backend: None,
                 claude_auth_classification: None,
@@ -1236,6 +1308,7 @@ mod tests {
                 binary_found: true,
                 stored_profiles: 1,
                 active_profile: Some("old".to_owned()),
+                active_profile_registered: true,
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
                 claude_auth_classification: Some("api_key".to_owned()),
@@ -1252,6 +1325,7 @@ mod tests {
                 binary_found: true,
                 stored_profiles: 1,
                 active_profile: Some("new".to_owned()),
+                active_profile_registered: true,
                 auth_method: Some("api_key".to_owned()),
                 credential_backend: Some("file".to_owned()),
                 claude_auth_classification: None,

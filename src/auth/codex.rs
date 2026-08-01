@@ -276,13 +276,11 @@ pub fn add_api_key_with_backend(
 }
 
 pub fn validate_api_key(key: &str) -> Result<()> {
-    if key.trim().is_empty() {
-        bail!(
-            "Codex API key must not be empty.\n  \
-             Get your API key at platform.openai.com → API Keys."
-        );
-    }
-    Ok(())
+    crate::auth::validate_api_key_charset(
+        key,
+        "Codex",
+        "Get your API key at platform.openai.com → API Keys.",
+    )
 }
 
 /// Start the Codex OAuth flow using the installed `codex` binary.
@@ -551,23 +549,26 @@ fn run_oauth_flow(
 ) -> Result<PathBuf> {
     let _spinner = crate::output::start_spinner("Waiting for Codex login to complete...");
 
-    let mut child = Command::new(codex_bin)
+    let child = Command::new(codex_bin)
         .arg("login")
         .env("CODEX_HOME", capture_dir)
         .spawn()
         .with_context(|| format!("could not spawn {}", codex_bin.display()))?;
+    // Guarded so a failure in the poll loop below cannot orphan the
+    // interactive login child.
+    let mut child = crate::auth::child_guard::ChildGuard::new(child);
 
     let auth_path = capture_dir.join(AUTH_FILE);
     let deadline = Instant::now() + timeout;
 
     loop {
         if auth_path.exists() {
-            let _ = child.kill();
-            let _ = child.wait();
+            child.terminate();
             return Ok(auth_path);
         }
 
         if let Some(status) = child
+            .as_mut()
             .try_wait()
             .with_context(|| format!("could not poll {}", codex_bin.display()))?
         {
@@ -585,8 +586,7 @@ fn run_oauth_flow(
         }
 
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            child.terminate();
             bail!(
                 "Codex login timed out after {}s. \
                  If auth.json was not written, verify that config.toml has \

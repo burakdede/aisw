@@ -5,7 +5,9 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::status::{collect_status, derive_context_status, DerivedContextStatus};
+use crate::commands::status::{
+    active_profiles_from_config, derive_context_status_from_active, DerivedContextStatus,
+};
 use crate::config::{Config, ConfigStore};
 use crate::error::AiswError;
 use crate::types::Tool;
@@ -288,29 +290,18 @@ pub fn resolve_binding(home: &Path, cwd: &Path) -> Result<WorkspaceBinding> {
     })
 }
 
+/// Resolve the workspace binding and compare it against the active profiles.
+///
+/// Deliberately reads active profiles from config instead of running a full
+/// `collect_status`: classification only needs profile names, and the shell
+/// hook calls this on every directory change, where probing tool binaries,
+/// credential files and the OS keyring would add real per-prompt latency.
 pub fn collect_workspace_status(home: &Path, cwd: &Path) -> Result<WorkspaceStatus> {
     let binding = resolve_binding(home, cwd)?;
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
-    let user_home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let statuses = collect_status(
-        home,
-        &user_home,
-        &std::env::var_os("PATH").unwrap_or_default(),
-    )?;
-    let context_status = derive_context_status(&config, &statuses);
-    let active_profiles = Tool::ALL
-        .iter()
-        .map(|tool| {
-            (
-                *tool,
-                statuses
-                    .iter()
-                    .find(|status| status.tool == *tool)
-                    .and_then(|status| status.active_profile.clone()),
-            )
-        })
-        .collect::<HashMap<_, _>>();
+    let active_profiles = active_profiles_from_config(&config);
+    let context_status = derive_context_status_from_active(&config, &active_profiles);
 
     let status = classify_workspace_state(&config, &binding, &active_profiles, &context_status);
     let recommended_command = match status {

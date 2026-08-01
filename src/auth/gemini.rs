@@ -211,13 +211,11 @@ pub fn add_api_key_with_backend(
 }
 
 pub fn validate_api_key(key: &str) -> Result<()> {
-    if key.trim().is_empty() {
-        bail!(
-            "Gemini API key must not be empty.\n  \
-             Get your API key at aistudio.google.com → Get API Key."
-        );
-    }
-    Ok(())
+    crate::auth::validate_api_key_charset(
+        key,
+        "Gemini",
+        "Get your API key at aistudio.google.com → Get API Key.",
+    )
 }
 
 /// Read the stored API key from a profile's .env file.
