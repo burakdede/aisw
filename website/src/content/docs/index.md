@@ -1,11 +1,11 @@
 ---
 title: aisw documentation
-description: aisw manages named profiles and contexts for Claude Code, Codex CLI, and Gemini CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
+description: aisw manages named profiles and contexts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/index.md
 template: splash
 hero:
   title: "aisw"
-  tagline: "Account manager and switcher for Claude Code, Codex CLI, and Gemini CLI. Current release: v0.3.8."
+  tagline: "Account manager and switcher for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Current release: v0.3.8."
   actions:
     - text: Quickstart
       link: /aisw/quickstart/
@@ -24,7 +24,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, aisw documentation, overview
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, aisw documentation, overview
   - tag: meta
     attrs:
       property: article:section
@@ -33,12 +33,12 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"WebPage","name":"aisw documentation","headline":"aisw documentation","description":"aisw manages named profiles and contexts for Claude Code, Codex CLI, and Gemini CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.","url":"https://burakdede.github.io/aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, aisw documentation, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"}]},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What does aisw actually change when I switch accounts?","acceptedAnswer":{"@type":"Answer","text":"aisw use applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files."}},{"@type":"Question","name":"Does aisw send credentials or prompts over the network?","acceptedAnswer":{"@type":"Answer","text":"No. aisw itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher."}},{"@type":"Question","name":"Where are profiles stored, and how are they protected?","acceptedAnswer":{"@type":"Answer","text":"Stored profiles live under ~/.aisw/profiles/<tool>/<name>/. Credential files are written with 0600 permissions so only your user can read or write them, and aisw status reports files that are broader than that."}}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"WebPage","name":"aisw documentation","headline":"aisw documentation","description":"aisw manages named profiles and contexts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.","url":"https://burakdede.github.io/aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, aisw documentation, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"}]},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What does aisw actually change when I switch accounts?","acceptedAnswer":{"@type":"Answer","text":"aisw use applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files."}},{"@type":"Question","name":"Does aisw send credentials or prompts over the network?","acceptedAnswer":{"@type":"Answer","text":"No. aisw itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher."}},{"@type":"Question","name":"Where are profiles stored, and how are they protected?","acceptedAnswer":{"@type":"Answer","text":"Stored profiles live under ~/.aisw/profiles/<tool>/<name>/. Credential files are written with 0600 permissions so only your user can read or write them, and aisw status reports files that are broader than that."}}]}]}
 ---
 
-Named profile and context manager for Claude Code, Codex CLI, and Gemini CLI. Store per-tool accounts, save mixed-name work modes, and switch between them in one command across all three AI coding agents  -  on macOS, Linux, and Windows.
+Named profile and context manager for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Store per-tool accounts, save mixed-name work modes, and switch between them in one command across all four AI coding agents  -  on macOS, Linux, and Windows.
 
-If you maintain separate work and personal accounts for Claude Code, Codex, or Gemini  -  or manage credentials for multiple clients  -  `aisw` gives you one command to switch instead of manually editing `~/.claude/.credentials.json`, juggling `CLAUDE_CONFIG_DIR` overrides, or copying `auth.json` files between directories. For Codex ChatGPT-managed auth, the durable model is one isolated `CODEX_HOME` per profile, not copied shared session state.
+If you maintain separate work and personal accounts for Claude Code, Codex, Gemini, or Antigravity  -  or manage credentials for multiple clients  -  `aisw` gives you one command to switch instead of manually editing `~/.claude/.credentials.json`, juggling `CLAUDE_CONFIG_DIR` overrides, or copying `auth.json` files between directories. For Codex ChatGPT-managed auth, the durable model is one isolated `CODEX_HOME` per profile, not copied shared session state.
 
 It is built for the questions people actually ask:
 
@@ -85,6 +85,7 @@ aisw add claude work --api-key "$ANTHROPIC_API_KEY"
 aisw add claude personal              # launches interactive OAuth
 aisw add codex work --api-key "$OPENAI_API_KEY"
 aisw add gemini work --api-key "$GEMINI_API_KEY"
+aisw add antigravity work             # OAuth only  -  no API-key auth upstream
 
 # Activate a profile
 aisw use claude work
@@ -112,7 +113,7 @@ aisw add claude personal
 aisw use claude work
 ```
 
-### Mixed client setup across Claude, Codex, and Gemini
+### Mixed client setup across Claude, Codex, Gemini, and Antigravity
 
 Use a context when each tool needs a different profile name:
 
@@ -120,10 +121,13 @@ Use a context when each tool needs a different profile name:
 aisw context create client-acme \
   --claude acme-claude \
   --codex client-a-openai \
-  --gemini gemini-consulting
+  --gemini gemini-consulting \
+  --antigravity acme-agy
 
 aisw context use client-acme
 ```
+
+A context only needs the tools you actually use  -  map one, or all four.
 
 ### Wrong-account protection per repo
 

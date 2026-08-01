@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.
+description: Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts in under five minutes.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/quickstart.md
 head:
   - tag: meta
@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, quickstart, getting-started
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, quickstart, getting-started
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Quickstart","headline":"Quickstart","description":"Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.","url":"https://burakdede.github.io/aisw/quickstart/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, quickstart, getting-started","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Quickstart","item":"https://burakdede.github.io/aisw/quickstart/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Quickstart","headline":"Quickstart","description":"Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts in under five minutes.","url":"https://burakdede.github.io/aisw/quickstart/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, quickstart, getting-started","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Quickstart","item":"https://burakdede.github.io/aisw/quickstart/"}]}]}
 ---
 
 From install to switching accounts in five minutes.
@@ -52,7 +52,7 @@ aisw --version
 aisw init
 ```
 
-This creates `~/.aisw/`, offers to install the optional shell hook (recommended), and detects any accounts you are already logged into. If you are already signed into Claude Code, Codex, or Gemini, `init` will offer to import those credentials as named profiles so you start without re-authenticating.
+This creates `~/.aisw/`, offers to install the optional shell hook (recommended), and detects any accounts you are already logged into. If you are already signed into Claude Code, Codex, or Gemini, `init` will offer to import those credentials as named profiles so you start without re-authenticating. Antigravity support currently starts with explicit `add` flows rather than `init` auto-import.
 
 For GUI or other machine-driven onboarding, use the non-prompting bootstrap path instead:
 
@@ -88,11 +88,22 @@ aisw add codex ci --from-env
 aisw add claude personal
 aisw add codex personal
 aisw add gemini personal
+aisw add antigravity work
+```
+
+Antigravity is OAuth-only  -  it has no API-key path, so `--api-key` and `--from-env` are rejected for it.
+
+**Capture whatever is logged in right now** (no login flow is launched):
+
+```sh
+aisw add antigravity work --from-live
 ```
 
 For Codex ChatGPT-managed auth, this interactive path is the durable setup because login happens inside the profile-owned isolated `CODEX_HOME`.
 
 Upstream Gemini CLI docs currently recommend Google-account login for interactive local use. Some account types still require `GOOGLE_CLOUD_PROJECT`, especially Workspace / Code Assist-style setups and certain region-limited cases. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI.
+
+For Antigravity, `aisw add antigravity <name>` captures the shared live keyring-backed OAuth session that `agy` creates and stores the documented Antigravity config roots alongside it. Upstream does not currently document an isolated per-profile auth root.
 
 If you want machine-readable OAuth progress for a GUI:
 
@@ -195,13 +206,13 @@ aisw remove codex old --yes
 aisw backup list
 
 # Restore a backup, then re-activate
-aisw backup restore 20260325T114502Z-claude-work --yes
+aisw backup restore 2026-03-25T11-45-02.123Z-0000 --yes
 aisw use claude work
 ```
 
 ## 7. Shell hook (optional but recommended)
 
-The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files. It also enforces workspace guardrails before each `claude`, `codex`, or `gemini` launch.
+The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files. It also enforces workspace guardrails before each `claude`, `codex`, `gemini`, or `agy` launch.
 
 ```sh
 # Zsh

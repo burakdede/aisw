@@ -191,7 +191,7 @@ find ~/.aisw -type f -maxdepth 3 | xargs ls -l
 **Fix:** After restoring, explicitly activate the profile:
 
 ```sh
-aisw backup restore 20260325T114502Z-claude-work --yes
+aisw backup restore 2026-03-25T11-45-02.123Z-0000 --yes
 aisw use claude work
 ```
 
@@ -219,6 +219,59 @@ aisw --non-interactive backup restore <id> --yes
 ```
 
 Interactive OAuth is not available in `--non-interactive` mode by design. Use API keys or `--from-env` for CI.
+
+---
+
+## `aisw remove` refuses: profile is referenced by a context
+
+**Cause:** A saved context still maps that tool to the profile. Removing it would leave the context pointing at something that no longer exists, so `aisw` refuses before touching any credential.
+
+**Fix:** Drop the mapping, or remove the context, then retry:
+
+```sh
+# If the context maps other tools too, drop just this tool's mapping
+aisw context unset <context> --claude
+
+# If this was the context's only mapping, unset would leave it empty,
+# so remove the context instead
+aisw context remove <context> --yes
+
+aisw remove claude work --yes
+```
+
+A context must keep at least one mapping, so `unset` refuses when it would empty the context and tells you to use `context remove`.
+
+The error names every blocking context. Nothing is deleted when the removal is refused  -  credentials and profile files are left intact.
+
+---
+
+## `aisw add` refuses: key or account already exists
+
+**Cause:** `aisw` will not store the same account under two names. For API keys it compares the key itself; for OAuth it compares the resolved account identity.
+
+**Fix:** Use the profile it names, or supply a different account. To re-point an existing profile at new credentials, remove it first and re-add.
+
+---
+
+## `aisw add` refuses: API key contains a control character
+
+**Cause:** The key has an embedded newline, carriage return, or tab  -  usually from copy/paste, or from piping a file that ends in a newline.
+
+**Fix:** Strip the trailing newline. `printf` does not add one:
+
+```sh
+printf '%s' "$ANTHROPIC_API_KEY" | aisw add claude work --api-key-stdin
+```
+
+Keys must be a single line, because a Gemini key is written into a `.env` file the CLI sources, where an embedded newline would define an unrelated variable.
+
+---
+
+## `aisw use --all` exits non-zero
+
+**Cause:** At least one tool that has a profile with that name failed to switch. Tools with no profile of that name are skipped and do not cause a failure.
+
+**Fix:** The error lists each failing tool and its reason. Run `aisw status` to see which tools are affected, then fix or switch those individually.
 
 ---
 
@@ -265,7 +318,7 @@ If a desktop app, remote sidecar, or long-lived shell already had the old accoun
 
 ## Workspace guard blocked an agent launch
 
-**Symptom:** Running `claude`, `codex`, or `gemini` fails with "workspace guard refused to launch".
+**Symptom:** Running `claude`, `codex`, `gemini`, or `agy` fails with "workspace guard refused to launch".
 
 **Cause:** The shell hook is active, the current directory has a workspace binding, and the active context does not match the expected one.
 

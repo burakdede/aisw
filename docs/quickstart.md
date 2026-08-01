@@ -71,6 +71,14 @@ aisw add codex ci --from-env
 aisw add claude personal
 aisw add codex personal
 aisw add gemini personal
+aisw add antigravity work
+```
+
+Antigravity is OAuth-only  -  it has no API-key path, so `--api-key` and `--from-env` are rejected for it.
+
+**Capture whatever is logged in right now** (no login flow is launched):
+
+```sh
 aisw add antigravity work --from-live
 ```
 
@@ -181,13 +189,13 @@ aisw remove codex old --yes
 aisw backup list
 
 # Restore a backup, then re-activate
-aisw backup restore 20260325T114502Z-claude-work --yes
+aisw backup restore 2026-03-25T11-45-02.123Z-0000 --yes
 aisw use claude work
 ```
 
 ## 7. Shell hook (optional but recommended)
 
-The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files. It also enforces workspace guardrails before each `claude`, `codex`, or `gemini` launch.
+The shell hook lets `aisw use` and `aisw context use` apply environment variable exports to the current shell session in addition to writing live config files. It also enforces workspace guardrails before each `claude`, `codex`, `gemini`, or `agy` launch.
 
 ```sh
 # Zsh

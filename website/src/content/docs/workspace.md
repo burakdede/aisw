@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,12 +19,12 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Workspace Guardrails","headline":"Workspace Guardrails","description":"Bind repos, directories, and git remotes to expected aisw contexts. Warn or block agent launches when the wrong account is active.","url":"https://burakdede.github.io/aisw/workspace/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Workspace Guardrails","item":"https://burakdede.github.io/aisw/workspace/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Workspace Guardrails","headline":"Workspace Guardrails","description":"Bind repos, directories, and git remotes to expected aisw contexts. Warn or block agent launches when the wrong account is active.","url":"https://burakdede.github.io/aisw/workspace/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, workspace guardrails, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Workspace Guardrails","item":"https://burakdede.github.io/aisw/workspace/"}]}]}
 ---
 
 Workspace guardrails solve one specific problem: launching an AI coding agent in the wrong repo with the wrong account.
 
-If you work on client repos alongside personal projects, you may have noticed that `claude`, `codex`, and `gemini` are always willing to start regardless of which account is currently active. Nothing stops you from opening a client repo and accidentally running it under your personal key - or vice versa.
+If you work on client repos alongside personal projects, you may have noticed that `claude`, `codex`, `gemini`, and `agy` are always willing to start regardless of which account is currently active. Nothing stops you from opening a client repo and accidentally running it under your personal key - or vice versa.
 
 The workspace feature lets you bind a repo or directory to an expected `aisw` context. The shell hook then checks that binding before each agent launch and either warns you or blocks the launch entirely.
 
@@ -125,7 +125,7 @@ aisw workspace guard --mode strict
 
 ## How it works in practice
 
-Once the shell hook is active and a binding is set, the `claude`, `codex`, and `gemini` commands in your shell become wrapper functions. Each time you run one of them, the hook calls `aisw workspace check` first.
+Once the shell hook is active and a binding is set, the `claude`, `codex`, `gemini`, and `agy` commands in your shell become wrapper functions. Each time you run one of them, the hook calls `aisw workspace check` first.
 
 With `warn` mode, in a mismatched repo you see:
 

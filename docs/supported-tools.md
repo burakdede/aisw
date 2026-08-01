@@ -5,7 +5,7 @@ description: Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support mat
 
 # Supported tools
 
-`aisw` supports three AI coding agent CLIs:
+`aisw` supports four AI coding agent CLIs:
 
 | Tool | Binary | Auth methods | macOS | Linux | Windows |
 |---|---|---|---|---|---|

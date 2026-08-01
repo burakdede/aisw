@@ -8,7 +8,7 @@ description: Install and configure the aisw shell hook for bash, zsh, fish, and 
 The shell hook is optional. Without it, `aisw use` and `aisw context use` still write live tool credential files and update `~/.aisw/config.json`. The hook adds two capabilities:
 
 1. Applying environment variable exports (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_API_KEY`) into the current shell session when you run `aisw use` or `aisw context use`.
-2. Wrapping `claude`, `codex`, and `gemini` so that [workspace guardrails](workspace.md) are enforced before each launch.
+2. Wrapping `claude`, `codex`, `gemini`, and `agy` so that [workspace guardrails](workspace.md) are enforced before each launch.
 
 ## Install
 
@@ -113,7 +113,7 @@ eval "$(aisw context use acme --emit-env)"
 
 ### Workspace guard wrappers
 
-The hook also wraps `claude`, `codex`, and `gemini`. Before each launch, it runs `aisw workspace check --tool <tool>`. If a workspace binding is set for the current directory and the active context does not match:
+The hook also wraps `claude`, `codex`, `gemini`, and `agy` (Antigravity). Before each launch, it runs `aisw workspace check --tool <tool>`. If a workspace binding is set for the current directory and the active context does not match:
 
 - In `warn` mode: a warning is printed to stderr. The agent launches anyway.
 - In `strict` mode: the launch is blocked with an error and a remediation command.
