@@ -1,6 +1,6 @@
 ---
 title: How It Works
-description: Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
+description: Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/how-it-works.md
 head:
   - tag: meta
@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,10 +19,10 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"How It Works","headline":"How It Works","description":"Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.","url":"https://burakdede.github.io/aisw/how-it-works/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, how it works, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"How It Works","item":"https://burakdede.github.io/aisw/how-it-works/"}]}]}
 ---
 
-This page explains the design decisions behind `aisw`, how credentials are stored and applied, and the per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
+This page explains the design decisions behind `aisw`, how credentials are stored and applied, and the per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.
 
 ## Profile and context model
 
@@ -87,7 +87,7 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 **How `aisw` captures credentials:**
 - `--api-key`: stores the key directly.
 - `--from-live`: reads the current live credentials from file or Keychain.
-- Interactive OAuth: spawns `claude auth login`. When the installed Claude build supports profile-owned auth, `aisw` points login at the profile `CLAUDE_CONFIG_DIR`; otherwise it polls Claude's live credential file and Keychain for changes and captures the result there.
+- Interactive OAuth: spawns `claude auth login`. When Claude's install supports profile-owned auth, `aisw` points login at the profile `CLAUDE_CONFIG_DIR`; otherwise it polls Claude's live credential file and Keychain for changes and captures the result there.
 
 **How `aisw use` applies credentials:**
 - Detects whether the live tool is reading from file or Keychain.
@@ -95,6 +95,8 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 - Updates the `oauthAccount` field in `~/.claude.json` if the profile includes OAuth account metadata.
 - With `--state-mode isolated`: sets `CLAUDE_CONFIG_DIR` to the profile directory so Claude reads config, history, and extensions from a profile-specific location.
 - With `--state-mode shared`: unsets `CLAUDE_CONFIG_DIR` so Claude reads its standard config directory.
+
+**Important Claude limitation:** when Claude OAuth is backed by the legacy shared live Keychain entry, `CLAUDE_CONFIG_DIR` does not isolate the actual OAuth credential owner. `aisw` blocks isolated mode for that case before mutating live state and points the user to shared mode or API key / token-based alternatives. When Claude scopes auth by `CLAUDE_CONFIG_DIR`, isolated mode remains the durable path. This is an upstream storage limitation, not `aisw` corruption.
 
 **MCP OAuth tokens:** The full credentials payload including `mcpOAuth` keys is preserved when writing to the Keychain. No subset-stripping is performed.
 
@@ -137,6 +139,16 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 - There is no configurable shared mode because Gemini's auth and broader local state are tightly coupled under `~/.gemini/`. Separating them would risk corrupting the tool's session state.
 
 **State mode:** Gemini is always `isolated`. Each profile carries its own complete `~/.gemini/` state.
+
+### Antigravity CLI
+
+- Live auth: shared OS-native keyring entry documented by upstream behavior
+- Live state: `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
+- `--from-live`: captures the current live keyring-backed session plus both documented config roots.
+- Interactive OAuth: launches `agy`, captures the resulting live keyring/config state, and restores the prior live state unless `--set-active` is requested.
+- `use`: restores the managed keyring secret into Antigravity's live keyring entry, then transactionally syncs the documented config roots.
+
+**Important Antigravity limitation:** upstream does not currently document an isolated per-profile auth/data root or profile selector. `aisw` therefore supports Antigravity through shared live switching rather than profile-owned isolated auth. This is a product limitation upstream, not `aisw` corruption.
 
 ## Automatic Synchronization
 

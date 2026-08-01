@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, configuration, reference
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, configuration, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Configuration","headline":"Configuration","description":"aisw configuration file location, schema, field reference, directory layout, and AISW_HOME override.","url":"https://burakdede.github.io/aisw/configuration/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, configuration, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Configuration","item":"https://burakdede.github.io/aisw/configuration/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Configuration","headline":"Configuration","description":"aisw configuration file location, schema, field reference, directory layout, and AISW_HOME override.","url":"https://burakdede.github.io/aisw/configuration/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, configuration, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Configuration","item":"https://burakdede.github.io/aisw/configuration/"}]}]}
 ---
 
 ## Location
@@ -48,7 +48,8 @@ AISW_HOME=/tmp/aisw-test aisw list
   "active": {
     "claude": "work",
     "codex": null,
-    "gemini": null
+    "gemini": null,
+    "antigravity": null
   },
   "profiles": {
     "claude": {
@@ -60,14 +61,16 @@ AISW_HOME=/tmp/aisw-test aisw list
       }
     },
     "codex": {},
-    "gemini": {}
+    "gemini": {},
+    "antigravity": {}
   },
   "contexts": {
     "acme": {
       "profiles": {
         "claude": "acme-claude",
         "codex": "acme-codex",
-        "gemini": null
+        "gemini": null,
+        "antigravity": null
       },
       "created_at": "2026-03-25T10:05:00Z",
       "updated_at": "2026-03-25T10:05:00Z"
@@ -75,7 +78,9 @@ AISW_HOME=/tmp/aisw-test aisw list
   },
   "settings": {
     "backup_on_switch": true,
-    "max_backups": 10
+    "max_backups": 10,
+    "claude": { "state_mode": "isolated" },
+    "codex": { "state_mode": "isolated" }
   }
 }
 ```
@@ -97,32 +102,61 @@ AISW_HOME=/tmp/aisw-test aisw list
 | `contexts.<name>.updated_at` | ISO 8601 timestamp | When the context was last changed. |
 | `settings.backup_on_switch` | boolean | Create a backup before activating a profile. Default: true. |
 | `settings.max_backups` | integer | Maximum number of backups to retain. Older ones are pruned when the limit is exceeded. Default: 10. |
+| `settings.<tool>.state_mode` | `"isolated"` or `"shared"` | Remembered state mode. Present for `claude` and `codex` only  -  the tools that support it. |
+
+`active`, `profiles`, and each context's `profiles` always carry a key for every supported tool, using `null` where nothing is set.
 
 Credentials are stored under `~/.aisw/profiles/`, not in `config.json`.
 Contexts also store only references, never credential material.
+
+## Workspace rules
+
+Workspace bindings live in a separate file, `~/.aisw/workspaces.json`, written by `aisw workspace bind`, `unbind`, and `guard`:
+
+```json
+{
+  "version": 1,
+  "guard_mode": "warn",
+  "default_context": null,
+  "path_rules": [{ "path": "/home/you/clients/acme", "context": "client-acme" }],
+  "git_remote_rules": [{ "pattern": "github.com/acme/*", "context": "client-acme" }]
+}
+```
+
+A repo can also carry its own binding at `<repo>/.git/info/aisw.json`, which takes precedence over these user-level rules. See [Workspace guardrails](/aisw/workspace/).
 
 ## Directory layout
 
 ```text
 ~/.aisw/
-├── config.json                        # profile registry and settings
+├── config.json                        # profile registry and settings (0600)
+├── config.json.lock                   # advisory write lock
+├── workspaces.json                    # workspace binding rules (0600)
 ├── profiles/
 │   ├── claude/
 │   │   ├── work/
 │   │   │   ├── .credentials.json      # Claude credential file (0600)
-│   │   │   └── oauth_account.json     # OAuth account metadata (if OAuth)
+│   │   │   └── oauth-account.json     # OAuth account metadata (if OAuth)
 │   │   └── personal/
 │   ├── codex/
 │   │   └── work/
 │   │       ├── auth.json              # Codex auth file (0600)
 │   │       └── config.toml
-│   └── gemini/
-│       └── personal/
-│           ├── oauth_creds.json       # Gemini OAuth cache (0600)
-│           └── settings.json
+│   ├── gemini/
+│   │   └── personal/
+│   │       ├── .env                   # API-key profiles (GEMINI_API_KEY=...)
+│   │       └── oauth_creds.json       # OAuth profiles (0600)
+│   └── antigravity/
+│       └── work/
+│           ├── keyring.json           # captured live keyring metadata
+│           └── keyring-secret.json    # secret, when file-backed (0600)
 └── backups/
-    └── 20260325T114502Z-claude-work/  # timestamped backup snapshot
+    └── 2026-03-25T11-45-02.123Z-0000/ # backup id
+        └── claude/
+            └── work/                  # snapshot of the profile directory
 ```
+
+Profiles stored with `--credential-backend system-keyring` keep their secret in the OS keyring instead of a file in the profile directory.
 
 ## Version compatibility
 

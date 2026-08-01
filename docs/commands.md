@@ -22,15 +22,15 @@ aisw [--no-color] [--non-interactive] [--quiet] <command> ...
 ```text
 aisw init [--yes] [--json --no-shell-hook [--detect-live]]
 aisw add <tool> <profile> [--api-key KEY|--api-key-stdin] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes] [--json|--progress-json]
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
 aisw context list [--search TEXT] [--json]
 aisw context use <name> [--state-mode isolated|shared] [--emit-env] [--json]
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
-aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
+aisw context unset <name> [--claude] [--codex] [--gemini] [--antigravity] [--json]
 aisw context remove <name> [--yes] [--json]
 aisw context rename <old> <new> [--json]
-aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
-aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
+aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env] [--json]
+aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env] [--json]
 aisw workspace bind [PATH] --context <name> [--json]
 aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
 aisw workspace bind --default --context <name> [--json]
@@ -42,10 +42,10 @@ aisw workspace doctor [--json]
 aisw workspace guard --mode warn|strict [--json]
 aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
-aisw remove <tool> <profile> [--yes] [--force]
-aisw rename <tool> <old> <new>
+aisw remove <tool> <profile> [--yes] [--force] [--json]
+aisw rename <tool> <old> <new> [--json]
 aisw backup list [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
-aisw backup restore <backup_id> [--yes]
+aisw backup restore <backup_id> [--yes] [--json]
 aisw uninstall [--dry-run] [--remove-data] [--yes]
 aisw shell-hook <bash|zsh|fish|pwsh>
 aisw doctor [--json]
@@ -54,7 +54,7 @@ aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
 aisw project-bindings list [--json]
 ```
 
-`<tool>` is one of: `claude`, `codex`, `gemini`.
+`<tool>` is one of: `claude`, `codex`, `gemini`, `antigravity`.
 
 ---
 
@@ -124,9 +124,11 @@ Notes:
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
 - For Codex ChatGPT-managed auth, `--from-live` is a bootstrap import, not a durable interchangeable account bundle.
 - For Antigravity, `--from-live` captures the current shared live keyring-backed session plus the documented Antigravity config roots.
-- When OAuth identity can be resolved, `add` blocks creating a duplicate profile for an already-stored account.
+- `add` refuses to store the same account twice. For OAuth it compares the resolved account identity; for API keys it compares the key itself. The error names the existing profile, so re-running `add` with a key you already stored fails rather than creating a second name for it.
 - `--credential-backend` affects the managed `aisw` profile only. It does not force the upstream CLI's live auth backend.
 - Gemini supports only `file`. Claude, Codex, and Antigravity support `file` and `system-keyring`. Stored config and status output use `system_keyring`.
+- Antigravity is OAuth-only: `--api-key`, `--api-key-stdin`, and `--from-env` are rejected for it, because upstream documents keyring-backed sign-in rather than API-key profile auth. Use `aisw add antigravity <name>` or `--from-live`.
+- API keys must be a single line. A key containing a newline or other control character is rejected  -  usually a stray newline from copy/paste or from piping a file into `--api-key`.
 
 Live credential locations by tool:
 - Claude: `~/.claude/.credentials.json` or the macOS Keychain
@@ -149,8 +151,8 @@ aisw add codex work --from-live --yes
 ## `aisw use`
 
 ```text
-aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
-aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env]
+aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env] [--json]
+aisw use --all --profile <profile> [--state-mode isolated|shared] [--emit-env] [--json]
 ```
 
 Activate a stored profile as the live account.
@@ -162,10 +164,12 @@ Activate a stored profile as the live account.
 | `--all` | Switch every tool that has a matching profile name |
 | `--profile NAME` | Profile name; required with `--all` |
 | `--emit-env` | Print shell export/unset lines to stdout instead of writing them to the session |
+| `--json` | Return a single machine-readable result envelope |
 
 Notes:
-- `--state-mode` applies to Claude Code and Codex CLI only. Gemini and Antigravity do not support it.
+- `--state-mode` applies to Claude Code and Codex CLI only. Gemini and Antigravity do not support it. With `--all`, it is applied only to the tools that support it rather than failing the whole switch.
 - Switching is atomic: the previous live state is snapshotted before any write. A failed write triggers a full rollback.
+- With `--all`, a tool that has no profile of that name is skipped and the command still succeeds. A tool that has the profile but fails to switch is reported and the command exits non-zero.
 - With shell hook active, `aisw use` also emits the environment variable exports into the current shell session.
 - `--emit-env` is used internally by the shell hook. You can use it directly to apply exports in a subshell: `eval "$(aisw use claude work --emit-env)"`.
 - Codex shared mode remains supported for API-key profiles.
@@ -191,7 +195,7 @@ Practical framing:
 ### `aisw context create`
 
 ```text
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
 ```
 
 Create a saved context. At least one tool mapping is required.
@@ -252,7 +256,7 @@ eval "$(aisw context use acme --emit-env)"
 ### `aisw context set`
 
 ```text
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
+aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
 ```
 
 Update one or more mappings without disturbing the others.
@@ -265,7 +269,7 @@ aisw context set acme --gemini acme-gemini --json
 ### `aisw context unset`
 
 ```text
-aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
+aisw context unset <name> [--claude] [--codex] [--gemini] [--antigravity] [--json]
 ```
 
 Remove one or more mappings from a context. The command fails if it would leave the context empty.
@@ -305,7 +309,7 @@ aisw context rename acme client-acme --json
 
 ## `aisw workspace`
 
-Bind repos, directories, and git remotes to expected `aisw` contexts. The shell hook checks these bindings before launching `claude`, `codex`, or `gemini`, warning or blocking when the active context does not match.
+Bind repos, directories, and git remotes to expected `aisw` contexts. The shell hook checks these bindings before launching `claude`, `codex`, `gemini`, or `agy`, warning or blocking when the active context does not match.
 
 See [Workspace guardrails](workspace.md) for a full explanation of the feature, setup steps, and common patterns.
 
@@ -422,7 +426,7 @@ Show all stored profiles. Pass a tool name as a positional argument or use `--to
 
 | Flag | Effect |
 |---|---|
-| `[tool]` or `--tool` | Filter to one tool: `claude`, `codex`, or `gemini` |
+| `[tool]` or `--tool` | Filter to one tool: `claude`, `codex`, `gemini`, or `antigravity` |
 | `--search TEXT` | Filter by profile name or label (substring match) |
 | `--sort name\|recent` | Sort by profile name or by most recently used |
 | `--active-only` | Show only tools that have an active profile |
@@ -448,7 +452,7 @@ Show per-tool state: installed binary, active profile, credential backend, live-
 
 | Flag | Effect |
 |---|---|
-| `--tool` | Filter to one tool: `claude`, `codex`, or `gemini` |
+| `--tool` | Filter to one tool: `claude`, `codex`, `gemini`, or `antigravity` |
 | `--search TEXT` | Filter by tool, profile, auth type, or backend text |
 | `--sort name\|recent` | Sort rows by name or most recently used |
 | `--active-only` | Show only tools that have an active profile |
@@ -475,7 +479,7 @@ aisw status --context --json
 ## `aisw remove`
 
 ```text
-aisw remove <tool> <profile> [--yes] [--force]
+aisw remove <tool> <profile> [--yes] [--force] [--json]
 ```
 
 Delete a stored profile. A backup is created before deletion.
@@ -484,6 +488,11 @@ Delete a stored profile. A backup is created before deletion.
 |---|---|
 | `--yes` | Skip confirmation prompt |
 | `--force` | Allow removing the currently active profile |
+| `--json` | Return a single machine-readable result envelope |
+
+Notes:
+- A profile that is still mapped by a saved context cannot be removed. The command names the blocking contexts and leaves the profile untouched; update or remove those contexts first with `aisw context unset` or `aisw context remove`.
+- Removing the currently active profile with `--force` also clears the active selection for that tool.
 
 ```sh
 aisw remove codex old --yes
@@ -495,13 +504,14 @@ aisw remove claude work --force --yes
 ## `aisw rename`
 
 ```text
-aisw rename <tool> <old> <new>
+aisw rename <tool> <old> <new> [--json]
 ```
 
-Rename a profile. The profile directory and all config references are updated atomically.
+Rename a profile. The profile directory, the managed credential secret, and all config references (including any context that maps the profile) are updated atomically. If any step fails, the earlier steps are rolled back.
 
 ```sh
 aisw rename claude default work
+aisw rename claude default work --json
 ```
 
 ---
@@ -516,7 +526,7 @@ List available backups with timestamps and associated profile names.
 
 | Flag | Effect |
 |---|---|
-| `--tool` | Filter to one tool: `claude`, `codex`, or `gemini` |
+| `--tool` | Filter to one tool: `claude`, `codex`, `gemini`, or `antigravity` |
 | `--search TEXT` | Filter by backup id, tool, or profile name |
 | `--sort name\|recent` | Sort by name or by most recently created |
 | `--active-only` | Show only backups for currently active profiles |
@@ -534,7 +544,7 @@ aisw backup list --sort recent
 ## `aisw backup restore`
 
 ```text
-aisw backup restore <backup_id> [--yes]
+aisw backup restore <backup_id> [--yes] [--json]
 ```
 
 Restore profile files from a backup. Does not activate the profile; run `aisw use` after restore.
@@ -544,7 +554,7 @@ Restore profile files from a backup. Does not activate the profile; run `aisw us
 | `--yes` | Skip confirmation prompt |
 
 ```sh
-aisw backup restore 20260325T114502Z-claude-work --yes
+aisw backup restore 2026-03-25T11-45-02.123Z-0000 --yes
 aisw use claude work
 ```
 
@@ -594,7 +604,7 @@ aisw shell-hook pwsh >> $PROFILE
 
 The hook does two things:
 1. Wraps `aisw use` and `aisw context use` so environment variable exports are applied into the current shell session automatically.
-2. Wraps `claude`, `codex`, and `gemini` to run `aisw workspace check` before each launch, enforcing any configured workspace guardrails.
+2. Wraps `claude`, `codex`, `gemini`, and `agy` to run `aisw workspace check` before each launch, enforcing any configured workspace guardrails.
 
 See [Shell integration](shell-integration.md) for details and completion setup.
 

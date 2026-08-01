@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, troubleshooting, reference
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, troubleshooting, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, troubleshooting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Troubleshooting","headline":"Troubleshooting","description":"Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.","url":"https://burakdede.github.io/aisw/troubleshooting/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, troubleshooting, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Troubleshooting","item":"https://burakdede.github.io/aisw/troubleshooting/"}]}]}
 ---
 
 ## Quick diagnostics
@@ -113,6 +113,12 @@ aisw add claude current --from-live --set-active
 
 For Codex ChatGPT-managed auth, prefer re-applying the isolated profile and re-authenticating inside that profile-owned `CODEX_HOME` if needed. Imported `--from-live` Codex sessions are bootstrap-only.
 
+For Claude OAuth, a mismatch after trying isolated mode usually means the installed Claude build is still using its shared live Keychain credential. Re-apply with shared mode instead:
+
+```sh
+aisw use claude work --state-mode shared
+```
+
 ---
 
 ## OAuth flow fails or times out
@@ -139,6 +145,11 @@ For Codex ChatGPT-managed auth, prefer re-applying the isolated profile and re-a
 *For Claude  -  credentials captured but profile creation fails:*
 - Check available disk space under `~/.aisw/`.
 - Check permissions on `~/.aisw/profiles/`.
+
+*For Claude  -  isolated mode is rejected:*
+- This is expected when Claude OAuth is backed by the legacy shared live Keychain credential.
+- `CLAUDE_CONFIG_DIR` isolates config/history, not the upstream Keychain auth owner.
+- Use `aisw use claude <name> --state-mode shared`, or switch that workflow to API key / long-lived token auth if you need repeatable per-profile isolation semantics.
 
 ---
 
@@ -197,7 +208,7 @@ find ~/.aisw -type f -maxdepth 3 | xargs ls -l
 **Fix:** After restoring, explicitly activate the profile:
 
 ```sh
-aisw backup restore 20260325T114502Z-claude-work --yes
+aisw backup restore 2026-03-25T11-45-02.123Z-0000 --yes
 aisw use claude work
 ```
 
@@ -225,6 +236,59 @@ aisw --non-interactive backup restore <id> --yes
 ```
 
 Interactive OAuth is not available in `--non-interactive` mode by design. Use API keys or `--from-env` for CI.
+
+---
+
+## `aisw remove` refuses: profile is referenced by a context
+
+**Cause:** A saved context still maps that tool to the profile. Removing it would leave the context pointing at something that no longer exists, so `aisw` refuses before touching any credential.
+
+**Fix:** Drop the mapping, or remove the context, then retry:
+
+```sh
+# If the context maps other tools too, drop just this tool's mapping
+aisw context unset <context> --claude
+
+# If this was the context's only mapping, unset would leave it empty,
+# so remove the context instead
+aisw context remove <context> --yes
+
+aisw remove claude work --yes
+```
+
+A context must keep at least one mapping, so `unset` refuses when it would empty the context and tells you to use `context remove`.
+
+The error names every blocking context. Nothing is deleted when the removal is refused  -  credentials and profile files are left intact.
+
+---
+
+## `aisw add` refuses: key or account already exists
+
+**Cause:** `aisw` will not store the same account under two names. For API keys it compares the key itself; for OAuth it compares the resolved account identity.
+
+**Fix:** Use the profile it names, or supply a different account. To re-point an existing profile at new credentials, remove it first and re-add.
+
+---
+
+## `aisw add` refuses: API key contains a control character
+
+**Cause:** The key has an embedded newline, carriage return, or tab  -  usually from copy/paste, or from piping a file that ends in a newline.
+
+**Fix:** Strip the trailing newline. `printf` does not add one:
+
+```sh
+printf '%s' "$ANTHROPIC_API_KEY" | aisw add claude work --api-key-stdin
+```
+
+Keys must be a single line, because a Gemini key is written into a `.env` file the CLI sources, where an embedded newline would define an unrelated variable.
+
+---
+
+## `aisw use --all` exits non-zero
+
+**Cause:** At least one tool that has a profile with that name failed to switch. Tools with no profile of that name are skipped and do not cause a failure.
+
+**Fix:** The error lists each failing tool and its reason. Run `aisw status` to see which tools are affected, then fix or switch those individually.
 
 ---
 
@@ -271,7 +335,7 @@ If a desktop app, remote sidecar, or long-lived shell already had the old accoun
 
 ## Workspace guard blocked an agent launch
 
-**Symptom:** Running `claude`, `codex`, or `gemini` fails with "workspace guard refused to launch".
+**Symptom:** Running `claude`, `codex`, `gemini`, or `agy` fails with "workspace guard refused to launch".
 
 **Cause:** The shell hook is active, the current directory has a workspace binding, and the active context does not match the expected one.
 

@@ -7,7 +7,7 @@
   </picture>
 </p>
 
-<p align="center"><strong>AI Switcher (`aisw`) for Claude Code, Codex CLI, and Gemini CLI.</strong></p>
+<p align="center"><strong>AI Switcher (`aisw`) for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.</strong></p>
 
 <p align="center">Switch between work, personal, and client accounts without copying auth files, editing hidden config, or logging in again every time.</p>
 
@@ -36,7 +36,7 @@ AI Switcher (`aisw`) exists for a very specific kind of mess:
 
 - You use one Claude Code account for work and another for personal projects.
 - Codex CLI should use one OpenAI account for client A and a different one for client B, without relying on copied shared ChatGPT session files.
-- Gemini CLI is already logged in, but you want to capture that state safely and switch back to it later.
+- Gemini CLI or Antigravity CLI is already logged in, but you want to capture that state safely and switch back to it later.
 - Your repo should open with the right coding agent account active, not whatever happened to be left over from the last project.
 
 The underlying problem is not just "multiple accounts." It is that each upstream CLI stores auth differently, in different places, with different side effects. Manual switching usually means editing hidden files, copying `auth.json`, juggling `CLAUDE_CONFIG_DIR`, or hoping the shell session you are in still has the right environment.
@@ -66,7 +66,7 @@ The same pattern works for Codex CLI and Gemini CLI. For Codex ChatGPT-managed a
 
 ### I work across multiple clients
 
-Each client can have its own Claude, Codex, and Gemini profiles, even when the names differ:
+Each client can have its own Claude, Codex, Gemini, and Antigravity profiles, even when the names differ:
 
 ```sh
 aisw context create client-acme \
@@ -120,10 +120,10 @@ cargo install aisw
 
 The easiest mental model is:
 
-1. `aisw init` captures whatever Claude, Codex, and Gemini accounts are live right now.
+1. `aisw init` captures whatever accounts are live right now.
 2. `aisw add ...` introduces another account directly under `aisw`.
 3. `aisw use ...` restores the saved credentials for the selected profile.
-4. After switching, start a fresh Claude/Codex/Gemini process.
+4. After switching, start a fresh agent process.
 
 If you are setting up work and personal accounts, follow this order instead of logging out and back in repeatedly at the upstream CLI first.
 
@@ -148,7 +148,7 @@ aisw list
 aisw status
 ```
 
-If Claude, Codex, or Gemini were already logged in when you ran `aisw init`, you do not need to re-add that same first account with `--from-live`.
+If a tool was already logged in when you ran `aisw init`, you do not need to re-add that same first account with `--from-live`.
 
 ### Second account: add it directly
 
@@ -181,7 +181,7 @@ aisw use --all --profile account-1
 aisw use --all --profile account-2
 ```
 
-After `aisw use ...`, start a fresh Claude/Codex/Gemini process. You should not need to log out and log back in manually after every switch, but you should not rely on reusing an already running or resumable session from the previous account.
+After `aisw use ...`, start a fresh agent process. You should not need to log out and log back in manually after every switch, but you should not rely on reusing an already running or resumable session from the previous account.
 
 ### When to use `--from-live`
 
@@ -234,6 +234,8 @@ aisw context use acme
 - Codex: shared-mode ChatGPT auth switching is explicitly unsupported.
 - Gemini: Google-account login is currently documented upstream as the recommended interactive local path. Some account types still require `GOOGLE_CLOUD_PROJECT`, and headless automation should prefer `GEMINI_API_KEY` or Vertex AI.
 - Gemini: `aisw init` and `aisw add gemini ...` can still capture the currently live Gemini state for supported upstream auth modes, but you should start a fresh process after switching.
+- Antigravity: OAuth only. `--api-key` and `--from-env` are rejected, because upstream documents keyring-backed sign-in rather than API-key profile auth.
+- Antigravity: no documented per-profile auth root exists, so switching replaces the shared live session and `--state-mode` does not apply.
 
 </details>
 
@@ -294,7 +296,7 @@ What you get from a profile:
 - Clear per-tool status and backup behavior.
 
 What you do not get from a profile alone:
-- A cross-tool work mode when profile names differ across Claude, Codex, and Gemini.
+- A cross-tool work mode when profile names differ across Claude, Codex, Gemini, and Antigravity.
 
 **Context** means one saved multi-tool work mode built from profiles.
 
@@ -314,7 +316,7 @@ The practical value is simple: `aisw use --all --profile personal` works when na
 
 ## Why AI Switcher works better than manual switching
 
-- It writes the native upstream credential locations that Claude Code, Codex CLI, and Gemini CLI already use.
+- It writes the native upstream credential locations that Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI already use.
 - It snapshots live state before switching and rolls back on failure instead of leaving you mid-edit.
 - It keeps stored profile data under `~/.aisw/` and uses the OS keyring where the platform supports it.
 - It gives you one place to inspect active profile state, drift, warnings, backups, and workspace expectations.
@@ -326,9 +328,12 @@ The practical value is simple: `aisw use --all --profile personal` works when na
 |---|---|---|---|---|---|
 | Claude Code | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
-| Gemini CLI | `gemini` | OAuth, API key | Full | Full | Full |
+| Gemini CLI | `gemini` | Google-account auth, Vertex AI, API key | Full | Full | Full |
+| Antigravity CLI | `agy` | OAuth | Full | Full | Full |
 
-Credentials are stored in the native OS keyring where available (macOS Keychain, Linux Secret Service, Windows Credential Manager) and fall back to encrypted local files with `0600` permissions.
+Credentials are stored in the native OS keyring where available (macOS Keychain, Linux Secret Service, Windows Credential Manager) and fall back to local files with `0600` permissions.
+
+Antigravity is OAuth-only: upstream documents keyring-backed sign-in rather than API-key profile auth, so `--api-key` and `--from-env` are rejected for it. It also has no documented per-profile auth root like `CODEX_HOME`, so `aisw` switches its shared live session rather than isolating it, and `--state-mode` does not apply.
 
 For Codex specifically:
 - Durable: API-key profiles.
@@ -338,18 +343,39 @@ For Codex specifically:
 
 ## Command reference
 
+`<tool>` is one of `claude`, `codex`, `gemini`, or `antigravity`.
+
+These global flags work on every command: `--no-color`, `--quiet`, `--non-interactive`.
+
 ```text
-aisw init [--yes]
-aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active] [--yes]
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
+# Setup and teardown
+aisw init [--yes] [--json] [--no-shell-hook] [--detect-live]
+aisw uninstall [--dry-run] [--remove-data] [--yes]
+aisw shell-hook <bash|zsh|fish|pwsh>
+
+# Profiles
+aisw add <tool> <profile> [--api-key KEY | --api-key-stdin | --from-env | --from-live]
+                          [--label TEXT] [--credential-backend file|system-keyring]
+                          [--set-active] [--yes] [--json] [--progress-json]
+aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
+aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
+aisw rename <tool> <old> <new> [--json]
+aisw remove <tool> <profile> [--yes] [--force] [--json]
+
+# Switching
+aisw use <tool> <profile> [--state-mode isolated|shared] [--json]
+aisw use --all --profile <profile> [--state-mode isolated|shared] [--json]
+
+# Contexts (one name for a mixed-tool work mode)
+aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
+aisw context set <name>    [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
+aisw context unset <name>  [--claude] [--codex] [--gemini] [--antigravity] [--json]
 aisw context list [--search TEXT] [--json]
-aisw context use <name> [--state-mode isolated|shared] [--emit-env] [--json]
-aisw context set <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--json]
-aisw context unset <name> [--claude] [--codex] [--gemini] [--json]
-aisw context remove <name> [--yes] [--json]
+aisw context use <name> [--state-mode isolated|shared] [--json]
 aisw context rename <old> <new> [--json]
-aisw use <tool> <profile> [--state-mode isolated|shared] [--emit-env]
-aisw use --all --profile <profile> [--emit-env]
+aisw context remove <name> [--yes] [--json]
+
+# Workspace guardrails
 aisw workspace bind [PATH] --context <name> [--json]
 aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
 aisw workspace bind --default --context <name> [--json]
@@ -359,19 +385,42 @@ aisw workspace unbind --default [--json]
 aisw workspace status [--json]
 aisw workspace doctor [--json]
 aisw workspace guard --mode warn|strict [--json]
-aisw list [tool] [--json]
-aisw status [--context] [--json]
-aisw remove <tool> <profile> [--yes] [--force]
-aisw rename <tool> <old> <new>
-aisw backup list [--json]
-aisw backup restore <backup_id> [--yes]
-aisw uninstall [--dry-run] [--remove-data] [--yes]
-aisw shell-hook <bash|zsh|fish|pwsh>
+aisw project-bindings list [--json]
+
+# Backups (created automatically before each switch)
+aisw backup list [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
+aisw backup restore <backup_id> [--yes] [--json]
+
+# Diagnostics
 aisw doctor [--json]
 aisw verify [--json]
-aisw repair [--json] [--dry-run|--apply] [--fix home,permissions]
-aisw project-bindings list [--json]
+aisw repair [--dry-run|--apply] [--fix home,permissions] [--json]
+aisw version [--json]
+aisw capabilities [--json]
 ```
+
+`aisw use --all` switches every tool that has a profile with the given name. Tools without one are skipped; if a tool has that profile but fails to switch, the command reports the failure and exits non-zero.
+
+## Scripting and exit codes
+
+Every command exits `0` on success and non-zero on failure. Two codes are meaningful to scripts:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `2` | Profile not found — distinguishes a wrong name from a real failure |
+| `1` | Everything else |
+
+`aisw doctor` and `aisw verify` exit non-zero when a check fails, so they work directly as CI gates.
+
+Add `--json` for machine-readable output. On success it prints only to stdout; on failure it prints a `{"ok": false, "error": {...}}` envelope with a stable `kind` string and, where one exists, a suggested remediation command. Use `--non-interactive` to make any command that would prompt fail instead.
+
+```sh
+aisw use claude work --json || echo "switch failed"
+aisw verify --json > state.json
+```
+
+See [Automation and scripting](https://burakdede.github.io/aisw/automation/) for the full contract.
 
 ## Security
 

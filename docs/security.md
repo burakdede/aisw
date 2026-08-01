@@ -5,7 +5,7 @@ description: aisw security posture  -  local-only credential storage, OS keyring
 
 # Security
 
-`aisw` manages authentication credentials for Claude Code, Codex CLI, and Gemini CLI. This page documents the security model, storage design, and the boundaries of what `aisw` does and does not do with those credentials.
+`aisw` manages authentication credentials for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. This page documents the security model, storage design, and the boundaries of what `aisw` does and does not do with those credentials.
 
 ## Summary
 
@@ -80,9 +80,19 @@ Backups are also created before profile switching when `backup_on_switch` is ena
 
 All commands that modify `~/.aisw/config.json` take an exclusive lock on the file before writing. If two `aisw` commands run concurrently, the second will wait briefly and then fail with a clear error rather than producing a partial write. This prevents config corruption in parallel CI environments.
 
+### Input validation
+
+Profile names are restricted to `a-z`, `A-Z`, `0-9`, `-`, and `_`, and every read and write resolves inside the profile directory, so a name can never reach a path outside `~/.aisw/profiles/`. `aisw` refuses to read or write through a symlink at a credential path.
+
+API keys must be a single line. Keys containing control characters are rejected, because stored credentials are later materialized into formats where such characters change meaning rather than being escaped  -  a Gemini API key is written to a `.env` file the CLI sources, so an embedded newline would otherwise inject additional environment variables.
+
+### Deletion
+
+`aisw uninstall --remove-data` deletes `~/.aisw/` **and** the OS keyring entries `aisw` created for profiles and backups, so no managed secret outlives the data directory. It refuses to run when `AISW_HOME` points at your home directory.
+
 ## OAuth flows
 
-During interactive OAuth, `aisw` spawns the upstream tool's native auth binary (`claude auth login`, `codex`, or `gemini`) and waits for credentials to appear in the expected locations. It does not intercept or proxy the authentication request. The token is issued directly by the provider to the tool.
+During interactive OAuth, `aisw` spawns the upstream tool's native auth binary (`claude auth login`, `codex`, `gemini`, or `agy`) and waits for credentials to appear in the expected locations. It does not intercept or proxy the authentication request. The token is issued directly by the provider to the tool. If the capture fails or times out, the spawned login process is terminated rather than left running.
 
 For Gemini, `aisw` sets `GEMINI_CLI_HOME` to a temporary scratch directory so the OAuth cache is written there rather than to `~/.gemini/`. This prevents the OAuth flow from polluting the live account. The scratch directory is deleted after the flow completes, regardless of whether it succeeds or fails.
 
@@ -93,7 +103,7 @@ For Claude Code, `aisw` uses the most reliable auth target the installed Claude 
 `aisw` reads and writes only:
 
 1. Files under `~/.aisw/` (profiles, backups, config).
-2. The tool's live credential locations (`~/.claude/`, `~/.codex/`, `~/.gemini/`, and their respective keychain entries).
+2. The tool's live credential locations (`~/.claude/`, `~/.codex/`, `~/.gemini/`  -  which also holds Antigravity's config roots  -  and their respective keychain entries).
 3. Shell config files (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`)  -  only when you explicitly run `aisw shell-hook` and redirect its output there yourself, or when `aisw uninstall` removes managed hook blocks you previously added.
 
 It does not access any other files or system resources.

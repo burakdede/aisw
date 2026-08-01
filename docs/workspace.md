@@ -1,13 +1,13 @@
 ---
 title: Workspace guardrails
-description: Bind repos, directories, and git remotes to expected aisw contexts. Get warnings or hard blocks when the wrong account is active before launching claude, codex, or gemini.
+description: Bind repos, directories, and git remotes to expected aisw contexts. Get warnings or hard blocks when the wrong account is active before launching claude, codex, gemini, or agy.
 ---
 
 # Workspace guardrails
 
 Workspace guardrails solve one specific problem: launching an AI coding agent in the wrong repo with the wrong account.
 
-If you work on client repos alongside personal projects, you may have noticed that `claude`, `codex`, and `gemini` are always willing to start regardless of which account is currently active. Nothing stops you from opening a client repo and accidentally running it under your personal key - or vice versa.
+If you work on client repos alongside personal projects, you may have noticed that `claude`, `codex`, `gemini`, and `agy` are always willing to start regardless of which account is currently active. Nothing stops you from opening a client repo and accidentally running it under your personal key - or vice versa.
 
 The workspace feature lets you bind a repo or directory to an expected `aisw` context. The shell hook then checks that binding before each agent launch and either warns you or blocks the launch entirely.
 
@@ -108,7 +108,7 @@ aisw workspace guard --mode strict
 
 ## How it works in practice
 
-Once the shell hook is active and a binding is set, the `claude`, `codex`, and `gemini` commands in your shell become wrapper functions. Each time you run one of them, the hook calls `aisw workspace check` first.
+Once the shell hook is active and a binding is set, the `claude`, `codex`, `gemini`, and `agy` commands in your shell become wrapper functions. Each time you run one of them, the hook calls `aisw workspace check` first.
 
 With `warn` mode, in a mismatched repo you see:
 

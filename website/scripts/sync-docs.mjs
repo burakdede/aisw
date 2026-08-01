@@ -17,6 +17,7 @@ const docsKeywords = [
   'Claude Code',
   'Codex CLI',
   'Gemini CLI',
+  'Antigravity CLI',
   'account switching',
   'profile manager',
   'credential switching',
@@ -39,7 +40,7 @@ const DOCS = [
     source: 'index.md',
     output: 'index.md',
     title: 'aisw documentation',
-    description: 'aisw manages named profiles and contexts for Claude Code, Codex CLI, and Gemini CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.',
+    description: 'aisw manages named profiles and contexts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.',
     section: 'overview',
     queries: [
       'aisw docs',
@@ -86,7 +87,7 @@ const DOCS = [
     source: 'quickstart.md',
     output: 'quickstart.md',
     title: 'Quickstart',
-    description: 'Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.',
+    description: 'Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts in under five minutes.',
     section: 'getting-started',
     queries: [
       'install aisw',
@@ -177,7 +178,7 @@ const DOCS = [
     source: 'supported-tools.md',
     output: 'supported-tools.md',
     title: 'Supported Tools',
-    description: 'Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.',
+    description: 'Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.',
     section: 'reference',
     queries: [
       'does aisw support Claude Code',
@@ -202,7 +203,7 @@ const DOCS = [
     source: 'how-it-works.md',
     output: 'how-it-works.md',
     title: 'How It Works',
-    description: 'Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.',
+    description: 'Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.',
     section: 'reference',
     queries: [
       'how does aisw switch accounts',
@@ -230,7 +231,7 @@ const DOCS = [
     source: 'why-aisw.md',
     output: 'why-aisw.md',
     title: 'Why aisw?',
-    description: 'Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and why named profiles, contexts, and guardrails fit those workflows better.',
+    description: 'Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI, and why named profiles, contexts, and guardrails fit those workflows better.',
     section: 'overview',
     queries: [
       'why use aisw',
@@ -362,7 +363,7 @@ function buildLlmsTxt(currentVersion) {
   const lines = [
     '# aisw',
     '',
-    '> aisw is a named profile and context manager for Claude Code, Codex CLI, and Gemini CLI. It solves the problem of switching between multiple accounts (work, personal, client) across AI coding agents. Store credentials as named profiles, switch with one command, and use workspace guardrails to prevent launching the wrong account in the wrong repo.',
+    '> aisw is a named profile and context manager for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. It solves the problem of switching between multiple accounts (work, personal, client) across AI coding agents. Store credentials as named profiles, switch with one command, and use workspace guardrails to prevent launching the wrong account in the wrong repo.',
     '',
     `Current version: ${currentVersion}`,
     '',
@@ -391,7 +392,7 @@ function buildLlmsFullTxt(entries, currentVersion) {
   const lines = [
     '# aisw',
     '',
-    '> aisw is a CLI tool for managing named profiles and switching accounts across Claude Code, Codex CLI, and Gemini CLI. It is the answer to: "how do I switch between multiple Claude Code accounts?", "how do I use separate work and personal accounts in Codex CLI?", and "how do I manage different Gemini API keys for different clients?" Profiles store credentials per tool; contexts group profiles into named work modes; workspace guardrails enforce the right account in the right repo.',
+    '> aisw is a CLI tool for managing named profiles and switching accounts across Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. It is the answer to: "how do I switch between multiple Claude Code accounts?", "how do I use separate work and personal accounts in Codex CLI?", and "how do I manage different Gemini API keys for different clients?" Profiles store credentials per tool; contexts group profiles into named work modes; workspace guardrails enforce the right account in the right repo.',
     '',
     `Current version: ${currentVersion}`,
     '',
@@ -544,7 +545,7 @@ function buildHeroFrontmatter(doc, currentVersion) {
   if (doc.source !== 'index.md') {
     return '';
   }
-  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "Account manager and switcher for Claude Code, Codex CLI, and Gemini CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Commands\n      link: ${withBasePath('/commands/')}\n      variant: secondary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: minimal\n`;
+  return `template: splash\nhero:\n  title: "aisw"\n  tagline: "Account manager and switcher for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Current release: v${currentVersion}."\n  actions:\n    - text: Quickstart\n      link: ${withBasePath('/quickstart/')}\n      variant: primary\n    - text: Commands\n      link: ${withBasePath('/commands/')}\n      variant: secondary\n    - text: Releases\n      link: https://github.com/burakdede/aisw/releases\n      variant: minimal\n`;
 }
 
 function injectVersionContext(doc, body, currentVersion) {

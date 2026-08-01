@@ -1,6 +1,6 @@
 ---
 title: Supported Tools
-description: Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
+description: Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
 editUrl: https://github.com/burakdede/aisw/edit/main/docs/supported-tools.md
 head:
   - tag: meta
@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, supported tools, reference
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, supported tools, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,16 +19,17 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, supported tools, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Supported Tools","headline":"Supported Tools","description":"Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.","url":"https://burakdede.github.io/aisw/supported-tools/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, supported tools, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Supported Tools","item":"https://burakdede.github.io/aisw/supported-tools/"}]}]}
 ---
 
-`aisw` supports three AI coding agent CLIs:
+`aisw` supports four AI coding agent CLIs:
 
 | Tool | Binary | Auth methods | macOS | Linux | Windows |
 |---|---|---|---|---|---|
 | Claude Code | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
 | Gemini CLI | `gemini` | Google-account auth, Vertex AI, API key | Full | Full | Full |
+| Antigravity CLI | `agy` | OAuth | Full | Full | Full |
 
 ## Binary detection
 
@@ -38,15 +39,20 @@ head:
 
 | Tool | `isolated` (default) | `shared` |
 |---|---|---|
-| Claude Code | `CLAUDE_CONFIG_DIR` set to profile directory | `CLAUDE_CONFIG_DIR` unset |
+| Claude Code | `CLAUDE_CONFIG_DIR` set to profile directory when the install supports profile-owned auth | `CLAUDE_CONFIG_DIR` unset |
 | Codex CLI | `CODEX_HOME` set to profile directory | `CODEX_HOME` unset for API-key profiles only |
 | Gemini CLI | Profile files applied to `~/.gemini/` | Not supported |
+| Antigravity CLI | Not supported | Shared live keyring-backed auth and `~/.gemini` config roots restored transactionally |
 
 In `isolated` mode, the tool reads config, history, and extensions from the profile-specific directory. In `shared` mode, the tool reads its standard config directory. Credentials are applied to the live location in both modes; state mode only controls which config directory the tool reads.
 
 For Codex ChatGPT-managed auth, shared mode is intentionally unsupported. Use one isolated `CODEX_HOME` per profile and authenticate each profile independently.
 
+For Claude OAuth, isolated mode is intentionally blocked only when Claude is using its legacy shared live Keychain credential. `CLAUDE_CONFIG_DIR` still isolates config/history in that case, but not the underlying OAuth credential owner. Use shared mode for that profile, or prefer API key / long-lived token flows for repeatable switching.
+
 Gemini does not support `shared` mode because its auth state and broader local state (settings, session history, MCP configs) are tightly coupled under `~/.gemini/`. Separating them is not safely possible without risking session corruption.
+
+Antigravity does not currently expose a documented per-profile auth/data root like `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. `aisw` therefore supports Antigravity through shared live switching: it restores the live OS keyring credential plus the documented `~/.gemini/antigravity-cli/` and `~/.gemini/config/` trees for the selected profile.
 
 ## Credential storage by tool and platform
 
@@ -61,6 +67,13 @@ Gemini does not support `shared` mode because its auth state and broader local s
 OAuth account metadata (display name, organization) is stored in `~/.claude.json` under the `oauthAccount` key. `aisw` captures and restores this alongside credentials.
 
 Claude Code also stores MCP OAuth tokens in the credentials payload. `aisw` preserves the full credential payload including `mcpOAuth` keys when writing to any backend.
+
+Supported Claude auth models in `aisw`:
+- Durable: API-key profiles.
+- Durable: file-backed OAuth where the live credential file follows `CLAUDE_CONFIG_DIR`.
+- Durable: OAuth installs whose keychain credential is scoped by `CLAUDE_CONFIG_DIR`.
+- Supported but not isolated: OAuth profiles backed by Claude's legacy shared live Keychain credential.
+- Caution: if Claude's keychain behavior cannot be determined, `aisw` warns that isolated switching may not be durable on that install.
 
 ### Codex CLI
 
@@ -101,6 +114,15 @@ For interactive Google-account / OAuth-style capture, `aisw` uses `GEMINI_CLI_HO
 
 API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is the format Gemini reads natively from `~/.gemini/.env`.
 
+### Antigravity CLI
+
+- Live auth: OS-native keyring entry (`service=gemini`, `account=antigravity`) as observed in upstream issue reports and docs-aligned behavior.
+- Live config/state: `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
+- `--from-live`: captures the current live keyring-backed session plus both documented config roots.
+- Interactive OAuth: launches `agy`, captures the resulting live keyring/config state, and restores the prior live state unless `--set-active` is requested.
+- No API-key path in `aisw` because upstream Antigravity docs currently describe OAuth/keyring auth, not API-key profile auth.
+- No `--state-mode` support because upstream does not currently document an isolated per-profile auth or data root.
+
 ## Auth backend support matrix
 
 | Tool | Backend | `aisw init` import | `aisw use` | Notes |
@@ -112,6 +134,8 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 | Codex CLI | System keyring (not discoverable) | Not supported | Fail-closed | `aisw` will not fabricate an account identifier |
 | Gemini CLI | File-backed `~/.gemini/` state | Supported | Supported | Full directory capture and restore |
 | Gemini CLI | System keyring | Not supported | Not supported | Gemini does not use keyring for credentials |
+| Antigravity CLI | File-backed managed profile + live OS keyring apply | Supported | Supported | Stores captured secret in the profile, then restores it into the live keyring on switch |
+| Antigravity CLI | System keyring-backed managed profile | Supported | Supported | Stores the captured live keyring secret in `aisw`'s managed keyring backend |
 
 **Fail-closed** means `aisw` refuses the operation rather than guessing. This applies specifically to Codex when the keyring account identifier cannot be read from the live credential store.
 

@@ -35,7 +35,7 @@ aisw --non-interactive add codex ci --from-env
 aisw --non-interactive remove codex ci --yes
 
 # Restore a backup with no confirmation
-aisw --non-interactive backup restore 20260325T114502Z-claude-ci --yes
+aisw --non-interactive backup restore 2026-03-25T11-45-02.123Z-0000 --yes
 ```
 
 Interactive OAuth flows (`aisw add claude personal` without flags) are not available in `--non-interactive` mode. Use `--api-key` or `--from-env` for CI.
@@ -56,7 +56,7 @@ aisw context rename work client-acme --json
 aisw context remove client-acme --yes --json
 aisw remove claude work --yes --json
 aisw rename claude work personal --json
-aisw backup restore 20260325T114502Z-claude-ci --yes --json
+aisw backup restore 2026-03-25T11-45-02.123Z-0000 --yes --json
 aisw verify --json
 aisw repair --json --dry-run
 aisw workspace bind --default --context work --json
@@ -107,7 +107,9 @@ aisw verify --json | jq -r '.summary.status'
 aisw repair --json --dry-run | jq -r '.result.summary.issues_remaining'
 
 # List all stored Codex profile names
-aisw list codex --json | jq -r '.profiles[].name'
+# `list --json` is grouped by tool binary name, so index the tool key first.
+# Antigravity is keyed as "agy".
+aisw list codex --json | jq -r '.codex.profiles[].name'
 
 # List all saved contexts
 aisw context list --json | jq -r '.contexts[].name'
@@ -127,11 +129,15 @@ aisw workspace guard --mode strict --json | jq -r '.result.guard_mode'
 # List user workspace rules plus the current repo-local binding
 aisw project-bindings list --json | jq '.result'
 
-# Find profiles with expired tokens
-aisw status --json | jq '.[] | select(.token_warning != null) | {tool, warning: .token_warning}'
+# Find tools whose live credentials no longer match the recorded active profile
+aisw status --json | jq '.[] | select(.active_profile_applied == false) | {tool, active_profile}'
+
+# Find tools with missing credentials or overly broad permissions
+aisw status --json | jq '.[] | select(.credentials_present == false or .permissions_ok == false) | .tool'
 
 # Get the most recent backup for a specific profile
-aisw backup list --json | jq '[.[] | select(.profile == "claude/work")] | sort_by(.created_at) | last'
+# Backup ids sort lexicographically, newest last.
+aisw backup list --json | jq -r '[.[] | select(.tool == "claude" and .profile == "work")] | sort_by(.backup_id) | last | .backup_id'
 ```
 
 ## Output contract
@@ -147,7 +153,42 @@ aisw backup list --json | jq '[.[] | select(.profile == "claude/work")] | sort_b
 | JSON output (`--json`) | stdout | Not affected by `--quiet` |
 | Progress JSON (`--progress-json`) | stdout | One JSON object per line, intended for GUI/OAuth flows |
 
-Exit code `0` means success. Any non-zero exit code means failure; the error message is on stderr.
+## Exit codes
+
+Exit code `0` means success. Any non-zero exit code means failure; the error message is on stderr in human mode, or in the JSON envelope on stdout in machine mode.
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `2` | Profile not found  -  lets a script tell a wrong name from a real failure |
+| `1` | Every other failure |
+
+The JSON failure envelope carries the same information in a stable shape:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "kind": "profile_not_found",
+    "message": "profile 'ghost' not found for claude.\n  Run 'aisw list claude' to see available profiles.",
+    "exit_code": 2,
+    "remediation": { "kind": "run_command", "command": "aisw list claude", "safe": true }
+  }
+}
+```
+
+Branch on `error.kind`, not on the message text  -  `kind` is stable, the message is not. `remediation` is present only when a suggested next command exists; `safe: true` means it is read-only and can be run automatically.
+
+`aisw doctor` and `aisw verify` exit non-zero when a check fails, so they work directly as CI gates.
+
+### `aisw use --all`
+
+`--all` switches every tool that has a profile with the given name:
+
+- A tool with no such profile is **skipped**, and the command still succeeds.
+- A tool that has the profile but fails to switch is **reported**, and the command exits non-zero with the standard failure envelope.
+
+So a zero exit means every tool that could switch did switch. If you need to know which tools were affected, read `result.affected_tools` from `--json` on success.
 
 ## Applying profiles without the shell hook
 

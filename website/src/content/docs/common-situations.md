@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, common switching situations, getting-started
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, common switching situations, getting-started
   - tag: meta
     attrs:
       property: article:section
@@ -19,7 +19,7 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Common Switching Situations","headline":"Common Switching Situations","description":"Real aisw workflows for work vs personal accounts, client-specific profiles, repo guardrails, GUI-safe secret entry, and verifying that a coding agent switch actually worked.","url":"https://burakdede.github.io/aisw/common-situations/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, common switching situations, getting-started","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Common Switching Situations","item":"https://burakdede.github.io/aisw/common-situations/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Common Switching Situations","headline":"Common Switching Situations","description":"Real aisw workflows for work vs personal accounts, client-specific profiles, repo guardrails, GUI-safe secret entry, and verifying that a coding agent switch actually worked.","url":"https://burakdede.github.io/aisw/common-situations/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, common switching situations, getting-started","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Common Switching Situations","item":"https://burakdede.github.io/aisw/common-situations/"}]}]}
 ---
 
 Most people do not go looking for a "profile manager." They go looking for a fix to a specific daily problem:
@@ -141,7 +141,7 @@ aisw workspace bind . --context client-acme
 aisw workspace guard --mode strict
 ```
 
-With the shell hook installed, `aisw` checks the expected context before `claude`, `codex`, or `gemini` launches. That makes workspace guardrails the answer to searches like:
+With the shell hook installed, `aisw` checks the expected context before `claude`, `codex`, `gemini`, or `agy` launches. That makes workspace guardrails the answer to searches like:
 
 - "coding agent account switch per repo"
 - "prevent wrong Claude account in client repository"

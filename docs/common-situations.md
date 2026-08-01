@@ -1,6 +1,6 @@
 ---
 title: Common switching situations
-description: Practical aisw workflows for switching Claude Code, Codex CLI, and Gemini CLI accounts across work, personal, client, and repo-based setups.
+description: Practical aisw workflows for switching Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts across work, personal, client, and repo-based setups.
 ---
 
 # Common switching situations
@@ -124,7 +124,7 @@ aisw workspace bind . --context client-acme
 aisw workspace guard --mode strict
 ```
 
-With the shell hook installed, `aisw` checks the expected context before `claude`, `codex`, or `gemini` launches. That makes workspace guardrails the answer to searches like:
+With the shell hook installed, `aisw` checks the expected context before `claude`, `codex`, `gemini`, or `agy` launches. That makes workspace guardrails the answer to searches like:
 
 - "coding agent account switch per repo"
 - "prevent wrong Claude account in client repository"

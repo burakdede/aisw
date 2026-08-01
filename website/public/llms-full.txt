@@ -1,6 +1,6 @@
 # aisw
 
-> aisw is a CLI tool for managing named profiles and switching accounts across Claude Code, Codex CLI, and Gemini CLI. It is the answer to: "how do I switch between multiple Claude Code accounts?", "how do I use separate work and personal accounts in Codex CLI?", and "how do I manage different Gemini API keys for different clients?" Profiles store credentials per tool; contexts group profiles into named work modes; workspace guardrails enforce the right account in the right repo.
+> aisw is a CLI tool for managing named profiles and switching accounts across Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. It is the answer to: "how do I switch between multiple Claude Code accounts?", "how do I use separate work and personal accounts in Codex CLI?", and "how do I manage different Gemini API keys for different clients?" Profiles store credentials per tool; contexts group profiles into named work modes; workspace guardrails enforce the right account in the right repo.
 
 Current version: 0.3.8
 
@@ -8,9 +8,9 @@ Current version: 0.3.8
 
 URL: https://burakdede.github.io/aisw/
 Section: overview
-Summary: aisw manages named profiles and contexts for Claude Code, Codex CLI, and Gemini CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
+Summary: aisw manages named profiles and contexts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
 Source: https://github.com/burakdede/aisw/blob/main/docs/index.md
-Headings: Install | First run | Core workflow | Common situations | Work and personal accounts for the same tool | Mixed client setup across Claude, Codex, and Gemini | Wrong-account protection per repo | Start here | Additional reference
+Headings: Install | First run | Core workflow | Common situations | Work and personal accounts for the same tool | Mixed client setup across Claude, Codex, Gemini, and Antigravity | Wrong-account protection per repo | Start here | Additional reference
 Common queries: aisw docs | aisw install | coding agent account switcher | coding agent profile switch | claude code account manager | codex cli account switcher | gemini cli account switcher | switch between claude code accounts | multiple claude accounts terminal | manage multiple AI coding agent accounts | multiple coding agent accounts on one machine | claude code work personal account | how to use two claude accounts | how to switch between coding agent profiles | anthropic api key manager | multi-account support claude code cli | running multiple claude accounts without logging out | how to use multiple claude code profiles on same machine | CLAUDE_CONFIG_DIR multiple profiles | concurrent personal work account sessions claude | how to keep the right ai coding account per repo
 
 ## Common Switching Situations
@@ -26,7 +26,7 @@ Common queries: switch between two Claude Code accounts | multiple Codex CLI acc
 
 URL: https://burakdede.github.io/aisw/quickstart/
 Section: getting-started
-Summary: Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, and Gemini CLI accounts in under five minutes.
+Summary: Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts in under five minutes.
 Source: https://github.com/burakdede/aisw/blob/main/docs/quickstart.md
 Headings: 1. Install | 2. Bootstrap | 3. Add profiles | 4. Switch accounts | 5. Inspect state | 6. Maintain profiles | 7. Shell hook (optional but recommended) | 8. Workspace guardrails (optional, for multi-repo or multi-client work) | Next steps
 Common queries: install aisw | quickstart for Claude Code account switching | quickstart for Codex CLI account switching | quickstart for Gemini CLI account switching | how to switch claude code accounts | add second claude account cli | claude code multiple profiles setup | claude code authenticate multiple anthropic accounts | codex profiles switch accounts without copying auth.json | gemini cli account switching profiles
@@ -46,7 +46,7 @@ URL: https://burakdede.github.io/aisw/automation/
 Section: reference
 Summary: Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.
 Source: https://github.com/burakdede/aisw/blob/main/docs/automation.md
-Headings: Baseline flags | Non-interactive patterns | Machine-readable output | Useful JSON patterns | Output contract | Applying profiles without the shell hook | Concurrency | Common CI patterns | Set up a named profile in CI | Switch profile before a tool invocation | Verify active profile in a health check | Clean up after CI | Related
+Headings: Baseline flags | Non-interactive patterns | Machine-readable output | Useful JSON patterns | Output contract | Exit codes | `aisw use --all` | Applying profiles without the shell hook | Concurrency | Common CI patterns | Set up a named profile in CI | Switch profile before a tool invocation | Verify active profile in a health check | Clean up after CI | Related
 Common queries: aisw automation | aisw json output | aisw scripting | aisw CI non-interactive | aisw GitHub Actions
 
 ## Shell Integration
@@ -80,9 +80,9 @@ Common queries: add second Claude Code account | add second Codex CLI account | 
 
 URL: https://burakdede.github.io/aisw/supported-tools/
 Section: reference
-Summary: Claude Code, Codex CLI, and Gemini CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
+Summary: Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
 Source: https://github.com/burakdede/aisw/blob/main/docs/supported-tools.md
-Headings: Binary detection | State mode | Credential storage by tool and platform | Claude Code | Codex CLI | Gemini CLI | Auth backend support matrix | References
+Headings: Binary detection | State mode | Credential storage by tool and platform | Claude Code | Codex CLI | Gemini CLI | Antigravity CLI | Auth backend support matrix | References
 Common queries: does aisw support Claude Code | does aisw support Codex CLI | does aisw support Gemini CLI | aisw macOS Linux Windows support
 
 ## Configuration
@@ -91,16 +91,16 @@ URL: https://burakdede.github.io/aisw/configuration/
 Section: reference
 Summary: aisw configuration file location, schema, field reference, directory layout, and AISW_HOME override.
 Source: https://github.com/burakdede/aisw/blob/main/docs/config.md
-Headings: Location | Permissions | Schema | Field reference | Directory layout | Version compatibility
+Headings: Location | Permissions | Schema | Field reference | Workspace rules | Directory layout | Version compatibility
 Common queries: aisw config.json | aisw configuration file | aisw AISW_HOME
 
 ## How It Works
 
 URL: https://burakdede.github.io/aisw/how-it-works/
 Section: reference
-Summary: Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, and Gemini CLI.
+Summary: Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.
 Source: https://github.com/burakdede/aisw/blob/main/docs/how-it-works.md
-Headings: Profile and context model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Automatic Synchronization | Identity deduplication and matching | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
+Headings: Profile and context model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Antigravity CLI | Automatic Synchronization | Identity deduplication and matching | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
 Common queries: how does aisw switch accounts | aisw credential storage | aisw keyring integration | aisw atomic switching | aisw profile model
 
 ## Security
@@ -109,14 +109,14 @@ URL: https://burakdede.github.io/aisw/security/
 Section: reference
 Summary: How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.
 Source: https://github.com/burakdede/aisw/blob/main/docs/security.md
-Headings: Summary | Credential storage | What is stored and where | File permissions | OS keyring integration | No remote transmission | Switching safety | Transactional writes | Backups before destructive operations | Config locking | OAuth flows | Scope of access | Reporting a vulnerability
+Headings: Summary | Credential storage | What is stored and where | File permissions | OS keyring integration | No remote transmission | Switching safety | Transactional writes | Backups before destructive operations | Config locking | Input validation | Deletion | OAuth flows | Scope of access | Reporting a vulnerability
 Common queries: aisw credential security | is aisw safe to use | aisw file permissions | aisw keychain security | aisw oauth safety
 
 ## Why aisw?
 
 URL: https://burakdede.github.io/aisw/why-aisw/
 Section: overview
-Summary: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, and Gemini CLI, and why named profiles, contexts, and guardrails fit those workflows better.
+Summary: Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI, and why named profiles, contexts, and guardrails fit those workflows better.
 Source: https://github.com/burakdede/aisw/blob/main/docs/why-aisw.md
 Headings: The problem | What aisw does differently | Profiles vs contexts | What aisw does not do | Typical users | Design principles | Common questions
 Common queries: why use aisw | AI CLI account switching problem | Claude Code account manager | Codex CLI account switcher | Gemini CLI account switcher | multiple AI coding agent accounts | managing multiple claude accounts consultant | switching AI agents between clients | coding agent account switcher for consultants | claude code credentials file manual editing | ai coding agent credential management | local gui backend for coding agent account switching
@@ -127,5 +127,5 @@ URL: https://burakdede.github.io/aisw/troubleshooting/
 Section: reference
 Summary: Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
 Source: https://github.com/burakdede/aisw/blob/main/docs/troubleshooting.md
-Headings: Quick diagnostics | Tool reported as not installed | Shell hook not active | Live credentials do not match active profile | OAuth flow fails or times out | Keyring not available (Linux) | Permission errors | Backup restore did not switch the active profile | Non-interactive mode fails in CI | `aisw use gemini ... --state-mode shared` fails | `aisw use codex ... --state-mode shared` fails for ChatGPT auth | Config lock timeout | Workspace guard blocked an agent launch | Still blocked?
+Headings: Quick diagnostics | Tool reported as not installed | Shell hook not active | Live credentials do not match active profile | OAuth flow fails or times out | Keyring not available (Linux) | Permission errors | Backup restore did not switch the active profile | Non-interactive mode fails in CI | `aisw remove` refuses: profile is referenced by a context | `aisw add` refuses: key or account already exists | `aisw add` refuses: API key contains a control character | `aisw use --all` exits non-zero | `aisw use gemini ... --state-mode shared` fails | `aisw use codex ... --state-mode shared` fails for ChatGPT auth | Config lock timeout | Workspace guard blocked an agent launch | Still blocked?
 Common queries: aisw troubleshooting | aisw shell hook not working | aisw tool not found | aisw gemini oauth fail | aisw keyring not available | claude code credentials not switching | codex cli account not changing | workspace guard blocked launch

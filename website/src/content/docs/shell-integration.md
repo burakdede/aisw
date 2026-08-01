@@ -10,7 +10,7 @@ head:
   - tag: meta
     attrs:
       name: keywords
-      content: aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, shell integration, reference
+      content: aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, shell integration, reference
   - tag: meta
     attrs:
       property: article:section
@@ -19,13 +19,13 @@ head:
     attrs:
       type: application/ld+json
     content: >-
-      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Shell Integration","headline":"Shell Integration","description":"Install and configure the aisw shell hook for bash, zsh, fish, and PowerShell. Understand what the hook does, how workspace guardrails work, and how shell completions work.","url":"https://burakdede.github.io/aisw/shell-integration/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, shell integration, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Shell Integration","item":"https://burakdede.github.io/aisw/shell-integration/"}]}]}
+      {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"Shell Integration","headline":"Shell Integration","description":"Install and configure the aisw shell hook for bash, zsh, fish, and PowerShell. Understand what the hook does, how workspace guardrails work, and how shell completions work.","url":"https://burakdede.github.io/aisw/shell-integration/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, shell integration, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"Shell Integration","item":"https://burakdede.github.io/aisw/shell-integration/"}]}]}
 ---
 
 The shell hook is optional. Without it, `aisw use` and `aisw context use` still write live tool credential files and update `~/.aisw/config.json`. The hook adds two capabilities:
 
 1. Applying environment variable exports (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_API_KEY`) into the current shell session when you run `aisw use` or `aisw context use`.
-2. Wrapping `claude`, `codex`, and `gemini` so that [workspace guardrails](/aisw/workspace/) are enforced before each launch.
+2. Wrapping `claude`, `codex`, `gemini`, and `agy` so that [workspace guardrails](/aisw/workspace/) are enforced before each launch.
 
 ## Install
 
@@ -130,7 +130,7 @@ eval "$(aisw context use acme --emit-env)"
 
 ### Workspace guard wrappers
 
-The hook also wraps `claude`, `codex`, and `gemini`. Before each launch, it runs `aisw workspace check --tool <tool>`. If a workspace binding is set for the current directory and the active context does not match:
+The hook also wraps `claude`, `codex`, `gemini`, and `agy` (Antigravity). Before each launch, it runs `aisw workspace check --tool <tool>`. If a workspace binding is set for the current directory and the active context does not match:
 
 - In `warn` mode: a warning is printed to stderr. The agent launches anyway.
 - In `strict` mode: the launch is blocked with an error and a remediation command.
