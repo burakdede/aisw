@@ -453,7 +453,7 @@ fn status_message(s: &ToolStatus) -> &'static str {
         && cfg!(target_os = "macos")
         && s.active_profile_applied.is_none()
     {
-        return "credentials present (live macOS Keychain not checked)";
+        return "credentials present (stored in profile files; Claude reads live macOS Keychain)";
     }
     if s.active_profile_applied == Some(false) {
         return "credentials present, but live tool config does not match the active profile";
@@ -1079,7 +1079,7 @@ mod tests {
         assert_eq!(claude.active_profile_applied, None);
         assert_eq!(
             status_message(claude),
-            "credentials present (live macOS Keychain not checked)"
+            "credentials present (stored in profile files; Claude reads live macOS Keychain)"
         );
     }
 

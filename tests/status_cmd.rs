@@ -372,7 +372,9 @@ fn status_reports_live_tool_config_mismatch_for_active_claude_profile() {
 
     let assertion = env.cmd().args(["status"]).assert().success();
     if cfg!(target_os = "macos") {
-        assertion.stdout(contains("live macOS Keychain not checked"));
+        assertion.stdout(contains(
+            "stored in profile files; Claude reads live macOS Keychain",
+        ));
     } else {
         assertion.stdout(contains(
             "live tool config does not match the active profile",
