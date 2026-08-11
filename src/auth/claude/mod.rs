@@ -33,6 +33,7 @@ use paths::live_credentials_path;
 // ---- Constants ----
 
 pub(super) const CREDENTIALS_FILE: &str = ".credentials.json";
+pub(super) const ACCOUNT_METADATA_FILE: &str = ".claude.json";
 pub(super) const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
 pub(super) const OAUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 pub(super) const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
@@ -1397,7 +1398,7 @@ mod tests {
              [ -n \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
              printf '%s' \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -1516,7 +1517,7 @@ mod tests {
              [ -n \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
              printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -1539,6 +1540,100 @@ mod tests {
             fs::read_to_string(home.join("login_args")).unwrap(),
             "auth login"
         );
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn oauth_waits_for_nonempty_credentials_before_capture() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             sleep 0.1\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            CredentialBackend::File,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(ps.profile_dir(Tool::Claude, "work").join(CREDENTIALS_FILE))
+                .unwrap()
+                .trim(),
+            r#"{"oauthToken":"tok"}"#
+        );
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn oauth_persists_metadata_from_profile_config_dir() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(
+            home.join(ACCOUNT_METADATA_FILE),
+            r#"{"oauthAccount":{"emailAddress":"native@example.com"}}"#,
+        )
+        .unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthAccount\":{\"emailAddress\":\"profile@example.com\"}}' > \"$CLAUDE_CONFIG_DIR/.claude.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            CredentialBackend::File,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &ps.read_file(Tool::Claude, "work", OAUTH_ACCOUNT_FILE)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(metadata["emailAddress"], "profile@example.com");
     }
 
     #[test]
@@ -1618,7 +1713,7 @@ mod tests {
              printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
              printf '%s' \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
