@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use dialoguer::{theme::ColorfulTheme, Select};
 use std::io::IsTerminal;
 
@@ -72,22 +72,41 @@ pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
 
     if profile_meta.credential_backend == crate::config::CredentialBackend::SystemKeyring {
         if let Err(err) = auth::secure_store::rename_profile_secret(args.tool, old_name, new_name) {
-            let _ = profile_store.rename(args.tool, new_name, old_name);
-            return Err(err).context(format!(
-                "rolled back secure credential rename after keychain update failed for {}",
-                args.tool
+            let rollback_errors = profile_store
+                .rename(args.tool, new_name, old_name)
+                .err()
+                .map(|error| vec![(error, "profile directory rename")])
+                .unwrap_or_default();
+            return Err(annotate_rollback_error(
+                err,
+                format!(
+                    "rolled back secure credential rename after keychain update failed for {}",
+                    args.tool
+                ),
+                rollback_errors,
             ));
         }
     }
 
     if let Err(err) = config_store.rename_profile(args.tool, old_name, new_name) {
+        let mut rollback_errors = Vec::new();
         if profile_meta.credential_backend == crate::config::CredentialBackend::SystemKeyring {
-            let _ = auth::secure_store::rename_profile_secret(args.tool, new_name, old_name);
+            if let Err(error) =
+                auth::secure_store::rename_profile_secret(args.tool, new_name, old_name)
+            {
+                rollback_errors.push((error, "secure credential rename"));
+            }
         }
-        let _ = profile_store.rename(args.tool, new_name, old_name);
-        return Err(err).context(format!(
-            "rolled back profile directory rename after config update failed for {}",
-            args.tool
+        if let Err(error) = profile_store.rename(args.tool, new_name, old_name) {
+            rollback_errors.push((error, "profile directory rename"));
+        }
+        return Err(annotate_rollback_error(
+            err,
+            format!(
+                "rolled back profile directory rename after config update failed for {}",
+                args.tool
+            ),
+            rollback_errors,
         ));
     }
 
@@ -117,6 +136,25 @@ pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
     output::print_blank_line();
     output::print_next_step("Run 'aisw list' to review stored profiles.");
     Ok(())
+}
+
+fn annotate_rollback_error(
+    error: Error,
+    success_context: String,
+    rollback_errors: Vec<(Error, &str)>,
+) -> Error {
+    if rollback_errors.is_empty() {
+        return error.context(success_context);
+    }
+
+    let details = rollback_errors
+        .into_iter()
+        .map(|(error, action)| format!("{action}: {error}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    error
+        .context(success_context)
+        .context(format!("rollback incomplete: {details}"))
 }
 
 fn resolve_names(args: &RenameArgs, home: &Path) -> Result<(String, String)> {
@@ -364,6 +402,33 @@ mod tests {
 
         let err = run_inner(rename_args(Tool::Claude, "default", "work"), tmp.path()).unwrap_err();
         assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn config_save_failure_restores_file_profile_state() {
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let cs = ConfigStore::new(tmp.path());
+        auth::claude::add_api_key(
+            &ps,
+            &cs,
+            "default",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            None,
+        )
+        .unwrap();
+        fs::create_dir(tmp.path().join("config.json.tmp")).unwrap();
+
+        let err = run_inner(rename_args(Tool::Claude, "default", "work"), tmp.path()).unwrap_err();
+
+        assert!(format!("{err:#}").contains("config.json.tmp"));
+        assert!(ps.exists(Tool::Claude, "default"));
+        assert!(!ps.exists(Tool::Claude, "work"));
+        assert!(cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Claude)
+            .contains_key("default"));
     }
 
     #[test]
