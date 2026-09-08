@@ -376,8 +376,12 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
     })();
 
     if let Err(err) = apply_result {
-        restore_live_state_for_context(&snapshots, &user_home)?;
-        return Err(err);
+        return match restore_live_state_for_context(&snapshots, &user_home) {
+            Ok(()) => Err(err),
+            Err(rollback_err) => Err(anyhow!(
+                "{err:#}\nAutomatic rollback also failed: {rollback_err:#}"
+            )),
+        };
     }
 
     if args.json {
@@ -528,7 +532,7 @@ fn resolve_context_switches(
 }
 
 #[derive(Debug, Clone)]
-enum LiveStateSnapshot {
+pub(crate) enum LiveStateSnapshot {
     Claude {
         credentials: Option<auth::claude::LiveCredentialSnapshot>,
         oauth_account_metadata: Option<Vec<u8>>,
@@ -546,18 +550,18 @@ enum LiveStateSnapshot {
 }
 
 #[derive(Debug, Clone)]
-struct FileSnapshot {
+pub(crate) struct FileSnapshot {
     path: std::path::PathBuf,
     bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
-struct NamedFileSnapshot {
+pub(crate) struct NamedFileSnapshot {
     file_name: OsString,
     bytes: Vec<u8>,
 }
 
-fn snapshot_live_state_for_context(
+pub(crate) fn snapshot_live_state_for_context(
     switches: &[ResolvedProfileSwitch],
     user_home: &Path,
 ) -> Result<HashMap<Tool, LiveStateSnapshot>> {
@@ -592,7 +596,7 @@ fn snapshot_live_state_for_context(
     Ok(snapshots)
 }
 
-fn restore_live_state_for_context(
+pub(crate) fn restore_live_state_for_context(
     snapshots: &HashMap<Tool, LiveStateSnapshot>,
     user_home: &Path,
 ) -> Result<()> {
