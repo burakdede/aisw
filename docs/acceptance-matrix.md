@@ -35,3 +35,4 @@ The baseline below records the upstream releases checked against `aisw` `0.3.8` 
 - `Supported diagnostic` means `aisw` can detect and explain the situation without treating it as importable credentials.
 - `Fail-closed` means `aisw` intentionally refuses to guess or synthesize a live secure-store identity when doing so could write an unusable or misleading credential entry.
 - For secure-backed profiles, `aisw` stores the managed secret in the system keyring rather than downgrading it into `AISW_HOME`.
+- The opt-in real credential-store canary runs the secure-profile lifecycle for Claude, Codex, and Antigravity; its Antigravity coverage also preserves and restores the shared `gemini` / `antigravity` live keyring entry.
