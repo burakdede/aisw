@@ -97,3 +97,39 @@ fn acceptance_matrix_references_existing_files_and_tests() {
         }
     }
 }
+
+#[test]
+fn acceptance_matrix_records_current_versioned_agent_baseline() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let matrix_path = repo_root.join("docs").join("acceptance-matrix.md");
+    let matrix = std::fs::read_to_string(&matrix_path)
+        .expect("acceptance-matrix.md should be readable in repo");
+
+    assert!(
+        matrix.contains("## Versioned compatibility baseline"),
+        "acceptance matrix should include a versioned compatibility section"
+    );
+    assert!(
+        matrix.contains("verified on 2026-09-08"),
+        "versioned compatibility baseline should record its verification date"
+    );
+    assert!(
+        matrix.contains("against `aisw` `0.3.8` at commit `f28aaf9`"),
+        "versioned compatibility baseline should identify the aisw baseline"
+    );
+
+    for expected in [
+        ("Claude Code", "v2.1.263"),
+        ("Codex CLI", "rust-v0.153.4"),
+        ("Gemini CLI", "v0.58.0"),
+        ("Antigravity CLI", "1.1.27"),
+    ] {
+        let row_marker = format!("| {} | `{}` |", expected.0, expected.1);
+        assert!(
+            matrix.contains(&row_marker),
+            "versioned compatibility baseline is missing {} {}",
+            expected.0,
+            expected.1
+        );
+    }
+}

@@ -4,6 +4,8 @@
 
 ### Added
 
+- Added a versioned agent compatibility baseline covering the current Claude,
+  Codex, Gemini, and Antigravity releases and the verification scope for each.
 - `aisw status` now reports the detected agent binary path and version in
   human and JSON output, giving compatibility checks a trustworthy view of
   which upstream executable is active without exposing credentials.
