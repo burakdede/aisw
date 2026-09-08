@@ -124,6 +124,57 @@ fn status_shows_credentials_present_for_active_profile() {
 }
 
 #[test]
+fn status_reports_unknown_file_layout_without_calling_it_healthy() {
+    let env = TestEnv::new();
+    env.add_fake_tool("codex", "codex 1.0.0");
+    env.cmd()
+        .args([
+            "add",
+            "codex",
+            "work",
+            "--api-key",
+            VALID_CODEX_KEY,
+            "--set-active",
+        ])
+        .assert()
+        .success();
+
+    std::fs::remove_file(
+        env.aisw_home
+            .join("profiles")
+            .join("codex")
+            .join("work")
+            .join("auth.json"),
+    )
+    .unwrap();
+
+    let output = env
+        .cmd()
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    let codex = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["tool"] == "codex")
+        .unwrap();
+
+    assert_eq!(codex["credential_state"], "unknown");
+    assert_eq!(codex["credentials_present"], false);
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("credential storage layout is unrecognized"));
+}
+
+#[test]
 fn status_reports_missing_system_keyring_credentials_explicitly() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
