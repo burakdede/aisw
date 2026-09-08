@@ -220,7 +220,7 @@ impl WorkspaceStore {
                     if matches!(
                         err.kind(),
                         ErrorKind::WouldBlock | ErrorKind::PermissionDenied
-                    ) =>
+                    ) || err.raw_os_error() == Some(33) =>
                 {
                     if started.elapsed() >= WORKSPACES_LOCK_WAIT_TIMEOUT {
                         anyhow::bail!(
