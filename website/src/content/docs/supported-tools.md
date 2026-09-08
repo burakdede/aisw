@@ -28,7 +28,7 @@ head:
 |---|---|---|---|---|---|
 | Claude Code | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
-| Gemini CLI | `gemini` | Google-account auth, Vertex AI, API key | Full | Full | Full |
+| Gemini CLI | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
 | Antigravity CLI | `agy` | OAuth | Full | Full | Full |
 
 ## Binary detection
@@ -104,11 +104,11 @@ Codex's keyring account identifier is an opaque string, not the system username.
 
 Gemini stores all auth and local state under `~/.gemini/`. `aisw` captures and restores the complete regular-file tree for that directory and removes stale live files from the previously active Gemini profile. This includes OAuth tokens, settings, and any MCP OAuth token files stored as regular files under the Gemini state root.
 
-Upstream Gemini CLI docs currently recommend Google-account login for interactive local use. Some account types still require `GOOGLE_CLOUD_PROJECT`. `aisw` can manage:
+Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accounts on June 18, 2026; those users should migrate to Antigravity. Gemini CLI enterprise and API-key / Vertex AI paths remain supported. See the [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017). `aisw` can manage:
 
 - API-key-backed Gemini profiles (`GEMINI_API_KEY`)
 - Vertex AI-backed Gemini profiles
-- Google-account Gemini logins, including the standard local browser-login flow and Workspace / Code Assist-style flows that may require `GOOGLE_CLOUD_PROJECT`
+- Enterprise Google-account / Code Assist-style flows that may require `GOOGLE_CLOUD_PROJECT`
 
 For interactive Google-account / OAuth-style capture, `aisw` uses `GEMINI_CLI_HOME` to redirect Gemini's config root to a scratch directory during the login flow, then copies the resulting files into the profile. This was introduced in Gemini CLI as the clean way to redirect config storage without overriding `HOME`.
 

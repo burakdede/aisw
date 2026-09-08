@@ -467,6 +467,12 @@ aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only]
 
 Show per-tool state: installed binary, active profile, credential backend, live-match status, and token expiry warnings.
 
+When a tool is installed, status also reports the detected `binary_path` and
+`binary_version`. These identify the executable currently found on `PATH` and
+are diagnostic inputs for compatibility checks, not a guarantee that every
+upstream release is supported. Missing tools report `null` for both fields in
+JSON output.
+
 | Flag | Effect |
 |---|---|
 | `--tool` | Filter to one tool: `claude`, `codex`, `gemini`, or `antigravity` |
