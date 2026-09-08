@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -120,19 +120,27 @@ pub(crate) fn capture_version(binary: &std::path::Path) -> Option<String> {
 
     let start = Instant::now();
     loop {
-        match child.try_wait().ok()? {
-            Some(_) => {
+        match child.try_wait() {
+            Err(_) => {
+                terminate_and_reap(&mut child);
+                return None;
+            }
+            Ok(Some(_)) => {
                 let output = child.wait_with_output().ok()?;
                 return parse_version_output(output.stdout, output.stderr);
             }
-            None if start.elapsed() >= VERSION_TIMEOUT => {
-                let _ = child.kill();
-                let _ = child.wait();
+            Ok(None) if start.elapsed() >= VERSION_TIMEOUT => {
+                terminate_and_reap(&mut child);
                 return None;
             }
-            None => thread::sleep(Duration::from_millis(10)),
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
         }
     }
+}
+
+fn terminate_and_reap(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn parse_version_output(stdout: Vec<u8>, stderr: Vec<u8>) -> Option<String> {
@@ -381,5 +389,18 @@ mod tests {
         let start = Instant::now();
         assert!(capture_version(&path).is_none());
         assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn terminate_and_reap_stops_child_process() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "sleep 5"])
+            .spawn()
+            .unwrap();
+
+        terminate_and_reap(&mut child);
+
+        assert!(child.try_wait().unwrap().is_some());
     }
 }
