@@ -1593,6 +1593,11 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!ProfileStore::new(&aisw_home).exists(Tool::Claude, "default"));
+        assert!(!ConfigStore::new(&aisw_home)
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Claude)
+            .contains_key("default"));
     }
 
     #[test]
@@ -1630,6 +1635,11 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!ProfileStore::new(&aisw_home).exists(Tool::Codex, "default"));
+        assert!(!ConfigStore::new(&aisw_home)
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Codex)
+            .contains_key("default"));
     }
 
     #[test]
@@ -1667,6 +1677,11 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!ProfileStore::new(&aisw_home).exists(Tool::Gemini, "default"));
+        assert!(!ConfigStore::new(&aisw_home)
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Gemini)
+            .contains_key("default"));
     }
 
     #[test]
