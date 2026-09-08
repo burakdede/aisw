@@ -125,6 +125,14 @@ pub fn check_config(config_path: &Path) -> CheckResult {
             let version = v.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
             if version == 0 {
                 CheckResult::warn(NAME, "config exists but has no version field".to_owned())
+            } else if version > crate::config::CURRENT_VERSION as u64 {
+                CheckResult::fail(
+                    NAME,
+                    format!(
+                        "config uses unsupported schema v{version} (this aisw supports up to v{}); upgrade aisw before changing profiles",
+                        crate::config::CURRENT_VERSION
+                    ),
+                )
             } else {
                 CheckResult::pass(NAME, format!("valid (schema v{version})"))
             }
@@ -482,6 +490,18 @@ mod tests {
         let result = check_config(&p);
         assert_eq!(result.status, CheckStatus::Pass);
         assert!(result.detail.contains("v1"));
+    }
+
+    #[test]
+    fn config_fails_for_a_future_schema_version() {
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("config.json");
+        fs::write(&p, r#"{"version":99,"profiles":{}}"#).unwrap();
+
+        let result = check_config(&p);
+        assert_eq!(result.status, CheckStatus::Fail);
+        assert!(result.detail.contains("unsupported schema v99"));
+        assert!(result.detail.contains("upgrade aisw"));
     }
 
     #[test]
