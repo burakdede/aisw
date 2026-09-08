@@ -61,18 +61,39 @@ impl BackupManager {
         fs::create_dir_all(&dest)
             .with_context(|| format!("could not create backup directory {}", dest.display()))?;
 
-        if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
-            secure_store::snapshot_profile_secret(tool, name, &backup_id)?;
+        let result = (|| {
+            copy_profile_tree(profile_dir, &dest)?;
+
+            write_metadata(
+                &dest.join(METADATA_FILE),
+                &BackupProfileMetadata {
+                    profile_meta: profile_meta.clone(),
+                },
+            )?;
+
+            if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
+                secure_store::snapshot_profile_secret(tool, name, &backup_id)?;
+            }
+
+            Ok::<(), anyhow::Error>(())
+        })();
+
+        if let Err(mut err) = result {
+            if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
+                if let Err(cleanup_err) = secure_store::delete_backup_secret(tool, name, &backup_id)
+                {
+                    err = err.context(format!(
+                        "could not clean up secure backup credentials: {cleanup_err}"
+                    ));
+                }
+            }
+            if let Err(cleanup_err) = fs::remove_dir_all(self.backups_dir().join(&backup_id)) {
+                err = err.context(format!(
+                    "could not clean up partial backup directory: {cleanup_err}"
+                ));
+            }
+            return Err(err);
         }
-
-        copy_profile_tree(profile_dir, &dest)?;
-
-        write_metadata(
-            &dest.join(METADATA_FILE),
-            &BackupProfileMetadata {
-                profile_meta: profile_meta.clone(),
-            },
-        )?;
 
         Ok(dest)
     }
@@ -575,6 +596,20 @@ mod tests {
         assert!(backup_path.is_dir());
         assert!(backup_path.join(".credentials.json").exists());
         assert!(backup_path.join(METADATA_FILE).exists());
+    }
+
+    #[test]
+    fn failed_snapshot_removes_partial_backup() {
+        let dir = tempdir().unwrap();
+        let missing_profile_dir = dir.path().join("missing-profile");
+        let m = manager(dir.path());
+
+        let err = m
+            .snapshot(Tool::Claude, "work", &missing_profile_dir, &profile_meta())
+            .unwrap_err();
+
+        assert!(err.to_string().contains("could not read"));
+        assert!(m.list().unwrap().is_empty());
     }
 
     #[test]
