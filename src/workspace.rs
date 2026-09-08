@@ -216,7 +216,12 @@ impl WorkspaceStore {
         loop {
             match file.try_lock_exclusive() {
                 Ok(()) => return Ok(WorkspaceLockGuard { file }),
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        ErrorKind::WouldBlock | ErrorKind::PermissionDenied
+                    ) =>
+                {
                     if started.elapsed() >= WORKSPACES_LOCK_WAIT_TIMEOUT {
                         anyhow::bail!(
                             "timed out waiting for workspace config lock at {}.\n  \
