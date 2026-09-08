@@ -20,6 +20,8 @@ enum LiveActivation {
 pub(crate) struct ToolStatus {
     pub tool: Tool,
     pub binary_found: bool,
+    pub binary_path: Option<String>,
+    pub binary_version: Option<String>,
     pub stored_profiles: usize,
     pub active_profile: Option<String>,
     /// False when `active` points at a profile with no config entry.
@@ -152,7 +154,8 @@ pub(crate) fn collect_status(
 
     let mut statuses = Vec::new();
     for tool in Tool::ALL {
-        let binary_found = tool_detection::detect_in(tool, tool_path.clone()).is_some();
+        let detected = tool_detection::detect_at_path(tool, tool_path.as_os_str());
+        let binary_found = detected.is_some();
 
         let active_name = config.active_for(tool);
         let stored_profiles = config.profiles_for(tool).len();
@@ -173,6 +176,10 @@ pub(crate) fn collect_status(
         statuses.push(ToolStatus {
             tool,
             binary_found,
+            binary_path: detected
+                .as_ref()
+                .map(|tool| tool.binary_path.display().to_string()),
+            binary_version: detected.and_then(|tool| tool.version),
             stored_profiles,
             active_profile: active.profile,
             active_profile_registered: active.registered,
@@ -515,6 +522,9 @@ fn print_text(statuses: &[ToolStatus], context_status: Option<&DerivedContextSta
 
     for s in statuses {
         output::print_tool_section(s.tool);
+        if let Some(version) = s.binary_version.as_deref() {
+            output::print_kv("Version", version);
+        }
         output::print_kv(
             "Active",
             output::ellipsize(
@@ -558,6 +568,8 @@ fn print_json(
             serde_json::json!({
                 "tool":                 s.tool.binary_name(),
                 "binary_found":         s.binary_found,
+                "binary_path":          s.binary_path,
+                "binary_version":       s.binary_version,
                 "stored_profiles":      s.stored_profiles,
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
@@ -1247,6 +1259,8 @@ mod tests {
             ToolStatus {
                 tool: Tool::Claude,
                 binary_found: true,
+                binary_path: None,
+                binary_version: None,
                 stored_profiles: 1,
                 active_profile: Some("work".to_owned()),
                 active_profile_registered: true,
@@ -1264,6 +1278,8 @@ mod tests {
             ToolStatus {
                 tool: Tool::Codex,
                 binary_found: true,
+                binary_path: None,
+                binary_version: None,
                 stored_profiles: 1,
                 active_profile: None,
                 active_profile_registered: true,
@@ -1306,6 +1322,8 @@ mod tests {
             ToolStatus {
                 tool: Tool::Claude,
                 binary_found: true,
+                binary_path: None,
+                binary_version: None,
                 stored_profiles: 1,
                 active_profile: Some("old".to_owned()),
                 active_profile_registered: true,
@@ -1323,6 +1341,8 @@ mod tests {
             ToolStatus {
                 tool: Tool::Codex,
                 binary_found: true,
+                binary_path: None,
+                binary_version: None,
                 stored_profiles: 1,
                 active_profile: Some("new".to_owned()),
                 active_profile_registered: true,

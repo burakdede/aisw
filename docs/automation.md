@@ -94,6 +94,9 @@ Example event stream:
 # Get the active Claude profile name from the plain status array
 aisw status --json | jq -r '.[] | select(.tool == "claude") | .active_profile'
 
+# Record the installed Claude binary for compatibility diagnostics
+aisw status --json | jq '.[] | select(.tool == "claude") | {binary_path, binary_version}'
+
 # Get the derived active context name
 aisw status --context --json | jq -r '.context.active'
 
