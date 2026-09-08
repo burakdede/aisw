@@ -214,6 +214,10 @@ find ~/.aisw -type f -maxdepth 3 | xargs ls -l
 
 **Expected behavior:** `aisw backup restore` restores profile files into storage only. It does not activate the profile.
 
+Failed validation does not register a new profile, and file-application errors
+roll back the file transaction. Resolve the reported filesystem or
+credential-store error and retry the same backup.
+
 **Fix:** After restoring, explicitly activate the profile:
 
 ```sh

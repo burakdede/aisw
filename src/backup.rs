@@ -186,21 +186,28 @@ impl BackupManager {
                 }
 
                 let dest_dir = profile_store.profile_dir(tool, &profile_name);
-                fs::create_dir_all(&dest_dir).with_context(|| {
-                    format!("could not create profile dir {}", dest_dir.display())
-                })?;
-
                 let profile_meta =
                     restore_profile_meta(config_store, tool, &profile_name, &profile_path)?;
                 profile_meta.credential_backend.validate_for_tool(tool)?;
-                config_store.upsert_profile(tool, &profile_name, profile_meta.clone())?;
+
+                let restored_files = restore_profile_tree(&profile_path, &dest_dir)?;
+                restored += restored_files;
 
                 if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
                     secure_store::restore_profile_secret(tool, &profile_name, backup_id)?;
+                    if restored_files == 0 {
+                        fs::create_dir_all(&dest_dir).with_context(|| {
+                            format!("could not create profile dir {}", dest_dir.display())
+                        })?;
+                    }
                     restored += 1;
+                } else if restored_files == 0 {
+                    continue;
                 }
 
-                restored += restore_profile_tree(&profile_path, &dest_dir)?;
+                // Register the profile only after all credential and file
+                // restoration for this entry has succeeded.
+                config_store.upsert_profile(tool, &profile_name, profile_meta)?;
             }
         }
 
@@ -279,27 +286,19 @@ fn copy_profile_tree(src_root: &Path, dest_root: &Path) -> Result<()> {
 }
 
 fn restore_profile_tree(src_root: &Path, dest_root: &Path) -> Result<usize> {
-    let mut restored = 0usize;
+    let mut changes = Vec::new();
     for file in crate::auth::files::list_regular_files_recursive(src_root)? {
         if file.file_name == METADATA_FILE {
             continue;
         }
         let relative = file.file_name.to_string_lossy().into_owned();
         let dst = dest_root.join(&relative);
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("could not create {}", parent.display()))?;
-        }
-        fs::copy(&file.path, &dst).with_context(|| {
-            format!(
-                "could not restore {} to {}",
-                file.path.display(),
-                dst.display()
-            )
-        })?;
-        set_permissions_600(&dst)?;
-        restored += 1;
+        let contents = fs::read(&file.path)
+            .with_context(|| format!("could not read backup file {}", file.path.display()))?;
+        changes.push(crate::live_apply::LiveFileChange::write(dst, contents));
     }
+    let restored = changes.len();
+    crate::live_apply::apply_transaction(changes)?;
     Ok(restored)
 }
 
@@ -710,6 +709,34 @@ mod tests {
             .restore("2099-01-01T00-00-00.000Z-0000", &ps, &cs)
             .unwrap_err();
         assert!(err.to_string().contains("no backup found"));
+    }
+
+    #[test]
+    fn failed_restore_does_not_register_profile_metadata() {
+        let dir = tempdir().unwrap();
+        let profile_path = dir
+            .path()
+            .join(BACKUPS_DIR)
+            .join("empty-backup")
+            .join(Tool::Claude.dir_name())
+            .join("work");
+        fs::create_dir_all(&profile_path).unwrap();
+        write_metadata(
+            &profile_path.join(METADATA_FILE),
+            &BackupProfileMetadata {
+                profile_meta: profile_meta(),
+            },
+        )
+        .unwrap();
+
+        let m = manager(dir.path());
+        let ps = profile_store(dir.path());
+        let cs = ConfigStore::new(dir.path());
+        let err = m.restore("empty-backup", &ps, &cs).unwrap_err();
+
+        assert!(err.to_string().contains("contains no files to restore"));
+        assert!(cs.load().unwrap().profiles_for(Tool::Claude).is_empty());
+        assert!(!ps.exists(Tool::Claude, "work"));
     }
 
     #[test]
