@@ -490,6 +490,9 @@ Notes:
   `missing` when no profile files or secure credential exist, and `unknown` when
   files exist but do not match a known credential layout. Unknown layouts are
   warnings in `verify` and should be inspected before switching profiles.
+- `live_state_error` is `null` when live comparison succeeded or was intentionally
+  observational. If live inspection fails, `status` keeps the complete tool row,
+  sets `active_profile_applied` to `false`, and records a non-secret diagnostic.
 - Token expiry warnings appear when an OAuth token is expired or expires within 24 hours.
 - `--context` does not change the shape of plain `status --json` output.
 - `status --context --json` wraps the tool array in a `{ "tools": [...], "context": ... }` object.

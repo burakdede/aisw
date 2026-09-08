@@ -45,6 +45,7 @@ pub(crate) struct ToolStatus {
     pub state_mode: Option<String>,
     pub active_profile_added_at: Option<chrono::DateTime<chrono::Utc>>,
     pub active_profile_applied: Option<bool>,
+    pub live_state_error: Option<String>,
     pub credential_state: CredentialState,
     pub credentials_present: bool,
     pub permissions_ok: bool,
@@ -210,6 +211,7 @@ pub(crate) fn collect_status(
             state_mode,
             active_profile_added_at: active.added_at,
             active_profile_applied: active.applied,
+            live_state_error: active.live_state_error,
             credential_state: active.credential_state,
             credentials_present: active.credentials_present,
             permissions_ok: active.permissions_ok,
@@ -232,6 +234,7 @@ struct ActiveProfileStatus {
     antigravity_auth_classification: Option<String>,
     added_at: Option<chrono::DateTime<chrono::Utc>>,
     applied: Option<bool>,
+    live_state_error: Option<String>,
     credential_state: CredentialState,
     credentials_present: bool,
     permissions_ok: bool,
@@ -249,6 +252,7 @@ impl Default for ActiveProfileStatus {
             antigravity_auth_classification: None,
             added_at: None,
             applied: None,
+            live_state_error: None,
             credential_state: CredentialState::Missing,
             credentials_present: false,
             permissions_ok: true,
@@ -326,22 +330,26 @@ fn collect_active_profile_status(
         Tool::Gemini => {}
     }
 
-    let applied = if !credentials_present {
-        Some(false)
+    let (applied, live_state_error) = if !credentials_present {
+        (Some(false), None)
     } else if should_skip_live_verification(tool, meta.credential_backend) {
-        None
+        (None, None)
     } else {
-        Some(
-            assess_live_state(
-                tool,
-                meta.auth_method,
-                meta.credential_backend,
-                config.state_mode_for(tool),
-                profile_store,
-                name,
-                user_home,
-            )? == LiveActivation::Applied,
-        )
+        match assess_live_state(
+            tool,
+            meta.auth_method,
+            meta.credential_backend,
+            config.state_mode_for(tool),
+            profile_store,
+            name,
+            user_home,
+        ) {
+            Ok(result) => (Some(result == LiveActivation::Applied), None),
+            Err(error) => (
+                Some(false),
+                Some(format!("live state could not be inspected: {error}")),
+            ),
+        }
     };
 
     Ok(ActiveProfileStatus {
@@ -354,6 +362,7 @@ fn collect_active_profile_status(
         antigravity_auth_classification,
         added_at: Some(meta.added_at),
         applied,
+        live_state_error,
         credential_state,
         credentials_present,
         permissions_ok,
@@ -502,6 +511,9 @@ fn status_message(s: &ToolStatus) -> &'static str {
     if !s.permissions_ok {
         return "credentials present \u{2014} permissions too broad!";
     }
+    if s.live_state_error.is_some() {
+        return "credentials present, but live tool state could not be inspected";
+    }
     if s.tool == Tool::Claude
         && s.credential_backend.as_deref() == Some("file")
         && cfg!(target_os = "macos")
@@ -611,6 +623,9 @@ fn print_text(statuses: &[ToolStatus], context_status: Option<&DerivedContextSta
         if let Some(diagnostic) = backend_diagnostic(s) {
             output::print_warning(diagnostic);
         }
+        if let Some(error) = s.live_state_error.as_deref() {
+            output::print_warning(error);
+        }
         output::print_blank_line();
     }
 }
@@ -638,6 +653,7 @@ fn print_json(
                 "antigravity_auth_classification": s.antigravity_auth_classification,
                 "state_mode":           s.state_mode,
                 "active_profile_applied": s.active_profile_applied,
+                "live_state_error":     s.live_state_error,
                 "credential_state":     s.credential_state,
                 "credentials_present":  s.credentials_present,
                 "permissions_ok":       s.permissions_ok,
@@ -1003,6 +1019,33 @@ mod tests {
     }
 
     #[test]
+    fn status_preserves_report_when_live_state_cannot_be_inspected() {
+        if cfg!(target_os = "macos") {
+            return;
+        }
+
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let cs = ConfigStore::new(tmp.path());
+        auth::claude::add_api_key(&ps, &cs, "work", CLAUDE_KEY, None).unwrap();
+        cs.set_active(Tool::Claude, "work").unwrap();
+
+        let live_dir = tmp.path().join(".claude");
+        fs::create_dir_all(&live_dir).unwrap();
+        fs::write(live_dir.join(".credentials.json"), b"{").unwrap();
+
+        let statuses = collect_status(tmp.path(), tmp.path(), &empty_path()).unwrap();
+        let claude = statuses.iter().find(|s| s.tool == Tool::Claude).unwrap();
+        assert!(claude.credentials_present);
+        assert_eq!(claude.active_profile_applied, Some(false));
+        let error = claude.live_state_error.as_deref().unwrap();
+        assert!(error.starts_with("live state could not be inspected:"));
+        assert!(!error.contains(CLAUDE_KEY));
+    }
+
+    #[test]
     fn gemini_active_profile_applied_reflects_live_state() {
         let tmp = tempdir().unwrap();
         let ps = ProfileStore::new(tmp.path());
@@ -1334,6 +1377,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(chrono::Utc::now()),
                 active_profile_applied: Some(true),
+                live_state_error: None,
                 credential_state: CredentialState::Present,
                 credentials_present: true,
                 permissions_ok: true,
@@ -1356,6 +1400,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: None,
                 active_profile_applied: None,
+                live_state_error: None,
                 credential_state: CredentialState::Missing,
                 credentials_present: false,
                 permissions_ok: true,
@@ -1403,6 +1448,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(older),
                 active_profile_applied: Some(true),
+                live_state_error: None,
                 credential_state: CredentialState::Present,
                 credentials_present: true,
                 permissions_ok: true,
@@ -1425,6 +1471,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(newer),
                 active_profile_applied: Some(true),
+                live_state_error: None,
                 credential_state: CredentialState::Present,
                 credentials_present: true,
                 permissions_ok: true,

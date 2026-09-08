@@ -266,6 +266,7 @@ mod tests {
             state_mode: Some("isolated".to_owned()),
             active_profile_added_at: None,
             active_profile_applied: Some(true),
+            live_state_error: None,
             credential_state: status::CredentialState::Present,
             credentials_present: true,
             permissions_ok: true,
