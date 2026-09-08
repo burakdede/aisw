@@ -29,7 +29,7 @@ head:
 | Claude Code | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
 | Gemini CLI | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
-| Antigravity CLI | `agy` | OAuth | Full | Full | Full |
+| Antigravity CLI | `agy` | OAuth, API key | Full | Full | Full |
 
 `aisw status` reports whether the detected release matches the audited
 compatibility baseline. A non-verified release is a warning, not an automatic
@@ -125,7 +125,7 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 - Live config/state: `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
 - `--from-live`: captures the current live keyring-backed session plus both documented config roots.
 - Interactive OAuth: launches `agy`, captures the resulting live keyring/config state, and restores the prior live state unless `--set-active` is requested.
-- No API-key path in `aisw` because upstream Antigravity docs currently describe OAuth/keyring auth, not API-key profile auth.
+- API-key path: `GEMINI_API_KEY` with `modelProvider: gemini` in `~/.gemini/antigravity-cli/settings.json`; use the shell hook or `--emit-env` so the key reaches `agy`.
 - No `--state-mode` support because upstream does not currently document an isolated per-profile auth or data root.
 
 ## Auth backend support matrix
@@ -141,6 +141,7 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 | Gemini CLI | System keyring | Not supported | Not supported | Gemini does not use keyring for credentials |
 | Antigravity CLI | File-backed managed profile + live OS keyring apply | Supported | Supported | Stores captured secret in the profile, then restores it into the live keyring on switch |
 | Antigravity CLI | System keyring-backed managed profile | Supported | Supported | Stores the captured live keyring secret in `aisw`'s managed keyring backend |
+| Antigravity CLI | API-key profile via `GEMINI_API_KEY` | Supported | Supported with `--emit-env` or shell hook | Stores the key using the selected profile backend and selects the Gemini API-key provider |
 
 **Fail-closed** means `aisw` refuses the operation rather than guessing. This applies specifically to Codex when the keyring account identifier cannot be read from the live credential store.
 

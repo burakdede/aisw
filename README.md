@@ -234,7 +234,7 @@ aisw context use acme
 - Codex: shared-mode ChatGPT auth switching is explicitly unsupported.
 - Gemini: upstream stopped serving Google AI Pro, Ultra, and free-tier individual accounts through Gemini CLI on June 18, 2026; those users should migrate to Antigravity. Gemini CLI enterprise and API-key / Vertex AI paths remain supported. See the [upstream transition announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
 - Gemini: `aisw init` and `aisw add gemini ...` can still capture the currently live Gemini state for supported upstream auth modes, but you should start a fresh process after switching.
-- Antigravity: OAuth only. `--api-key` and `--from-env` are rejected, because upstream documents keyring-backed sign-in rather than API-key profile auth.
+- Antigravity: OAuth uses shared keyring state; API-key profiles use `GEMINI_API_KEY` with `--emit-env` or shell integration, and aisw selects `modelProvider: gemini`.
 - Antigravity: no documented per-profile auth root exists, so switching replaces the shared live session and `--state-mode` does not apply.
 
 </details>
@@ -333,7 +333,7 @@ The practical value is simple: `aisw use --all --profile personal` works when na
 
 Credentials are stored in the native OS keyring where available (macOS Keychain, Linux Secret Service, Windows Credential Manager) and fall back to local files with `0600` permissions.
 
-Antigravity is OAuth-only: upstream documents keyring-backed sign-in rather than API-key profile auth, so `--api-key` and `--from-env` are rejected for it. It also has no documented per-profile auth root like `CODEX_HOME`, so `aisw` switches its shared live session rather than isolating it, and `--state-mode` does not apply.
+Antigravity supports shared OAuth keyring sign-in and Gemini API-key auth. API-key profiles use `GEMINI_API_KEY` with `--emit-env` or the shell hook; aisw selects the required `modelProvider: gemini` setting. It has no documented per-profile auth root like `CODEX_HOME`, so OAuth switching remains shared and `--state-mode` does not apply.
 
 \* Gemini CLI no longer serves Google AI Pro, Ultra, or free-tier individual accounts; those users should use Antigravity instead. Gemini CLI enterprise and API-key / Vertex AI users remain supported.
 
