@@ -52,7 +52,7 @@ aisw --version
 aisw init
 ```
 
-This creates `~/.aisw/`, offers to install the optional shell hook (recommended), and detects any accounts you are already logged into. If you are already signed into Claude Code, Codex, or Gemini, `init` will offer to import those credentials as named profiles so you start without re-authenticating. Antigravity support currently starts with explicit `add` flows rather than `init` auto-import.
+This creates `~/.aisw/`, offers to install the optional shell hook (recommended), and detects any accounts you are already logged into. If you are already signed into Claude Code, Codex, or Gemini, `init` will offer to import those credentials as named profiles so you start without re-authenticating. Antigravity live state is reported during `init --detect-live`; importing it still starts with an explicit `add` flow rather than automatic import.
 
 For GUI or other machine-driven onboarding, use the non-prompting bootstrap path instead:
 
