@@ -529,6 +529,22 @@ fn print_import_outcome(tool: Tool, profile_name: &str, marked_active: bool) {
     output::print_blank_line();
 }
 
+fn cleanup_imported_profile_on_error<T>(
+    result: Result<T>,
+    profile_store: &ProfileStore,
+    tool: Tool,
+    profile_name: &str,
+    backend: CredentialBackend,
+) -> Result<T> {
+    if result.is_err() {
+        if backend == CredentialBackend::SystemKeyring {
+            let _ = auth::secure_store::delete_profile_secret(tool, profile_name);
+        }
+        auth::files::cleanup_profile(profile_store, tool, profile_name);
+    }
+    result
+}
+
 fn print_already_managed_live_match(
     tool: Tool,
     config_store: &ConfigStore,
@@ -977,48 +993,52 @@ fn import_claude(
     };
 
     profile_store.create(Tool::Claude, &profile_name)?;
-    match imported_backend {
-        CredentialBackend::File => profile_store.write_file(
-            Tool::Claude,
-            &profile_name,
-            ".credentials.json",
-            &source_bytes,
-        )?,
-        CredentialBackend::SystemKeyring => {
-            auth::secure_store::write_profile_secret(Tool::Claude, &profile_name, &source_bytes)?
+    let import_result = (|| -> Result<()> {
+        match imported_backend {
+            CredentialBackend::File => profile_store.write_file(
+                Tool::Claude,
+                &profile_name,
+                ".credentials.json",
+                &source_bytes,
+            )?,
+            CredentialBackend::SystemKeyring => auth::secure_store::write_profile_secret(
+                Tool::Claude,
+                &profile_name,
+                &source_bytes,
+            )?,
         }
-    }
-    if imported_method == AuthMethod::OAuth {
-        auth::claude::capture_live_oauth_account_metadata(
-            &profile_store,
-            &profile_name,
-            user_home,
-        )?;
-    }
-    if imported_method == AuthMethod::OAuth {
-        auth::identity::ensure_unique_oauth_identity(
-            &profile_store,
-            &config_store,
+        if imported_method == AuthMethod::OAuth {
+            auth::claude::capture_live_oauth_account_metadata(
+                &profile_store,
+                &profile_name,
+                user_home,
+            )?;
+            auth::identity::ensure_unique_oauth_identity(
+                &profile_store,
+                &config_store,
+                Tool::Claude,
+                &profile_name,
+                imported_backend,
+            )?;
+        }
+        config_store.add_profile(
             Tool::Claude,
             &profile_name,
-            imported_backend,
-        )
-        .inspect_err(|_| {
-            if imported_backend == CredentialBackend::SystemKeyring {
-                let _ = auth::secure_store::delete_profile_secret(Tool::Claude, &profile_name);
-            }
-            let _ = profile_store.delete(Tool::Claude, &profile_name);
-        })?;
-    }
-    config_store.add_profile(
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: imported_method,
+                credential_backend: imported_backend,
+                label,
+            },
+        )?;
+        Ok(())
+    })();
+    cleanup_imported_profile_on_error(
+        import_result,
+        &profile_store,
         Tool::Claude,
         &profile_name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: imported_method,
-            credential_backend: imported_backend,
-            label,
-        },
+        imported_backend,
     )?;
     if mark_active {
         activate_imported_profile(Tool::Claude, &config_store, &profile_name)?;
@@ -1180,34 +1200,41 @@ fn import_codex(
     };
 
     profile_store.create(Tool::Codex, &profile_name)?;
-    auth::codex::write_file_store_config(&profile_store, &profile_name)?;
-    profile_store.write_file(
-        Tool::Codex,
-        &profile_name,
-        auth::codex::AUTH_FILE,
-        &source_bytes,
-    )?;
-    if auth_method == AuthMethod::OAuth {
-        auth::identity::ensure_unique_oauth_identity(
-            &profile_store,
-            &config_store,
+    let import_result = (|| -> Result<()> {
+        auth::codex::write_file_store_config(&profile_store, &profile_name)?;
+        profile_store.write_file(
             Tool::Codex,
             &profile_name,
-            CredentialBackend::File,
-        )
-        .inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Codex, &profile_name);
-        })?;
-    }
-    config_store.add_profile(
+            auth::codex::AUTH_FILE,
+            &source_bytes,
+        )?;
+        if auth_method == AuthMethod::OAuth {
+            auth::identity::ensure_unique_oauth_identity(
+                &profile_store,
+                &config_store,
+                Tool::Codex,
+                &profile_name,
+                CredentialBackend::File,
+            )?;
+        }
+        config_store.add_profile(
+            Tool::Codex,
+            &profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method,
+                credential_backend: CredentialBackend::File,
+                label,
+            },
+        )?;
+        Ok(())
+    })();
+    cleanup_imported_profile_on_error(
+        import_result,
+        &profile_store,
         Tool::Codex,
         &profile_name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method,
-            credential_backend: CredentialBackend::File,
-            label,
-        },
+        CredentialBackend::File,
     )?;
     if mark_active {
         activate_imported_profile(Tool::Codex, &config_store, &profile_name)?;
@@ -1305,34 +1332,41 @@ fn import_gemini(
     };
 
     profile_store.create(Tool::Gemini, &profile_name)?;
-    if method == AuthMethod::OAuth {
-        auth::gemini::copy_live_oauth_files_into_profile(
-            &profile_store,
-            &profile_name,
-            &oauth_files,
-        )?;
-        auth::identity::ensure_unique_oauth_identity(
-            &profile_store,
-            &config_store,
+    let import_result = (|| -> Result<()> {
+        if method == AuthMethod::OAuth {
+            auth::gemini::copy_live_oauth_files_into_profile(
+                &profile_store,
+                &profile_name,
+                &oauth_files,
+            )?;
+            auth::identity::ensure_unique_oauth_identity(
+                &profile_store,
+                &config_store,
+                Tool::Gemini,
+                &profile_name,
+                CredentialBackend::File,
+            )?;
+        } else {
+            profile_store.copy_file_into(Tool::Gemini, &profile_name, &env_file, ".env")?;
+        }
+        config_store.add_profile(
             Tool::Gemini,
             &profile_name,
-            CredentialBackend::File,
-        )
-        .inspect_err(|_| {
-            let _ = profile_store.delete(Tool::Gemini, &profile_name);
-        })?;
-    } else {
-        profile_store.copy_file_into(Tool::Gemini, &profile_name, &env_file, ".env")?;
-    }
-    config_store.add_profile(
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: method,
+                credential_backend: CredentialBackend::File,
+                label,
+            },
+        )?;
+        Ok(())
+    })();
+    cleanup_imported_profile_on_error(
+        import_result,
+        &profile_store,
         Tool::Gemini,
         &profile_name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: method,
-            credential_backend: CredentialBackend::File,
-            label,
-        },
+        CredentialBackend::File,
     )?;
     if mark_active {
         activate_imported_profile(Tool::Gemini, &config_store, &profile_name)?;
@@ -1538,6 +1572,30 @@ mod tests {
     }
 
     #[test]
+    fn failed_claude_import_cleans_profile_before_registration() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        let claude_dir = user_home.join(".claude");
+        fs::create_dir_all(&claude_dir).unwrap();
+        fs::write(
+            claude_dir.join(".credentials.json"),
+            b"{\"token\":\"oauth\"}",
+        )
+        .unwrap();
+        std::env::set_var("AISW_CLAUDE_AUTH_STORAGE", "file");
+        ensure_aisw_home(&aisw_home).unwrap();
+        fs::create_dir(aisw_home.join("config.json.tmp")).unwrap();
+
+        let result = import_claude(&aisw_home, &user_home, None, true);
+        std::env::remove_var("AISW_CLAUDE_AUTH_STORAGE");
+
+        assert!(result.is_err());
+        assert!(!ProfileStore::new(&aisw_home).exists(Tool::Claude, "default"));
+    }
+
+    #[test]
     fn imports_codex_credentials() {
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
@@ -1558,6 +1616,23 @@ mod tests {
     }
 
     #[test]
+    fn failed_codex_import_cleans_profile_before_registration() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        let codex_dir = user_home.join(".codex");
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(codex_dir.join("auth.json"), b"{\"token\":\"tok\"}").unwrap();
+        ensure_aisw_home(&aisw_home).unwrap();
+        fs::create_dir(aisw_home.join("config.json.tmp")).unwrap();
+
+        let result = import_codex(&aisw_home, &user_home, None, true);
+
+        assert!(result.is_err());
+        assert!(!ProfileStore::new(&aisw_home).exists(Tool::Codex, "default"));
+    }
+
+    #[test]
     fn imports_gemini_env_as_api_key() {
         let tmp = tempdir().unwrap();
         let aisw_home = tmp.path().join("aisw");
@@ -1575,6 +1650,23 @@ mod tests {
             config.profiles_for(Tool::Gemini)["default"].auth_method,
             AuthMethod::ApiKey
         );
+    }
+
+    #[test]
+    fn failed_gemini_import_cleans_profile_before_registration() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        let gemini_dir = user_home.join(".gemini");
+        fs::create_dir_all(&gemini_dir).unwrap();
+        fs::write(gemini_dir.join(".env"), b"GEMINI_API_KEY=abc123\n").unwrap();
+        ensure_aisw_home(&aisw_home).unwrap();
+        fs::create_dir(aisw_home.join("config.json.tmp")).unwrap();
+
+        let result = import_gemini(&aisw_home, &user_home, None, true);
+
+        assert!(result.is_err());
+        assert!(!ProfileStore::new(&aisw_home).exists(Tool::Gemini, "default"));
     }
 
     #[test]
