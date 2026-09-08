@@ -571,7 +571,10 @@ aisw backup list --sort recent
 aisw backup restore <backup_id> [--yes] [--json]
 ```
 
-Restore profile files from a backup. Does not activate the profile; run `aisw use` after restore.
+Restore profile files and credentials from a backup. Profile metadata is saved
+only after restoration succeeds, and file writes are applied as one
+rollback-capable transaction. Does not activate the profile; run `aisw use`
+after restore.
 
 | Flag | Effect |
 |---|---|

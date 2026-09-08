@@ -22,6 +22,9 @@
 
 ### Fixed
 
+- Backup restore now commits profile metadata only after its files and secure
+  credentials have been restored successfully, and applies file writes as one
+  rollback-capable transaction.
 - Failed backup snapshots now clean up partial files and secure-store backup
   entries instead of leaving incomplete recovery artifacts behind.
 - `aisw doctor` now fails clearly when `config.json` uses a schema newer than
