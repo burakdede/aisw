@@ -452,9 +452,10 @@ Show per-tool state: installed binary, active profile, credential backend, live-
 
 When a tool is installed, status also reports the detected `binary_path` and
 `binary_version`. These identify the executable currently found on `PATH` and
-are diagnostic inputs for compatibility checks, not a guarantee that every
-upstream release is supported. Missing tools report `null` for both fields in
-JSON output.
+`binary_compatibility`. The latter is `verified` only for the pinned release
+in `compatibility_baseline`; older, newer, missing, or unparseable versions
+are warnings and do not hard-fail `status`. Missing tools report `null` for
+the binary fields in JSON output.
 
 | Flag | Effect |
 |---|---|

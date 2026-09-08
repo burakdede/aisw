@@ -14,6 +14,11 @@ description: Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support mat
 | Gemini CLI | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
 | Antigravity CLI | `agy` | OAuth | Full | Full | Full |
 
+`aisw status` reports whether the detected release matches the audited
+compatibility baseline. A non-verified release is a warning, not an automatic
+block; review [the versioned acceptance baseline](./acceptance-matrix.md)
+before relying on changed upstream auth/storage behavior.
+
 ## Binary detection
 
 `aisw` resolves each tool from `PATH` and confirms it is present by running `<binary> --version`. If a binary is not found, `aisw status` reports it as missing and `aisw use` for that tool is blocked with an error.

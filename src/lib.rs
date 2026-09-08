@@ -2,6 +2,7 @@ pub mod auth;
 pub mod backup;
 pub mod cli;
 pub mod commands;
+pub mod compatibility;
 pub mod config;
 pub mod error;
 pub mod live_apply;

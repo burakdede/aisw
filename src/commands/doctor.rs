@@ -70,7 +70,22 @@ pub fn check_tool_binary(tool: Tool, path_var: &std::ffi::OsStr) -> CheckResult 
     match crate::tool_detection::detect_at_path(tool, path_var) {
         Some(detected) => {
             let detail = match detected.version {
-                Some(v) => format!("{} found ({})", detected.binary_path.display(), v),
+                Some(v) => {
+                    let compatibility = crate::compatibility::assess(tool, Some(&v));
+                    let detail = format!(
+                        "{} found ({}) — baseline {}",
+                        detected.binary_path.display(),
+                        v,
+                        crate::compatibility::baseline(tool)
+                    );
+                    return match compatibility {
+                        crate::compatibility::Status::Verified => CheckResult::pass(name, detail),
+                        _ => CheckResult::warn(
+                            name,
+                            format!("{detail}; compatibility is {}", compatibility.as_str()),
+                        ),
+                    };
+                }
                 None => format!("{} found", detected.binary_path.display()),
             };
             CheckResult::pass(name, detail)
@@ -428,13 +443,26 @@ mod tests {
         // Put a dummy executable named "claude" on a temp PATH.
         let dir = tempdir().unwrap();
         let bin = dir.path().join("claude");
-        fs::write(&bin, "#!/bin/sh\necho '0.1.0'").unwrap();
+        fs::write(&bin, "#!/bin/sh\necho 'claude 2.1.263'").unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let path = std::ffi::OsString::from(dir.path());
         let result = check_tool_binary(Tool::Claude, &path);
         assert_eq!(result.status, CheckStatus::Pass);
         assert!(result.detail.contains("claude"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn tool_binary_warns_when_release_is_outside_baseline() {
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("claude");
+        fs::write(&bin, "#!/bin/sh\necho 'claude 99.0.0'").unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = check_tool_binary(Tool::Claude, dir.path().as_os_str());
+        assert_eq!(result.status, CheckStatus::Warn);
+        assert!(result.detail.contains("newer_than_verified"));
     }
 
     #[test]
