@@ -37,9 +37,10 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
 
     if args.default {
         let store = WorkspaceStore::new(home);
-        let mut workspace_config = store.load()?;
-        workspace_config.default_context = Some(args.context.clone());
-        store.save(&workspace_config)?;
+        store.update(|workspace_config| {
+            workspace_config.default_context = Some(args.context.clone());
+            Ok(())
+        })?;
 
         if args.json {
             machine::print_success(
@@ -64,10 +65,11 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
 
     if let Some(pattern) = args.git_remote.as_deref() {
         let store = WorkspaceStore::new(home);
-        let mut workspace_config = store.load()?;
         let normalized = normalize_remote_pattern(pattern);
-        upsert_git_remote_rule(&mut workspace_config, &normalized, &args.context);
-        store.save(&workspace_config)?;
+        store.update(|workspace_config| {
+            upsert_git_remote_rule(workspace_config, &normalized, &args.context);
+            Ok(())
+        })?;
 
         if args.json {
             machine::print_success(
@@ -126,13 +128,11 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
     }
 
     let store = WorkspaceStore::new(home);
-    let mut workspace_config = store.load()?;
-    upsert_path_rule(
-        &mut workspace_config,
-        &path.display().to_string(),
-        &args.context,
-    );
-    store.save(&workspace_config)?;
+    let path_text = path.display().to_string();
+    store.update(|workspace_config| {
+        upsert_path_rule(workspace_config, &path_text, &args.context);
+        Ok(())
+    })?;
 
     if args.json {
         machine::print_success(
@@ -140,7 +140,7 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
             json!({
                 "binding": {
                     "scope": "path",
-                    "path": path.display().to_string(),
+                    "path": path_text,
                     "context": args.context,
                 },
                 "project_bindings": project_bindings_snapshot(home, &cwd)?,
@@ -150,7 +150,7 @@ fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
     }
 
     output::print_title("Bound workspace path");
-    output::print_kv("Path", path.display().to_string());
+    output::print_kv("Path", &path_text);
     output::print_kv("Context", &args.context);
     output::print_effects_header();
     output::print_effect("User workspace path rule saved.");
@@ -162,12 +162,17 @@ fn unbind(args: WorkspaceUnbindArgs, home: &Path) -> Result<()> {
 
     if args.default {
         let store = WorkspaceStore::new(home);
-        let mut workspace_config = store.load()?;
-        let removed_context = workspace_config
-            .default_context
-            .take()
-            .context("default workspace context is not set")?;
-        store.save(&workspace_config)?;
+        let mut removed_context = None;
+        store.update(|workspace_config| {
+            removed_context = Some(
+                workspace_config
+                    .default_context
+                    .take()
+                    .context("default workspace context is not set")?,
+            );
+            Ok(())
+        })?;
+        let removed_context = removed_context.expect("workspace default removal result missing");
 
         if args.json {
             machine::print_success(
@@ -191,11 +196,16 @@ fn unbind(args: WorkspaceUnbindArgs, home: &Path) -> Result<()> {
 
     if let Some(pattern) = args.git_remote.as_deref() {
         let store = WorkspaceStore::new(home);
-        let mut workspace_config = store.load()?;
         let normalized = normalize_remote_pattern(pattern);
-        let removed_context = remove_git_remote_rule(&mut workspace_config, &normalized)
-            .with_context(|| format!("workspace remote rule '{}' not found", normalized))?;
-        store.save(&workspace_config)?;
+        let mut removed_context = None;
+        store.update(|workspace_config| {
+            removed_context = Some(
+                remove_git_remote_rule(workspace_config, &normalized)
+                    .with_context(|| format!("workspace remote rule '{}' not found", normalized))?,
+            );
+            Ok(())
+        })?;
+        let removed_context = removed_context.expect("workspace remote removal result missing");
 
         if args.json {
             machine::print_success(
@@ -257,11 +267,16 @@ fn unbind(args: WorkspaceUnbindArgs, home: &Path) -> Result<()> {
     }
 
     let store = WorkspaceStore::new(home);
-    let mut workspace_config = store.load()?;
     let path_text = path.display().to_string();
-    let removed_context = remove_path_rule(&mut workspace_config, &path_text)
-        .with_context(|| format!("workspace path rule '{}' not found", path_text))?;
-    store.save(&workspace_config)?;
+    let mut removed_context = None;
+    store.update(|workspace_config| {
+        removed_context = Some(
+            remove_path_rule(workspace_config, &path_text)
+                .with_context(|| format!("workspace path rule '{}' not found", path_text))?,
+        );
+        Ok(())
+    })?;
+    let removed_context = removed_context.expect("workspace path removal result missing");
 
     if args.json {
         machine::print_success(
@@ -451,9 +466,10 @@ fn doctor(args: WorkspaceDoctorArgs, home: &Path) -> Result<()> {
 
 fn guard(args: WorkspaceGuardArgs, home: &Path) -> Result<()> {
     let store = WorkspaceStore::new(home);
-    let mut config = store.load()?;
-    config.guard_mode = GuardMode::from(args.mode);
-    store.save(&config)?;
+    let config = store.update(|config| {
+        config.guard_mode = GuardMode::from(args.mode);
+        Ok(())
+    })?;
 
     if args.json {
         let cwd = std::env::current_dir().context("could not determine current directory")?;
