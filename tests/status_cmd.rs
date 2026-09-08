@@ -184,6 +184,8 @@ fn status_json_has_expected_keys() {
 
     let claude = arr.iter().find(|e| e["tool"] == "claude").unwrap();
     assert_eq!(claude["binary_found"], true);
+    assert!(claude["binary_path"].as_str().is_some());
+    assert_eq!(claude["binary_version"], "claude 2.3.0");
     assert_eq!(claude["stored_profiles"], 1);
     assert_eq!(claude["active_profile"], "work");
     assert_eq!(claude["state_mode"], "isolated");
@@ -195,6 +197,31 @@ fn status_json_has_expected_keys() {
     }
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
+}
+
+#[test]
+fn status_json_reports_missing_binary_version_and_path_as_null() {
+    let env = TestEnv::new();
+
+    let output = env
+        .cmd()
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("invalid JSON");
+    let claude = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["tool"] == "claude")
+        .unwrap();
+    assert_eq!(claude["binary_found"], false);
+    assert!(claude["binary_path"].is_null());
+    assert!(claude["binary_version"].is_null());
 }
 
 #[test]

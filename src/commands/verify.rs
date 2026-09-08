@@ -244,6 +244,8 @@ mod tests {
         status::ToolStatus {
             tool,
             binary_found: true,
+            binary_path: None,
+            binary_version: None,
             stored_profiles: 1,
             active_profile: Some("work".to_owned()),
             active_profile_registered: true,

@@ -83,7 +83,13 @@ fn status_json_contract_snapshot() {
     let env = TestEnv::new();
     setup_three_active_profiles(&env);
 
-    let json = run_json(&env, &["status", "--json"]);
+    let mut json = run_json(&env, &["status", "--json"]);
+    for entry in json.as_array_mut().unwrap() {
+        if entry["binary_found"] == true {
+            assert!(entry["binary_path"].as_str().is_some());
+            entry["binary_path"] = serde_json::Value::String("<path>".to_owned());
+        }
+    }
     let expected_claude_active_applied = if cfg!(target_os = "macos") {
         serde_json::Value::Null
     } else {
@@ -94,6 +100,8 @@ fn status_json_contract_snapshot() {
         {
             "tool": "claude",
             "binary_found": true,
+            "binary_path": "<path>",
+            "binary_version": "claude 2.3.0",
             "stored_profiles": 1,
             "active_profile": "work",
             "auth_method": "api_key",
@@ -109,6 +117,8 @@ fn status_json_contract_snapshot() {
         {
             "tool": "codex",
             "binary_found": true,
+            "binary_path": "<path>",
+            "binary_version": "codex 1.0.0",
             "stored_profiles": 1,
             "active_profile": "work",
             "auth_method": "api_key",
@@ -124,6 +134,8 @@ fn status_json_contract_snapshot() {
         {
             "tool": "gemini",
             "binary_found": true,
+            "binary_path": "<path>",
+            "binary_version": "gemini 0.9.0",
             "stored_profiles": 1,
             "active_profile": "work",
             "auth_method": "api_key",
@@ -139,6 +151,8 @@ fn status_json_contract_snapshot() {
         {
             "tool": "agy",
             "binary_found": false,
+            "binary_path": null,
+            "binary_version": null,
             "stored_profiles": 0,
             "active_profile": null,
             "auth_method": null,
@@ -275,6 +289,8 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
     let expected_keys = [
         "tool",
         "binary_found",
+        "binary_path",
+        "binary_version",
         "stored_profiles",
         "active_profile",
         "auth_method",
@@ -293,7 +309,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
             "missing key `{key}` in status entry"
         );
     }
-    assert_eq!(entry.len(), 13);
+    assert_eq!(entry.len(), 15);
 }
 
 #[test]

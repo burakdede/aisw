@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- `aisw status` now reports the detected agent binary path and version in
+  human and JSON output, giving compatibility checks a trustworthy view of
+  which upstream executable is active without exposing credentials.
+
 ### Security
 
 - Rejected API keys containing control characters. Gemini stores keys as `GEMINI_API_KEY=<key>` in a `.env` file the CLI sources, so a key containing a newline injected additional environment variables (for example `GOOGLE_CLOUD_PROJECT`) into that file. The same rule now applies to Claude and Codex.

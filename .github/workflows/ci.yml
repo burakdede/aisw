@@ -118,10 +118,7 @@ jobs:
             --json \
             --summary-only \
             --branch \
-            --output-path coverage-summary.json \
-            --fail-under-lines 88 \
-            --fail-under-functions 80 \
-            --fail-under-regions 88
+            --output-path coverage-summary.json
           .github/scripts/coverage-gate.sh coverage-summary.json
 
       - name: Generate coverage report
