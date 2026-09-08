@@ -137,6 +137,7 @@ fn assess_live_state(
         Tool::Antigravity => auth::antigravity::live_state_matches(
             profile_store,
             profile_name,
+            auth_method,
             credential_backend,
             user_home,
         )?,
@@ -455,7 +456,8 @@ fn check_profile_storage(
                 (Tool::Codex, _) => "auth.json",
                 (Tool::Gemini, AuthMethod::ApiKey) => ".env",
                 (Tool::Gemini, AuthMethod::OAuth) => "oauth_creds.json",
-                (Tool::Antigravity, _) => "keyring-secret.json",
+                (Tool::Antigravity, AuthMethod::OAuth) => "keyring-secret.json",
+                (Tool::Antigravity, AuthMethod::ApiKey) => "api-key.json",
             };
             if files.iter().any(|file| file.file_name == primary) {
                 CredentialState::Present

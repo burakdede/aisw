@@ -39,6 +39,14 @@ fn add_codex_profile(env: &TestEnv, name: &str) {
         .success();
 }
 
+fn add_antigravity_api_key_profile(env: &TestEnv, name: &str) {
+    env.add_fake_tool("agy", "agy 1.1.25");
+    env.cmd()
+        .args(["add", "antigravity", name, "--api-key", VALID_GEMINI_KEY])
+        .assert()
+        .success();
+}
+
 fn antigravity_live_keyring_secret_path(env: &TestEnv) -> std::path::PathBuf {
     env.fake_home
         .join("keychain")
@@ -494,6 +502,33 @@ fn use_gemini_api_key_emit_env_prints_gemini_key() {
         .assert()
         .success()
         .stdout(contains("export GEMINI_API_KEY='"));
+}
+
+#[test]
+fn use_antigravity_api_key_selects_provider_and_emits_key() {
+    let env = TestEnv::new();
+    add_antigravity_api_key_profile(&env, "work");
+
+    env.cmd()
+        .args(["use", "antigravity", "work", "--emit-env"])
+        .assert()
+        .success()
+        .stdout(contains("export GEMINI_API_KEY='"));
+
+    env.cmd()
+        .env("GEMINI_API_KEY", VALID_GEMINI_KEY)
+        .args(["use", "antigravity", "work"])
+        .assert()
+        .success();
+    let settings = std::fs::read_to_string(
+        env.fake_home
+            .join(".gemini")
+            .join("antigravity-cli")
+            .join("settings.json"),
+    )
+    .unwrap();
+    let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
+    assert_eq!(settings["modelProvider"], "gemini");
 }
 
 #[test]

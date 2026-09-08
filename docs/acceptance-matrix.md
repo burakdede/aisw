@@ -11,7 +11,7 @@ The baseline below records the upstream releases checked against `aisw` `0.3.8` 
 | Claude Code | `v2.1.263` | macOS, Linux, Windows | `cargo test --locked`; file credentials and system-keyring paths in the status above | Pass for `aisw`-supported paths; macOS Keychain behavior remains acceptance-matrix-limited | [release](https://github.com/anthropics/claude-code/releases/tag/v2.1.263), [CLI usage](https://docs.anthropic.com/en/docs/claude-code/cli-usage) |
 | Codex CLI | `rust-v0.153.4` | macOS, Linux, Windows | `cargo test --locked`; isolated ChatGPT auth, file API keys, and shared-mode guard | Pass for `aisw`-supported paths | [release](https://github.com/openai/codex/releases/tag/rust-v0.153.4) |
 | Gemini CLI | `v0.58.0` | macOS, Linux, Windows | `cargo test --locked`; file/API-key/Vertex paths and the documented individual-tier sunset | Pass for supported paths; Google AI Pro, Ultra, and free-tier individual accounts are upstream-sunset | [release](https://github.com/google-gemini/gemini-cli/releases/tag/v0.58.0), [sunset announcement](https://github.com/google-gemini/gemini-cli/discussions/28017) |
-| Antigravity CLI | `1.1.27` | macOS, Linux, Windows | `cargo test --locked`; shared OAuth keyring and documented config-root paths | Pass for `aisw`-supported shared OAuth paths; upstream API-key mode is not yet managed by `aisw` | [release](https://github.com/google-antigravity/antigravity-cli/releases/tag/1.1.27), [authentication docs](https://antigravity.google/docs/cli-install?app=antigravity) |
+| Antigravity CLI | `1.1.27` | macOS, Linux, Windows | `cargo test --locked`; shared OAuth keyring, Gemini API-key environment path, and documented config-root paths | Pass for `aisw`-supported OAuth and API-key paths; API-key switching requires `--emit-env` or shell integration | [release](https://github.com/google-antigravity/antigravity-cli/releases/tag/1.1.27), [authentication docs](https://antigravity.google/docs/cli/install) |
 
 ## Status
 
@@ -29,6 +29,7 @@ The baseline below records the upstream releases checked against `aisw` `0.3.8` 
 | Gemini CLI | Google AI Pro, Ultra, or free-tier individual account | Upstream sunset | Not supported by upstream | Gemini CLI stopped serving these individual-account tiers on June 18, 2026; migrate to Antigravity | [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017) |
 | Gemini CLI | System keyring | Not supported | Not supported | Gemini remains file-managed in `aisw` because upstream behavior is file-centric | Product policy; see [supported-tools.md](./supported-tools.md) |
 | Antigravity CLI | Shared live OAuth keyring auth plus documented `~/.gemini` config roots | Supported via `add` / `--from-live` | Supported | Restores the shared live OS keyring session plus `~/.gemini/antigravity-cli/` and `~/.gemini/config/`; upstream does not currently document an isolated per-profile auth root | `src/auth/antigravity.rs`, `src/commands/add.rs`, `src/commands/use_.rs`, full `cargo test` |
+| Antigravity CLI | Gemini API-key environment auth | Supported via `--api-key` / `--from-env` | Supported with `--emit-env` or shell integration | Stores the key in the selected managed backend, selects `modelProvider: gemini`, and exports `GEMINI_API_KEY` for `agy` | `src/auth/antigravity.rs`, `src/commands/add.rs`, full `cargo test` |
 
 ## Notes
 
