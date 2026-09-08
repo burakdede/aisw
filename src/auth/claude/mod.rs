@@ -117,6 +117,48 @@ pub use oauth::{
 };
 pub use paths::live_local_state_dir;
 
+/// Classifies credential payloads that aisw knows how to apply to Claude.
+///
+/// This deliberately recognizes a small set of observed upstream shapes so a
+/// future schema change cannot be mistaken for OAuth credentials.
+pub fn classify_live_credentials(bytes: &[u8]) -> Option<crate::config::AuthMethod> {
+    let normalized = normalize_credentials_bytes(bytes).unwrap_or_else(|| bytes.to_vec());
+    let value: serde_json::Value = serde_json::from_slice(&normalized).ok()?;
+    let object = value.as_object()?;
+
+    if nonempty_string(object.get("apiKey")) {
+        return Some(crate::config::AuthMethod::ApiKey);
+    }
+
+    let oauth = ["oauthToken", "token", "accessToken", "access_token"]
+        .into_iter()
+        .any(|field| nonempty_string(object.get(field)))
+        || object
+            .get("claudeAiOauth")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|oauth| {
+                ["accessToken", "refreshToken", "token", "access_token"]
+                    .into_iter()
+                    .any(|field| nonempty_string(oauth.get(field)))
+            })
+        || object
+            .get("account")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|account| {
+                ["email", "emailAddress", "email_address"]
+                    .into_iter()
+                    .any(|field| nonempty_string(account.get(field)))
+            });
+
+    oauth.then_some(crate::config::AuthMethod::OAuth)
+}
+
+fn nonempty_string(value: Option<&serde_json::Value>) -> bool {
+    value
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
 pub fn classify_profile(
     user_home: &Path,
     profile_store: &ProfileStore,
@@ -973,6 +1015,51 @@ mod tests {
         );
         // Profile dir cleaned up after the failed OAuth attempt.
         assert!(!ps.exists(Tool::Claude, "work"));
+    }
+
+    #[test]
+    fn classify_live_credentials_accepts_known_api_key_and_oauth_shapes() {
+        assert_eq!(
+            classify_live_credentials(br#"{"apiKey":"sk-ant-test"}"#),
+            Some(AuthMethod::ApiKey)
+        );
+        for payload in [
+            br#"{"oauthToken":"token"}"#.as_slice(),
+            br#"{"token":"token"}"#.as_slice(),
+            br#"{"claudeAiOauth":{"accessToken":"token"}}"#.as_slice(),
+        ] {
+            assert_eq!(classify_live_credentials(payload), Some(AuthMethod::OAuth));
+        }
+    }
+
+    #[test]
+    fn classify_live_credentials_rejects_unknown_or_empty_shapes() {
+        for payload in [
+            br#"{}"#.as_slice(),
+            br#"{"apiKey":""}"#.as_slice(),
+            br#"{"futureCredentialFormat":{"value":"token"}}"#.as_slice(),
+            b"not-json".as_slice(),
+        ] {
+            assert_eq!(classify_live_credentials(payload), None);
+        }
+    }
+
+    #[test]
+    fn live_snapshot_ignores_unknown_credential_payload() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(CREDENTIALS_FILE),
+            br#"{"futureCredentialFormat":{"value":"token"}}"#,
+        )
+        .unwrap();
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        assert!(oauth::live_credentials_snapshot_for_import(&user_home)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
