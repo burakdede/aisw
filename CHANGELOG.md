@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- `aisw doctor` now fails clearly when `config.json` uses a schema newer than
+  the installed binary supports, instead of reporting the file as valid.
 - **Behavior change:** `aisw use --all` now exits non-zero when a tool switch fails. It previously exited `0` and reported success, contradicting the documented contract that a zero exit means success. On partial failure the `--json` output is now the standard failure envelope (`{"ok": false, "error": {...}}`) instead of `{"ok": true, ..., "warnings": [...]}`.
 - `aisw use --all` now honors `--emit-env` and `--state-mode`. `--emit-env` previously fell through to the human-readable summary, which a shell hook would then `eval`.
 - `aisw remove` no longer deletes credentials and profile files before checking whether a context still references the profile — the removal was rejected afterwards, leaving the data already destroyed.

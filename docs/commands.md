@@ -623,7 +623,10 @@ See [Shell integration](shell-integration.md) for details and completion setup.
 aisw doctor [--json]
 ```
 
-Check install and environment health: binary locations, `~/.aisw/` permissions, shell hook status, and keyring availability.
+Check install and environment health: binary locations, compatibility drift,
+`~/.aisw/` permissions, shell hook status, keyring availability, and config
+schema support. A future config schema is a hard failure with an upgrade
+remediation; agent version drift remains advisory.
 
 ```sh
 aisw doctor

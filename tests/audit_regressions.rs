@@ -400,6 +400,32 @@ fn doctor_passes_for_a_healthy_profile_of_every_tool() {
     );
 }
 
+#[test]
+fn doctor_reports_future_config_schema_in_json() {
+    let env = TestEnv::new();
+    std::fs::write(
+        env.aisw_home.join("config.json"),
+        r#"{"version":99,"profiles":{}}"#,
+    )
+    .unwrap();
+
+    let output = env.output(&["doctor", "--json"]);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let config_check = json["checks"]
+        .as_array()
+        .expect("checks array")
+        .iter()
+        .find(|check| check["name"] == "config/json")
+        .expect("config check");
+
+    assert_eq!(config_check["status"], "fail");
+    assert!(config_check["detail"]
+        .as_str()
+        .expect("config detail")
+        .contains("unsupported schema v99"));
+    assert!(!output.status.success());
+}
+
 /// The permission check must still catch a genuinely world-readable credential.
 #[test]
 #[cfg(unix)]

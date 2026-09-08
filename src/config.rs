@@ -14,7 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::error::AiswError;
 use crate::types::{StateMode, Tool};
 
-const CURRENT_VERSION: u32 = 2;
+pub(crate) const CURRENT_VERSION: u32 = 2;
 const CONFIG_FILE: &str = "config.json";
 const CONFIG_LOCK_FILE: &str = "config.json.lock";
 const AISW_HOME_ENV: &str = "AISW_HOME";

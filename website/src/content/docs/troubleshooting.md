@@ -33,7 +33,16 @@ aisw verify --json
 aisw repair --json --dry-run
 ```
 
-`doctor` checks binary detection, `~/.aisw/` permissions, shell hook status, and keyring availability. `status --json` shows the full state of every tool including live-match status and any credential warnings. `verify --json` combines both into a pass/warn/fail verdict with remediation hints. `repair --json --dry-run` previews safe local fixes for missing aisw state or broad permissions.
+`doctor` checks binary detection, compatibility drift, `~/.aisw/` permissions,
+shell hook status, keyring availability, and config schema support. `status
+--json` shows the full state of every tool including live-match status and any
+credential warnings. `verify --json` combines both into a pass/warn/fail
+verdict with remediation hints. `repair --json --dry-run` previews safe local
+fixes for missing aisw state or broad permissions.
+
+If `doctor` reports an unsupported config schema, upgrade `aisw` before editing
+profiles. Older binaries deliberately refuse to rewrite newer config files so
+saved context and profile data cannot be silently discarded.
 
 ---
 
