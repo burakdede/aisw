@@ -105,7 +105,7 @@ This is especially useful when:
 
 For Codex ChatGPT-managed auth, `--from-live` is bootstrap-only. After import, re-login directly inside the isolated profile if you want a durable profile that survives future upstream refreshes cleanly.
 
-For Gemini, this pattern applies to whichever auth mode is currently live on the machine. Upstream Gemini docs currently recommend Google-account login for interactive local use, but some account types still require `GOOGLE_CLOUD_PROJECT`, and non-interactive/headless use should rely on `GEMINI_API_KEY` or Vertex AI.
+For Gemini, this pattern applies to supported enterprise/API-key/Vertex AI auth modes currently live on the machine. Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accounts on June 18, 2026; those users should migrate to Antigravity. Enterprise setups may require `GOOGLE_CLOUD_PROJECT`, and non-interactive/headless use should rely on `GEMINI_API_KEY` or Vertex AI. See the [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
 
 ## GUI-safe and automation-safe secret entry
 

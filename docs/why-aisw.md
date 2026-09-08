@@ -138,7 +138,7 @@ Yes, with an important distinction:
 
 **Can I manage multiple Gemini CLI accounts?**
 
-Yes. Gemini uses an OAuth token stored locally. `aisw add gemini <name>` captures it; `aisw use gemini <name>` restores it.
+For supported Gemini CLI enterprise auth, yes: `aisw add gemini <name>` captures locally stored state and `aisw use gemini <name>` restores it. Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accounts on June 18, 2026; those users should migrate to Antigravity. API-key and Vertex AI profiles remain supported. See the [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
 
 **What if my work setup uses Claude, Codex, Gemini, and Antigravity with different account names?**
 

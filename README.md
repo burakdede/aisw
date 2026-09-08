@@ -232,7 +232,7 @@ aisw context use acme
 - Codex: ChatGPT-managed `aisw add codex <name> --from-live` is bootstrap-only. The durable path is direct per-profile login with `aisw add codex <name>`.
 - Codex: personal access token sessions imported from live state are treated separately from ChatGPT-managed refresh-token auth, so the shared-mode ChatGPT block does not apply to them.
 - Codex: shared-mode ChatGPT auth switching is explicitly unsupported.
-- Gemini: Google-account login is currently documented upstream as the recommended interactive local path. Some account types still require `GOOGLE_CLOUD_PROJECT`, and headless automation should prefer `GEMINI_API_KEY` or Vertex AI.
+- Gemini: upstream stopped serving Google AI Pro, Ultra, and free-tier individual accounts through Gemini CLI on June 18, 2026; those users should migrate to Antigravity. Gemini CLI enterprise and API-key / Vertex AI paths remain supported. See the [upstream transition announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
 - Gemini: `aisw init` and `aisw add gemini ...` can still capture the currently live Gemini state for supported upstream auth modes, but you should start a fresh process after switching.
 - Antigravity: OAuth only. `--api-key` and `--from-env` are rejected, because upstream documents keyring-backed sign-in rather than API-key profile auth.
 - Antigravity: no documented per-profile auth root exists, so switching replaces the shared live session and `--state-mode` does not apply.
@@ -328,12 +328,14 @@ The practical value is simple: `aisw use --all --profile personal` works when na
 |---|---|---|---|---|---|
 | Claude Code | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
-| Gemini CLI | `gemini` | Google-account auth, Vertex AI, API key | Full | Full | Full |
+| Gemini CLI | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
 | Antigravity CLI | `agy` | OAuth | Full | Full | Full |
 
 Credentials are stored in the native OS keyring where available (macOS Keychain, Linux Secret Service, Windows Credential Manager) and fall back to local files with `0600` permissions.
 
 Antigravity is OAuth-only: upstream documents keyring-backed sign-in rather than API-key profile auth, so `--api-key` and `--from-env` are rejected for it. It also has no documented per-profile auth root like `CODEX_HOME`, so `aisw` switches its shared live session rather than isolating it, and `--state-mode` does not apply.
+
+\* Gemini CLI no longer serves Google AI Pro, Ultra, or free-tier individual accounts; those users should use Antigravity instead. Gemini CLI enterprise and API-key / Vertex AI users remain supported.
 
 For Codex specifically:
 - Durable: API-key profiles.

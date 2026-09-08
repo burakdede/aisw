@@ -75,7 +75,7 @@ Claude OAuth support depends on how the installed Claude build scopes auth:
 
 Interactive OAuth requires a terminal and browser access. It is not available in `--non-interactive` mode.
 
-Important Gemini note: current upstream Gemini CLI docs again recommend `Login with Google` for interactive local use. Some account types still require `GOOGLE_CLOUD_PROJECT`, including Workspace / Code Assist-style setups and certain region-limited cases. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI.
+Important Gemini note: Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accounts on June 18, 2026; those users should migrate to Antigravity. Enterprise Google-account flows and API-key / Vertex AI use remain supported. Some enterprise setups still require `GOOGLE_CLOUD_PROJECT`. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI. See the [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
 
 ## Capture current live credentials
 
