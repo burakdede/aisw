@@ -102,6 +102,8 @@ fn status_json_contract_snapshot() {
             "binary_found": true,
             "binary_path": "<path>",
             "binary_version": "claude 2.3.0",
+            "binary_compatibility": "newer_than_verified",
+            "compatibility_baseline": "v2.1.263",
             "stored_profiles": 1,
             "active_profile": "work",
             "auth_method": "api_key",
@@ -119,6 +121,8 @@ fn status_json_contract_snapshot() {
             "binary_found": true,
             "binary_path": "<path>",
             "binary_version": "codex 1.0.0",
+            "binary_compatibility": "newer_than_verified",
+            "compatibility_baseline": "rust-v0.153.4",
             "stored_profiles": 1,
             "active_profile": "work",
             "auth_method": "api_key",
@@ -136,6 +140,8 @@ fn status_json_contract_snapshot() {
             "binary_found": true,
             "binary_path": "<path>",
             "binary_version": "gemini 0.9.0",
+            "binary_compatibility": "older_than_verified",
+            "compatibility_baseline": "v0.58.0",
             "stored_profiles": 1,
             "active_profile": "work",
             "auth_method": "api_key",
@@ -153,6 +159,8 @@ fn status_json_contract_snapshot() {
             "binary_found": false,
             "binary_path": null,
             "binary_version": null,
+            "binary_compatibility": null,
+            "compatibility_baseline": "1.1.27",
             "stored_profiles": 0,
             "active_profile": null,
             "auth_method": null,
@@ -291,6 +299,8 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
         "binary_found",
         "binary_path",
         "binary_version",
+        "binary_compatibility",
+        "compatibility_baseline",
         "stored_profiles",
         "active_profile",
         "auth_method",
@@ -309,7 +319,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
             "missing key `{key}` in status entry"
         );
     }
-    assert_eq!(entry.len(), 15);
+    assert_eq!(entry.len(), 17);
 }
 
 #[test]

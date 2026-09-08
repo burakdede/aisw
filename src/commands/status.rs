@@ -22,6 +22,8 @@ pub(crate) struct ToolStatus {
     pub binary_found: bool,
     pub binary_path: Option<String>,
     pub binary_version: Option<String>,
+    pub binary_compatibility: Option<String>,
+    pub compatibility_baseline: &'static str,
     pub stored_profiles: usize,
     pub active_profile: Option<String>,
     /// False when `active` points at a profile with no config entry.
@@ -156,6 +158,7 @@ pub(crate) fn collect_status(
     for tool in Tool::ALL {
         let detected = tool_detection::detect_at_path(tool, tool_path.as_os_str());
         let binary_found = detected.is_some();
+        let binary_version = detected.as_ref().and_then(|tool| tool.version.clone());
 
         let active_name = config.active_for(tool);
         let stored_profiles = config.profiles_for(tool).len();
@@ -179,7 +182,13 @@ pub(crate) fn collect_status(
             binary_path: detected
                 .as_ref()
                 .map(|tool| tool.binary_path.display().to_string()),
-            binary_version: detected.and_then(|tool| tool.version),
+            binary_version: binary_version.clone(),
+            binary_compatibility: detected.as_ref().map(|tool| {
+                crate::compatibility::assess(tool.tool, binary_version.as_deref())
+                    .as_str()
+                    .to_owned()
+            }),
+            compatibility_baseline: crate::compatibility::baseline(tool),
             stored_profiles,
             active_profile: active.profile,
             active_profile_registered: active.registered,
@@ -361,6 +370,11 @@ fn apply_status_filters(statuses: &mut Vec<ToolStatus>, args: &StatusArgs) {
                         .unwrap_or_default()
                         .to_ascii_lowercase()
                         .contains(&needle)
+                    || s.binary_compatibility
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                        .contains(&needle)
             });
         }
     }
@@ -525,6 +539,16 @@ fn print_text(statuses: &[ToolStatus], context_status: Option<&DerivedContextSta
         if let Some(version) = s.binary_version.as_deref() {
             output::print_kv("Version", version);
         }
+        if let Some(compatibility) = s.binary_compatibility.as_deref() {
+            output::print_kv("Compatibility", compatibility);
+            if compatibility != "verified" {
+                output::print_warning(format!(
+                    "installed {} is outside the audited baseline {}",
+                    s.tool.display_name(),
+                    s.compatibility_baseline
+                ));
+            }
+        }
         output::print_kv(
             "Active",
             output::ellipsize(
@@ -570,6 +594,8 @@ fn print_json(
                 "binary_found":         s.binary_found,
                 "binary_path":          s.binary_path,
                 "binary_version":       s.binary_version,
+                "binary_compatibility": s.binary_compatibility,
+                "compatibility_baseline": s.compatibility_baseline,
                 "stored_profiles":      s.stored_profiles,
                 "active_profile":       s.active_profile,
                 "auth_method":          s.auth_method,
@@ -1261,6 +1287,8 @@ mod tests {
                 binary_found: true,
                 binary_path: None,
                 binary_version: None,
+                binary_compatibility: None,
+                compatibility_baseline: crate::compatibility::baseline(Tool::Claude),
                 stored_profiles: 1,
                 active_profile: Some("work".to_owned()),
                 active_profile_registered: true,
@@ -1280,6 +1308,8 @@ mod tests {
                 binary_found: true,
                 binary_path: None,
                 binary_version: None,
+                binary_compatibility: None,
+                compatibility_baseline: crate::compatibility::baseline(Tool::Codex),
                 stored_profiles: 1,
                 active_profile: None,
                 active_profile_registered: true,
@@ -1324,6 +1354,8 @@ mod tests {
                 binary_found: true,
                 binary_path: None,
                 binary_version: None,
+                binary_compatibility: None,
+                compatibility_baseline: crate::compatibility::baseline(Tool::Claude),
                 stored_profiles: 1,
                 active_profile: Some("old".to_owned()),
                 active_profile_registered: true,
@@ -1343,6 +1375,8 @@ mod tests {
                 binary_found: true,
                 binary_path: None,
                 binary_version: None,
+                binary_compatibility: None,
+                compatibility_baseline: crate::compatibility::baseline(Tool::Codex),
                 stored_profiles: 1,
                 active_profile: Some("new".to_owned()),
                 active_profile_registered: true,

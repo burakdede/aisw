@@ -246,6 +246,8 @@ mod tests {
             binary_found: true,
             binary_path: None,
             binary_version: None,
+            binary_compatibility: None,
+            compatibility_baseline: crate::compatibility::baseline(tool),
             stored_profiles: 1,
             active_profile: Some("work".to_owned()),
             active_profile_registered: true,

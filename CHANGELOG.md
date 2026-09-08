@@ -4,6 +4,9 @@
 
 ### Added
 
+- `aisw status` and `aisw doctor` now identify agent releases outside the
+  audited compatibility baseline without exposing credentials or blocking
+  solely on version drift.
 - Added a versioned agent compatibility baseline covering the current Claude,
   Codex, Gemini, and Antigravity releases and the verification scope for each.
 - `aisw status` now reports the detected agent binary path and version in
