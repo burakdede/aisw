@@ -116,6 +116,13 @@ fn tool_verification(tool: &status::ToolStatus) -> ToolVerification {
             ));
             VerifyStatus::Warn
         }
+    } else if tool.credential_state == status::CredentialState::Unknown {
+        issues.push("managed credential layout is not recognized".to_owned());
+        remediation.push(
+            "Inspect 'aisw status --json' and verify the upstream credential layout before switching"
+                .to_owned(),
+        );
+        VerifyStatus::Warn
     } else if !tool.credentials_present {
         issues.push("managed credentials are missing".to_owned());
         remediation.push(format!(
@@ -259,6 +266,7 @@ mod tests {
             state_mode: Some("isolated".to_owned()),
             active_profile_added_at: None,
             active_profile_applied: Some(true),
+            credential_state: status::CredentialState::Present,
             credentials_present: true,
             permissions_ok: true,
         }
@@ -311,11 +319,24 @@ mod tests {
     fn verify_fails_when_managed_credentials_are_missing() {
         let mut tool = tool_status(Tool::Codex);
         tool.credentials_present = false;
+        tool.credential_state = status::CredentialState::Missing;
 
         let result = tool_verification(&tool);
 
         assert_eq!(result.status, VerifyStatus::Fail);
         assert!(result.issues[0].contains("managed credentials are missing"));
+    }
+
+    #[test]
+    fn verify_warns_when_credential_layout_is_unknown() {
+        let mut tool = tool_status(Tool::Codex);
+        tool.credential_state = status::CredentialState::Unknown;
+        tool.credentials_present = false;
+
+        let result = tool_verification(&tool);
+
+        assert_eq!(result.status, VerifyStatus::Warn);
+        assert!(result.issues[0].contains("layout"));
     }
 
     #[test]

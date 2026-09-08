@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::auth;
 use crate::cli::StatusArgs;
@@ -15,6 +16,14 @@ use crate::types::Tool;
 enum LiveActivation {
     Applied,
     NotApplied,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CredentialState {
+    Present,
+    Missing,
+    Unknown,
 }
 
 pub(crate) struct ToolStatus {
@@ -36,6 +45,7 @@ pub(crate) struct ToolStatus {
     pub state_mode: Option<String>,
     pub active_profile_added_at: Option<chrono::DateTime<chrono::Utc>>,
     pub active_profile_applied: Option<bool>,
+    pub credential_state: CredentialState,
     pub credentials_present: bool,
     pub permissions_ok: bool,
 }
@@ -200,6 +210,7 @@ pub(crate) fn collect_status(
             state_mode,
             active_profile_added_at: active.added_at,
             active_profile_applied: active.applied,
+            credential_state: active.credential_state,
             credentials_present: active.credentials_present,
             permissions_ok: active.permissions_ok,
         });
@@ -221,6 +232,7 @@ struct ActiveProfileStatus {
     antigravity_auth_classification: Option<String>,
     added_at: Option<chrono::DateTime<chrono::Utc>>,
     applied: Option<bool>,
+    credential_state: CredentialState,
     credentials_present: bool,
     permissions_ok: bool,
 }
@@ -237,6 +249,7 @@ impl Default for ActiveProfileStatus {
             antigravity_auth_classification: None,
             added_at: None,
             applied: None,
+            credential_state: CredentialState::Missing,
             credentials_present: false,
             permissions_ok: true,
         }
@@ -259,8 +272,14 @@ fn collect_active_profile_status(
     };
 
     let profile_dir = profile_store.profile_dir(tool, name);
-    let (credentials_present, permissions_ok) =
-        check_profile_storage(&profile_dir, tool, name, meta.credential_backend);
+    let (credential_state, permissions_ok) = check_profile_storage(
+        &profile_dir,
+        tool,
+        name,
+        meta.auth_method,
+        meta.credential_backend,
+    );
+    let credentials_present = credential_state == CredentialState::Present;
 
     // Only the owning tool's classifier runs; the others stay `None`.
     let mut claude_auth_classification = None;
@@ -335,6 +354,7 @@ fn collect_active_profile_status(
         antigravity_auth_classification,
         added_at: Some(meta.added_at),
         applied,
+        credential_state,
         credentials_present,
         permissions_ok,
     })
@@ -401,50 +421,60 @@ fn auth_label(method: AuthMethod) -> &'static str {
     }
 }
 
-/// Returns (credentials_present, permissions_ok).
-/// credentials_present: at least one regular file exists in the dir.
+/// Returns (credential_state, permissions_ok).
 /// permissions_ok: all regular files have 0600 permissions (unix only).
 fn check_profile_storage(
     dir: &Path,
     tool: Tool,
     profile_name: &str,
+    auth_method: AuthMethod,
     credential_backend: CredentialBackend,
-) -> (bool, bool) {
+) -> (CredentialState, bool) {
     if !dir.is_dir() {
-        return (false, true);
+        return (CredentialState::Missing, true);
     }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return (false, true);
+    let Ok(files) = crate::auth::files::list_regular_files_recursive(dir) else {
+        return (CredentialState::Unknown, true);
     };
-    let mut found_file = false;
     let mut perms_ok = true;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_symlink() || !path.is_file() {
-            continue;
-        }
-        found_file = true;
+    for file in &files {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(&path) {
+            if let Ok(meta) = std::fs::metadata(&file.path) {
                 if meta.permissions().mode() & 0o777 != 0o600 {
                     perms_ok = false;
                 }
             }
         }
     }
-    let credentials_present = match credential_backend {
-        CredentialBackend::File => found_file,
+    let credential_state = match credential_backend {
+        CredentialBackend::File => {
+            let primary = match (tool, auth_method) {
+                (Tool::Claude, _) => ".credentials.json",
+                (Tool::Codex, _) => "auth.json",
+                (Tool::Gemini, AuthMethod::ApiKey) => ".env",
+                (Tool::Gemini, AuthMethod::OAuth) => "oauth_creds.json",
+                (Tool::Antigravity, _) => "keyring-secret.json",
+            };
+            if files.iter().any(|file| file.file_name == primary) {
+                CredentialState::Present
+            } else if files.is_empty() {
+                CredentialState::Missing
+            } else {
+                CredentialState::Unknown
+            }
+        }
         CredentialBackend::SystemKeyring => {
-            auth::secure_store::read_profile_secret(tool, profile_name)
-                .ok()
-                .flatten()
-                .is_some()
+            match auth::secure_store::read_profile_secret(tool, profile_name) {
+                Ok(Some(_)) => CredentialState::Present,
+                Ok(None) => CredentialState::Missing,
+                Err(_) => CredentialState::Unknown,
+            }
         }
     };
 
-    (credentials_present, perms_ok)
+    (credential_state, perms_ok)
 }
 
 fn status_message(s: &ToolStatus) -> &'static str {
@@ -459,6 +489,9 @@ fn status_message(s: &ToolStatus) -> &'static str {
     }
     if !s.active_profile_registered {
         return "active profile is missing from aisw config \u{2014} run 'aisw repair --apply' or re-add it";
+    }
+    if s.credential_state == CredentialState::Unknown {
+        return "credential storage layout is unrecognized; inspect the profile before switching";
     }
     if !s.credentials_present {
         return match s.credential_backend.as_deref() {
@@ -605,6 +638,7 @@ fn print_json(
                 "antigravity_auth_classification": s.antigravity_auth_classification,
                 "state_mode":           s.state_mode,
                 "active_profile_applied": s.active_profile_applied,
+                "credential_state":     s.credential_state,
                 "credentials_present":  s.credentials_present,
                 "permissions_ok":       s.permissions_ok,
             })
@@ -1300,6 +1334,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(chrono::Utc::now()),
                 active_profile_applied: Some(true),
+                credential_state: CredentialState::Present,
                 credentials_present: true,
                 permissions_ok: true,
             },
@@ -1321,6 +1356,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: None,
                 active_profile_applied: None,
+                credential_state: CredentialState::Missing,
                 credentials_present: false,
                 permissions_ok: true,
             },
@@ -1367,6 +1403,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(older),
                 active_profile_applied: Some(true),
+                credential_state: CredentialState::Present,
                 credentials_present: true,
                 permissions_ok: true,
             },
@@ -1388,6 +1425,7 @@ mod tests {
                 state_mode: Some("isolated".to_owned()),
                 active_profile_added_at: Some(newer),
                 active_profile_applied: Some(true),
+                credential_state: CredentialState::Present,
                 credentials_present: true,
                 permissions_ok: true,
             },

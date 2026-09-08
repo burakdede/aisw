@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- `status` now distinguishes present, missing, and unrecognized credential
+  layouts instead of treating any regular profile file as a credential.
 - Backup restore now commits profile metadata only after its files and secure
   credentials have been restored successfully, and applies file writes as one
   rollback-capable transaction.

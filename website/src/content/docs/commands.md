@@ -465,7 +465,8 @@ aisw list --active-only --json
 aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
 ```
 
-Show per-tool state: installed binary, active profile, credential backend, live-match status, and token expiry warnings.
+Show per-tool state: installed binary, active profile, credential backend,
+credential layout state, live-match status, and token expiry warnings.
 
 When a tool is installed, status also reports the detected `binary_path` and
 `binary_version`. These identify the executable currently found on `PATH` and
@@ -485,6 +486,10 @@ the binary fields in JSON output.
 
 Notes:
 - "Live match" indicates whether the tool's current live credentials match the `aisw`-recorded active profile.
+- `credential_state` is `present` when the known primary credential is stored,
+  `missing` when no profile files or secure credential exist, and `unknown` when
+  files exist but do not match a known credential layout. Unknown layouts are
+  warnings in `verify` and should be inspected before switching profiles.
 - Token expiry warnings appear when an OAuth token is expired or expires within 24 hours.
 - `--context` does not change the shape of plain `status --json` output.
 - `status --context --json` wraps the tool array in a `{ "tools": [...], "context": ... }` object.
