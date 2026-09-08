@@ -57,10 +57,12 @@ pub fn live_credentials_snapshot_for_import(
     match super::keychain::auth_storage(user_home) {
         ClaudeAuthStorage::Keychain => {
             if let Some(bytes) = read_live_keychain_credentials_for_import()? {
-                return Ok(Some(LiveCredentialSnapshot {
-                    bytes,
-                    source: LiveCredentialSource::Keychain,
-                }));
+                if super::classify_live_credentials(&bytes).is_some() {
+                    return Ok(Some(LiveCredentialSnapshot {
+                        bytes,
+                        source: LiveCredentialSource::Keychain,
+                    }));
+                }
             }
         }
         ClaudeAuthStorage::File => {}
@@ -69,10 +71,12 @@ pub fn live_credentials_snapshot_for_import(
     if live_path.exists() {
         let bytes = std::fs::read(&live_path)
             .with_context(|| format!("could not read {}", live_path.display()))?;
-        return Ok(Some(LiveCredentialSnapshot {
-            bytes,
-            source: LiveCredentialSource::File(live_path),
-        }));
+        if super::classify_live_credentials(&bytes).is_some() {
+            return Ok(Some(LiveCredentialSnapshot {
+                bytes,
+                source: LiveCredentialSource::File(live_path),
+            }));
+        }
     }
 
     if live_local_state_dir(user_home).is_none() {
@@ -82,6 +86,10 @@ pub fn live_credentials_snapshot_for_import(
     let Some(bytes) = read_live_keychain_credentials_for_import()? else {
         return Ok(None);
     };
+
+    if super::classify_live_credentials(&bytes).is_none() {
+        return Ok(None);
+    }
 
     Ok(Some(LiveCredentialSnapshot {
         bytes,
