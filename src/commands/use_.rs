@@ -43,7 +43,8 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
         let tool = args
             .tool
             .context("use requires <tool> unless --all is provided")?;
-        run_for_tool(
+        let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+        run_for_tool_unlocked(
             tool,
             args.profile_name.as_deref(),
             args.state_mode,
@@ -64,6 +65,7 @@ pub(crate) fn run_all_in(
     user_home: &Path,
 ) -> Result<()> {
     let config_store = ConfigStore::new(home);
+    let _switch_lock = config_store.acquire_switch_lock()?;
     let config = config_store.load()?;
     let mut switched = 0usize;
     let mut errors = Vec::new();
@@ -84,7 +86,7 @@ pub(crate) fn run_all_in(
         // `--state-mode` only applies to tools that support it; passing it to
         // the others would make the whole `--all` switch fail.
         let tool_state_mode = state_mode_override.filter(|_| tool.supports_state_mode());
-        match run_for_tool(
+        match run_for_tool_unlocked(
             tool,
             Some(profile_name),
             tool_state_mode,
@@ -146,7 +148,8 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     let tool = args
         .tool
         .context("run_in requires tool when --all is not set")?;
-    run_for_tool(
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+    run_for_tool_unlocked(
         tool,
         args.profile_name.as_deref(),
         args.state_mode,
@@ -157,7 +160,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     )
 }
 
-fn run_for_tool(
+fn run_for_tool_unlocked(
     tool: Tool,
     requested_profile_name: Option<&str>,
     state_mode_override: Option<StateMode>,

@@ -319,6 +319,7 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
     let home = _home;
     let user_home = dirs::home_dir().context("could not determine home directory")?;
     let store = ConfigStore::new(home);
+    let _switch_lock = store.acquire_switch_lock()?;
     let config = store.load()?;
     let context = config
         .context(&args.context_name)

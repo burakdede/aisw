@@ -212,7 +212,7 @@ eval "$(aisw context use acme --emit-env)"
 
 ## Concurrency
 
-Commands that write `~/.aisw/config.json` take an exclusive file lock. If two `aisw` commands run concurrently, the second will wait briefly then fail with a lock error. This prevents partial writes in parallel CI matrix jobs. Design your CI steps so profile setup runs before parallel job steps that invoke the tools.
+Commands that write `~/.aisw/config.json` take an exclusive file lock. `aisw use` and `aisw context use` also take an operation lock across the complete live profile switch, including active-profile metadata. If two switching commands run concurrently, the second waits briefly then fails with a lock error. Design your CI steps so profile setup and switching run before parallel job steps that invoke the tools.
 
 ## Common CI patterns
 
