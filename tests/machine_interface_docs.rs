@@ -1,0 +1,26 @@
+use std::path::PathBuf;
+
+fn read_repo_file(path: &str) -> String {
+    std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path))
+        .unwrap_or_else(|error| panic!("could not read {path}: {error}"))
+}
+
+#[test]
+fn automation_docs_publish_the_machine_interface_contract() {
+    let docs = read_repo_file("docs/automation.md");
+    let website = read_repo_file("website/src/content/docs/automation.md");
+
+    for content in [&docs, &website] {
+        for expected in [
+            "### Machine interface versions",
+            "`cli_api_version`",
+            "`json_schema_version`",
+            "`progress_schema_version`",
+            "The current value for each is `1`.",
+            "ignore unknown fields",
+            "Treat an unknown version as unsupported",
+        ] {
+            assert!(content.contains(expected), "missing {expected}");
+        }
+    }
+}

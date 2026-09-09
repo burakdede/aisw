@@ -79,6 +79,18 @@ checks; the command still exits non-zero when `ok` is `false`.
 
 With `--json`, success and expected command failures are emitted as structured JSON on stdout. Human-oriented stdout/stderr output is suppressed. The process still exits non-zero on failure.
 
+### Machine interface versions
+
+Before integrating with a new binary, read `aisw version --json` or `aisw capabilities --json` and record these fields:
+
+| Field | Contract |
+|---|---|
+| `cli_api_version` | Command and flag contract used by automation |
+| `json_schema_version` | Payload shape for commands using `--json` |
+| `progress_schema_version` | Newline-delimited event shape from `--progress-json` |
+
+The current value for each is `1`. Within a version, existing fields and their meanings remain compatible; integrations should ignore unknown fields so additive changes do not break them. A removed field, incompatible type change, or changed meaning requires a schema-version increment. Treat an unknown version as unsupported and fail with an actionable message rather than guessing.
+
 Mutation results are wrapped in a top-level `result` object. For `use`,
 `result.warnings` contains non-fatal diagnostics such as a failed OAuth
 profile synchronization; an empty array means no such diagnostic was raised.
