@@ -44,6 +44,7 @@ pub enum LiveAuthStorage {
     Auto,
     File,
     Keyring,
+    Ephemeral,
     Unknown,
 }
 
@@ -53,6 +54,7 @@ impl LiveAuthStorage {
             LiveAuthStorage::Auto => "auto",
             LiveAuthStorage::File => "file",
             LiveAuthStorage::Keyring => "keyring",
+            LiveAuthStorage::Ephemeral => "ephemeral",
             LiveAuthStorage::Unknown => "unknown",
         }
     }
@@ -182,6 +184,7 @@ fn auth_storage_from_str(raw: &str) -> LiveAuthStorage {
         "auto" => LiveAuthStorage::Auto,
         "file" => LiveAuthStorage::File,
         "keyring" => LiveAuthStorage::Keyring,
+        "ephemeral" => LiveAuthStorage::Ephemeral,
         _ => LiveAuthStorage::Unknown,
     }
 }
@@ -956,6 +959,15 @@ mod tests {
             parse_live_auth_storage("cli_auth_credentials_store = \"keyring\"\n"),
             LiveAuthStorage::Keyring
         );
+    }
+
+    #[test]
+    fn parse_live_auth_storage_reads_ephemeral_backend() {
+        assert_eq!(
+            parse_live_auth_storage("cli_auth_credentials_store = \"ephemeral\"\n"),
+            LiveAuthStorage::Ephemeral
+        );
+        assert_eq!(LiveAuthStorage::Ephemeral.description(), "ephemeral");
     }
 
     #[test]

@@ -78,6 +78,7 @@ Supported Codex auth models in `aisw`:
 - Durable: ChatGPT-managed profiles authenticated directly inside their own isolated `CODEX_HOME`.
 - Durable when already live upstream: personal access token sessions imported with `aisw add codex <name> --from-live` after `codex login --with-access-token`.
 - Bootstrap only: ChatGPT-managed profiles imported with `aisw add codex <name> --from-live`.
+- Unsupported for import: `ephemeral` credentials are process-local and cannot produce a durable aisw profile.
 - Unsupported: shared-mode ChatGPT auth switching for ChatGPT-managed refresh-token auth.
 
 Codex's keyring account identifier is an opaque string, not the system username. `aisw` discovers the identifier from the live keyring entry during import and stores it so subsequent switches write to the correct account. `aisw` will not fabricate a keyring account name if it cannot read the live identifier.
