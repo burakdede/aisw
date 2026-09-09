@@ -9,7 +9,7 @@ description: How to add and capture named profiles in aisw using API keys, OAuth
 aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TEXT] [--credential-backend file|system-keyring] [--set-active]
 ```
 
-`<tool>` is one of: `claude`, `codex`, `gemini`.
+`<tool>` is one of: `claude`, `codex`, `gemini`, `antigravity`.
 `<profile>` is any identifier you choose: `work`, `personal`, `client-acme`, `ci`.
 
 ## API key

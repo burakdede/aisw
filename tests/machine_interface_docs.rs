@@ -26,3 +26,17 @@ fn automation_docs_publish_the_machine_interface_contract() {
         }
     }
 }
+
+#[test]
+fn profile_onboarding_lists_every_supported_tool() {
+    for path in [
+        "docs/adding-profiles.md",
+        "website/src/content/docs/adding-profiles.md",
+    ] {
+        let content = read_repo_file(path);
+        assert!(
+            content.contains("`<tool>` is one of: `claude`, `codex`, `gemini`, `antigravity`."),
+            "profile onboarding is missing a supported tool: {path}"
+        );
+    }
+}
