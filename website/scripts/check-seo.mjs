@@ -12,9 +12,27 @@ const requiredFiles = [
   'llms-full.txt',
   'site.webmanifest',
   'version.json',
-  'sitemap-index.xml',
-  'sitemap-0.xml',
 ];
+
+const redirects = {
+  '/aisw/': 'https://aiswitcher.dev/',
+  '/aisw/common-situations/': 'https://aiswitcher.dev/docs/common-situations/',
+  '/aisw/faq/': 'https://aiswitcher.dev/guides/',
+  '/aisw/quickstart/': 'https://aiswitcher.dev/docs/quickstart/',
+  '/aisw/commands/': 'https://aiswitcher.dev/docs/commands/',
+  '/aisw/automation/': 'https://aiswitcher.dev/docs/automation/',
+  '/aisw/shell-integration/': 'https://aiswitcher.dev/docs/shell-integration/',
+  '/aisw/workspace/': 'https://aiswitcher.dev/docs/workspace/',
+  '/aisw/adding-profiles/': 'https://aiswitcher.dev/docs/adding-profiles/',
+  '/aisw/supported-tools/': 'https://aiswitcher.dev/supported-tools/',
+  '/aisw/acceptance-matrix/': 'https://aiswitcher.dev/supported-tools/',
+  '/aisw/configuration/': 'https://aiswitcher.dev/docs/configuration/',
+  '/aisw/how-it-works/': 'https://aiswitcher.dev/docs/how-it-works/',
+  '/aisw/security/': 'https://aiswitcher.dev/security/',
+  '/aisw/why-aisw/': 'https://aiswitcher.dev/docs/why-aisw/',
+  '/aisw/troubleshooting/': 'https://aiswitcher.dev/docs/troubleshooting/',
+  '/aisw/releases/': 'https://aiswitcher.dev/releases/',
+};
 
 async function main() {
   for (const file of requiredFiles) {
@@ -27,25 +45,20 @@ async function main() {
     throw new Error('Missing version metadata in version.json');
   }
 
-  const indexHtml = await fs.readFile(path.join(distRoot, 'index.html'), 'utf8');
-  assertContains(indexHtml, `<link rel="canonical" href="${siteUrl}"/>`, 'root canonical URL');
-  assertContains(indexHtml, 'application/ld+json', 'structured data');
-  assertContains(indexHtml, `Current release: v${version}.`, 'release-aware hero tagline');
-  assertContains(indexHtml, 'href="/aisw/quickstart/"', 'base-aware internal docs link');
-  assertNotContains(indexHtml, '/aisw/aisw/', 'duplicate base path in root HTML');
-  assertNotContains(indexHtml, 'href="/quickstart/"', 'root-relative docs link without base');
-
-  const sitemap = await fs.readFile(path.join(distRoot, 'sitemap-0.xml'), 'utf8');
-  assertContains(sitemap, '<loc>https://burakdede.github.io/aisw/</loc>', 'root sitemap entry');
-  assertNotContains(sitemap, '/aisw/aisw/', 'duplicate base path in sitemap');
-
   const robotsTxt = await fs.readFile(path.join(distRoot, 'robots.txt'), 'utf8');
-  assertContains(robotsTxt, 'Sitemap: https://burakdede.github.io/aisw/sitemap-index.xml', 'robots sitemap');
+  assertContains(robotsTxt, 'User-agent: *\nDisallow: /', 'legacy robots policy');
 
-  const llmsFull = await fs.readFile(path.join(distRoot, 'llms-full.txt'), 'utf8');
-  assertContains(llmsFull, `Current version: ${version}`, 'llms-full current version');
-  assertContains(llmsFull, '## Quickstart', 'llms-full quickstart entry');
-  assertContains(llmsFull, 'Headings:', 'llms-full heading inventory');
+  for (const [route, target] of Object.entries(redirects)) {
+    const file = path.join(distRoot, route.replace(/^\/aisw\//, ''), 'index.html');
+    const html = await fs.readFile(file, 'utf8');
+    assertContains(html, `<link rel="canonical" href="${target}">`, `${route} canonical redirect`);
+    assertContains(html, `location.replace(${JSON.stringify(target)})`, `${route} redirect script`);
+    assertContains(html, 'noindex,nofollow', `${route} noindex policy`);
+  }
+
+  const llms = await fs.readFile(path.join(distRoot, 'llms.txt'), 'utf8');
+  assertContains(llms, 'https://aiswitcher.dev/', 'canonical LLM destination');
+  assertNotContains(llms, 'burakdede.github.io/aisw', 'legacy LLM URL');
   assertContains(versionJson, `"version": "${version}"`, 'version metadata artifact');
 }
 
