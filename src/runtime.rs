@@ -12,12 +12,15 @@ static NON_INTERACTIVE: AtomicBool = AtomicBool::new(false);
 static QUIET: AtomicBool = AtomicBool::new(false);
 #[cfg(not(test))]
 static OUTPUT_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+#[cfg(not(test))]
+static COMMAND: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
 
 #[cfg(test)]
 thread_local! {
     static NON_INTERACTIVE: Cell<bool> = const { Cell::new(false) };
     static QUIET: Cell<bool> = const { Cell::new(false) };
     static OUTPUT_MODE: Cell<OutputMode> = const { Cell::new(OutputMode::Human) };
+    static COMMAND: Cell<Option<&'static str>> = const { Cell::new(None) };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,12 +36,36 @@ pub fn configure(non_interactive: bool, quiet: bool, output_mode: OutputMode) {
         NON_INTERACTIVE.with(|flag| flag.set(non_interactive));
         QUIET.with(|flag| flag.set(quiet));
         OUTPUT_MODE.with(|flag| flag.set(output_mode));
+        COMMAND.with(|command| command.set(None));
     }
     #[cfg(not(test))]
     {
         NON_INTERACTIVE.store(non_interactive, Ordering::Relaxed);
         QUIET.store(quiet, Ordering::Relaxed);
         OUTPUT_MODE.store(output_mode as u8, Ordering::Relaxed);
+        *COMMAND.lock().unwrap_or_else(|poison| poison.into_inner()) = None;
+    }
+}
+
+pub fn set_command(command: &'static str) {
+    #[cfg(test)]
+    {
+        COMMAND.with(|current| current.set(Some(command)));
+    }
+    #[cfg(not(test))]
+    {
+        *COMMAND.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(command);
+    }
+}
+
+pub fn command() -> Option<&'static str> {
+    #[cfg(test)]
+    {
+        COMMAND.with(Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        *COMMAND.lock().unwrap_or_else(|poison| poison.into_inner())
     }
 }
 

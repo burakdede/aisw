@@ -56,6 +56,7 @@ pub fn run() -> Result<()> {
         }
     };
     runtime::configure(cli.non_interactive, cli.quiet, output_mode);
+    runtime::set_command(cli.command.machine_name());
     output::configure(cli.no_color, cli.quiet);
     commands::dispatch(cli)
 }
