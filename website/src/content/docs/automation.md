@@ -220,6 +220,10 @@ The JSON failure envelope carries the same information in a stable shape:
 }
 ```
 
+The top-level `command` identifies the parsed operation for execution
+failures, including nested commands such as `context_use` and
+`workspace_bind`. Parse failures that do not accept a command use `unknown`.
+
 Branch on `error.kind`, not on the message text  -  `kind` is stable, the message is not. `remediation` is present only when a suggested next command exists; `safe: true` means it is read-only and can be run automatically.
 
 `aisw doctor` and `aisw verify` exit non-zero when a check fails, so they work directly as CI gates.

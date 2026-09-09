@@ -321,7 +321,7 @@ fn context_create_duplicate_is_structured_in_machine_mode() {
     assert!(output.stderr.is_empty());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["command"], "context_create");
     assert_eq!(json["error"]["kind"], "context_already_exists");
     assert_eq!(
         json["error"]["remediation"]["command"],
@@ -339,7 +339,7 @@ fn context_use_missing_context_is_structured_in_machine_mode() {
     assert!(output.stderr.is_empty());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["command"], "context_use");
     assert_eq!(json["error"]["kind"], "context_not_found");
     assert_eq!(
         json["error"]["remediation"]["command"],
@@ -357,7 +357,7 @@ fn context_create_missing_profile_is_structured_in_machine_mode() {
     assert!(output.stderr.is_empty());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["command"], "context_create");
     assert_eq!(json["error"]["kind"], "profile_not_found");
 }
 
@@ -378,7 +378,7 @@ fn workspace_bind_missing_context_is_structured_in_machine_mode() {
     assert!(output.stderr.is_empty());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["command"], "workspace_bind");
     assert_eq!(json["error"]["kind"], "context_not_found");
 }
 
@@ -421,7 +421,7 @@ fn add_api_key_stdin_empty_is_structured_failure() {
     assert!(output.stderr.is_empty());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["command"], "unknown");
+    assert_eq!(json["command"], "add");
     assert_eq!(json["error"]["kind"], "validation_error");
 }
 

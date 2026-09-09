@@ -129,6 +129,32 @@ pub enum Command {
     Workspace(WorkspaceArgs),
 }
 
+#[allow(dead_code)]
+impl Command {
+    pub fn machine_name(&self) -> &'static str {
+        match self {
+            Self::Version(_) => "version",
+            Self::Capabilities(_) => "capabilities",
+            Self::Add(_) => "add",
+            Self::Context(args) => args.command.machine_name(),
+            Self::Use(_) => "use",
+            Self::List(_) => "list",
+            Self::Remove(_) => "remove",
+            Self::Rename(_) => "rename",
+            Self::Status(_) => "status",
+            Self::Init(_) => "init",
+            Self::Uninstall(_) => "uninstall",
+            Self::ShellHook(_) => "shell_hook",
+            Self::Backup(args) => args.command.machine_name(),
+            Self::Doctor(_) => "doctor",
+            Self::Verify(_) => "verify",
+            Self::Repair(_) => "repair",
+            Self::ProjectBindings(args) => args.command.machine_name(),
+            Self::Workspace(args) => args.command.machine_name(),
+        }
+    }
+}
+
 #[derive(Args, Debug)]
 pub struct DoctorArgs {
     /// Output results as JSON
@@ -180,6 +206,15 @@ pub enum ProjectBindingsCommand {
     List(ProjectBindingsListArgs),
 }
 
+#[allow(dead_code)]
+impl ProjectBindingsCommand {
+    fn machine_name(&self) -> &'static str {
+        match self {
+            Self::List(_) => "project_bindings_list",
+        }
+    }
+}
+
 #[derive(Args, Debug)]
 pub struct ProjectBindingsListArgs {
     /// Output as JSON
@@ -212,6 +247,20 @@ pub enum WorkspaceCommand {
 
     #[command(hide = true)]
     Check(WorkspaceCheckArgs),
+}
+
+#[allow(dead_code)]
+impl WorkspaceCommand {
+    fn machine_name(&self) -> &'static str {
+        match self {
+            Self::Bind(_) => "workspace_bind",
+            Self::Unbind(_) => "workspace_unbind",
+            Self::Status(_) => "workspace_status",
+            Self::Doctor(_) => "workspace_doctor",
+            Self::Guard(_) => "workspace_guard",
+            Self::Check(_) => "workspace_check",
+        }
+    }
 }
 
 #[derive(Args, Debug)]
@@ -423,6 +472,21 @@ pub enum ContextCommand {
 
     /// Rename a saved context
     Rename(ContextRenameArgs),
+}
+
+#[allow(dead_code)]
+impl ContextCommand {
+    fn machine_name(&self) -> &'static str {
+        match self {
+            Self::Create(_) => "context_create",
+            Self::List(_) => "context_list",
+            Self::Use(_) => "context_use",
+            Self::Set(_) => "context_set",
+            Self::Unset(_) => "context_unset",
+            Self::Remove(_) => "context_remove",
+            Self::Rename(_) => "context_rename",
+        }
+    }
 }
 
 #[derive(Args, Debug)]
@@ -740,6 +804,16 @@ pub enum BackupCommand {
 
     /// Restore a backup by id
     Restore(BackupRestoreArgs),
+}
+
+#[allow(dead_code)]
+impl BackupCommand {
+    fn machine_name(&self) -> &'static str {
+        match self {
+            Self::List(_) => "backup_list",
+            Self::Restore(_) => "backup_restore",
+        }
+    }
 }
 
 #[derive(Args, Debug)]

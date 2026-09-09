@@ -19,6 +19,7 @@ fn automation_docs_publish_the_machine_interface_contract() {
             "The current value for each is `1`.",
             "ignore unknown fields",
             "Treat an unknown version as unsupported",
+            "top-level `command` identifies the parsed operation",
             "Backup ids sort lexicographically, newest first.",
             "sort_by(.backup_id) | first | .backup_id",
         ] {
