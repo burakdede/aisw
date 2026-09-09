@@ -70,7 +70,7 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 **How `aisw` captures credentials:**
 - `--api-key`: stores the key directly.
 - `--from-live`: reads the current live credentials from file or Keychain.
-- Interactive OAuth: spawns `claude auth login`. When Claude's install supports profile-owned auth, `aisw` points login at the profile `CLAUDE_CONFIG_DIR`; otherwise it polls Claude's live credential file and Keychain for changes and captures the result there.
+- Interactive OAuth: spawns `claude auth login`. When Claude's install supports profile-owned auth, `aisw` points login at the profile `CLAUDE_CONFIG_DIR`, waits for a non-empty credential payload, and reads account metadata from that directory; otherwise it polls Claude's live credential file and Keychain for changes and captures the result there.
 
 **How `aisw use` applies credentials:**
 - Detects whether the live tool is reading from file or Keychain.

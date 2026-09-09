@@ -36,7 +36,7 @@ pub(super) fn live_credentials_paths(user_home: &Path) -> [PathBuf; 2] {
 /// Returns the path to `~/.claude.json`, where Claude stores OAuth account
 /// metadata (`oauthAccount` field).
 pub(super) fn live_account_metadata_path(user_home: &Path) -> PathBuf {
-    user_home.join(".claude.json")
+    user_home.join(super::ACCOUNT_METADATA_FILE)
 }
 
 /// Returns the Claude local state directory if it exists. Returns `None` when
