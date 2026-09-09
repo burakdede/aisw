@@ -28,8 +28,6 @@ use keychain::{
     keychain_service_for_config_dir as scoped_keychain_service_for_config_dir, ClaudeAuthStorage,
     ClaudeKeychainScheme as KeychainScheme,
 };
-use paths::live_credentials_path;
-
 // ---- Constants ----
 
 pub(super) const CREDENTIALS_FILE: &str = ".credentials.json";
@@ -116,7 +114,7 @@ pub use oauth::{
     restore_live_state_after_oauth_add, sync_profile_from_active_state_if_same_identity,
     sync_profile_from_live_if_same_identity,
 };
-pub use paths::live_local_state_dir;
+pub use paths::{live_credentials_path, live_local_state_dir};
 
 /// Classifies credential payloads that aisw knows how to apply to Claude.
 ///

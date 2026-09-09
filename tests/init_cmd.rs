@@ -490,12 +490,14 @@ fn init_prefers_claude_keychain_over_file_on_macos() {
 fn init_reports_claude_local_state_without_importable_auth() {
     let env = TestEnv::new();
     add_fake_security_tool(&env);
-    let claude_dir = env.fake_home.join(".claude");
+    env.add_fake_tool("claude", "claude 2.3.0");
+    let claude_dir = env.fake_home.join("claude-config");
     fs::create_dir_all(&claude_dir).unwrap();
     fs::write(claude_dir.join("settings.json"), b"{\"theme\":\"dark\"}").unwrap();
 
     env.cmd()
         .args(["init", "--yes"])
+        .env("CLAUDE_CONFIG_DIR", &claude_dir)
         .env("AISW_CLAUDE_AUTH_STORAGE", "keychain")
         .env("AISW_SECURITY_BIN", env.bin_dir.join("security"))
         .env("USER", "tester")
@@ -503,7 +505,7 @@ fn init_reports_claude_local_state_without_importable_auth() {
         .success()
         .stdout(contains("Claude Code"))
         .stdout(contains("Local state"))
-        .stdout(contains(".claude"))
+        .stdout(contains(claude_dir.to_string_lossy().as_ref()))
         .stdout(contains("not found in file or Keychain"))
         .stdout(contains("could not find importable auth"));
 
@@ -518,7 +520,8 @@ fn init_reports_claude_local_state_without_importable_auth() {
 #[test]
 fn init_reports_codex_local_state_without_importable_auth() {
     let env = TestEnv::new();
-    let codex_dir = env.fake_home.join(".codex");
+    env.add_fake_tool("codex", "codex 1.0.0");
+    let codex_dir = env.fake_home.join("codex-home");
     fs::create_dir_all(&codex_dir).unwrap();
     fs::write(
         codex_dir.join("config.toml"),
@@ -526,11 +529,14 @@ fn init_reports_codex_local_state_without_importable_auth() {
     )
     .unwrap();
 
-    run_init(&env)
+    env.cmd()
+        .args(["init", "--yes"])
+        .env("CODEX_HOME", &codex_dir)
+        .assert()
         .success()
         .stdout(contains("Codex CLI"))
         .stdout(contains("Local state"))
-        .stdout(contains(".codex"))
+        .stdout(contains(codex_dir.to_string_lossy().as_ref()))
         .stdout(contains("not found in auth.json"))
         .stdout(contains("Auth storage"))
         .stdout(contains("keyring"))

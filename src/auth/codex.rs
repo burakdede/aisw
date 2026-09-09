@@ -33,7 +33,7 @@ fn live_dir(user_home: &Path) -> PathBuf {
         .unwrap_or_else(|| user_home.join(".codex"))
 }
 
-fn live_auth_path(user_home: &Path) -> PathBuf {
+pub fn live_auth_path(user_home: &Path) -> PathBuf {
     live_dir(user_home).join(AUTH_FILE)
 }
 
