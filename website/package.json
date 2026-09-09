@@ -12,7 +12,7 @@
     "prebuild": "npm run sync-docs",
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build",
+    "build": "astro build && node ./scripts/generate-redirects.mjs",
     "check:seo": "node ./scripts/check-seo.mjs",
     "preview": "astro preview",
     "astro": "astro"
