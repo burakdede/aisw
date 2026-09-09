@@ -281,6 +281,48 @@ fn use_claude_shared_emit_env_unsets_claude_config_dir() {
 }
 
 #[test]
+fn use_claude_applies_credentials_to_active_config_dir() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+    let active_config_dir = env.fake_home.join("claude-isolated");
+    std::fs::create_dir_all(&active_config_dir).unwrap();
+    std::fs::write(
+        active_config_dir.join(".credentials.json"),
+        br#"{"apiKey":"stale"}"#,
+    )
+    .unwrap();
+
+    env.cmd()
+        .env("CLAUDE_CONFIG_DIR", &active_config_dir)
+        .args(["use", "claude", "work"])
+        .assert()
+        .success();
+
+    let credentials = std::fs::read_to_string(active_config_dir.join(".credentials.json"))
+        .expect("active Claude config directory should contain credentials");
+    assert!(credentials.contains(VALID_CLAUDE_KEY));
+}
+
+#[test]
+fn use_codex_applies_credentials_to_active_codex_home() {
+    let env = TestEnv::new();
+    add_codex_profile(&env, "work");
+    let active_codex_home = env.fake_home.join("codex-isolated");
+    std::fs::create_dir_all(&active_codex_home).unwrap();
+    std::fs::write(active_codex_home.join("auth.json"), br#"{"token":"stale"}"#).unwrap();
+
+    env.cmd()
+        .env("CODEX_HOME", &active_codex_home)
+        .args(["use", "codex", "work"])
+        .assert()
+        .success();
+
+    let credentials = std::fs::read_to_string(active_codex_home.join("auth.json"))
+        .expect("active Codex home should contain credentials");
+    assert!(credentials.contains(VALID_CODEX_KEY));
+}
+
+#[test]
 fn use_claude_macos_oauth_isolated_mode_is_blocked_before_live_mutation() {
     let env = TestEnv::new();
     let profile_dir = env.aisw_home.join("profiles").join("claude").join("work");
