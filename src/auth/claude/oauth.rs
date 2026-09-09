@@ -33,6 +33,7 @@ use super::paths::{
     live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
 };
 use super::{read_stored_credentials, LiveCredentialSnapshot, LiveCredentialSource};
+use crate::live_apply::{apply_transaction, LiveFileChange};
 
 fn persist_oauth_storage(
     profile_store: &ProfileStore,
@@ -121,25 +122,19 @@ fn restore_live_credentials_snapshot(
     match snapshot {
         Some(snapshot) => match snapshot.source {
             LiveCredentialSource::File(path) => {
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("could not create {}", parent.display()))?;
-                }
-                fs::write(&path, snapshot.bytes)
-                    .with_context(|| format!("could not write {}", path.display()))?;
-                files::set_permissions_600(&path)?;
+                apply_transaction(user_home, vec![LiveFileChange::write(path, snapshot.bytes)])?;
             }
             LiveCredentialSource::Keychain => {
                 super::keychain::write_keychain_credentials(&snapshot.bytes)?;
             }
         },
         None => {
-            for path in live_credentials_paths(user_home) {
-                if path.exists() {
-                    fs::remove_file(&path)
-                        .with_context(|| format!("could not remove {}", path.display()))?;
-                }
-            }
+            let changes = live_credentials_paths(user_home)
+                .into_iter()
+                .filter(|path| path.exists())
+                .map(LiveFileChange::delete)
+                .collect();
+            apply_transaction(user_home, changes)?;
             // Best effort cleanup for environments where Claude stores auth in keychain.
             let _ = super::keychain::delete_keychain_credentials();
         }
@@ -181,9 +176,7 @@ fn restore_live_oauth_account_metadata_snapshot(
 
     let bytes = serde_json::to_vec_pretty(&live_json)
         .context("could not serialize Claude metadata for live-state restore")?;
-    fs::write(&live_path, bytes)
-        .with_context(|| format!("could not write {}", live_path.display()))?;
-    files::set_permissions_600(&live_path)
+    apply_transaction(user_home, vec![LiveFileChange::write(live_path, bytes)])
 }
 
 /// Restores Claude live credentials/metadata after an OAuth add that should not
@@ -254,9 +247,7 @@ pub(super) fn apply_live_oauth_account_metadata(
 
     let bytes = serde_json::to_vec_pretty(&live_json)
         .context("could not serialize Claude metadata for live state")?;
-    fs::write(&live_path, bytes)
-        .with_context(|| format!("could not write {}", live_path.display()))?;
-    files::set_permissions_600(&live_path)
+    apply_transaction(user_home, vec![LiveFileChange::write(live_path, bytes)])
 }
 
 // ---- OAuth add flow ----

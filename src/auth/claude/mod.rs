@@ -1231,6 +1231,37 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn apply_live_oauth_account_metadata_refuses_a_symlinked_live_directory() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&user_home).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join(".claude.json"), b"{}").unwrap();
+        std::os::unix::fs::symlink(outside.join(".claude.json"), user_home.join(".claude.json"))
+            .unwrap();
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            OAUTH_ACCOUNT_FILE,
+            br#"{"emailAddress":"new@example.com"}"#,
+        )
+        .unwrap();
+
+        let err = oauth::apply_live_oauth_account_metadata(&ps, "work", &user_home).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("symlink"),
+            "expected symlink refusal, got: {err}"
+        );
+        assert_eq!(fs::read(outside.join(".claude.json")).unwrap(), b"{}");
+    }
+
+    #[test]
     #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_credentials_file_has_600_permissions() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
