@@ -69,6 +69,40 @@ impl Drop for CanaryCleanup {
     }
 }
 
+fn assert_entry_absent(service: &str, account: &str) {
+    let entry = keyring::Entry::new(service, account).unwrap();
+    match entry.get_password() {
+        Err(keyring::Error::NoEntry) => {}
+        Ok(_) => panic!("canary entry was not removed: {service}/{account}"),
+        Err(error) => panic!("could not verify canary cleanup for {service}/{account}: {error}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
+    if std::env::var_os("GITHUB_ACTIONS").is_none() {
+        return;
+    }
+    let output = std::process::Command::new("security")
+        .args([
+            "add-generic-password",
+            "-A",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-w",
+            "aisw-canary-placeholder",
+        ])
+        .output()
+        .expect("security should be available on macOS");
+    assert!(
+        output.status.success(),
+        "could not preauthorize disposable keychain entry {service}/{account}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn canary_suffix() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -108,6 +142,11 @@ fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Out
         .env_remove("CODEX_HOME")
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME");
+    #[cfg(target_os = "macos")]
+    cmd.env(
+        "HOME",
+        std::env::var("HOME").expect("macOS runner home should be set"),
+    );
     #[cfg(windows)]
     {
         // `dirs::home_dir()` uses the Windows profile known folder, not HOME.
@@ -318,6 +357,20 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     cleanup.track(antigravity_account.clone()).unwrap();
     let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity").unwrap();
 
+    #[cfg(target_os = "macos")]
+    {
+        for account in [
+            &claude_oauth_account,
+            &claude_api_account,
+            &codex_oauth_account,
+            &codex_api_account,
+            &antigravity_account,
+        ] {
+            preauthorize_ci_keychain_entry(KEYRING_SERVICE, account);
+        }
+        preauthorize_ci_keychain_entry("gemini", "antigravity");
+    }
+
     keyring::Entry::new(KEYRING_SERVICE, &claude_oauth_account)
         .unwrap()
         .set_password(r#"{"claudeAiOauth":{"accessToken":"real-claude-oauth-token"}}"#)
@@ -441,6 +494,10 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         ),
         "antigravity remove",
     );
+
+    for tracked in &cleanup.entries[..5] {
+        assert_entry_absent(&tracked.service, &tracked.account);
+    }
 
     cleanup.restore();
     let restored_live_secret = keyring::Entry::new("gemini", "antigravity")
