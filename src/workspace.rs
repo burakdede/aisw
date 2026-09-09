@@ -280,9 +280,22 @@ pub fn save_repo_local_config(repo: &RepoInfo, context: &str) -> Result<()> {
         context: context.to_owned(),
     };
     let json = serde_json::to_string_pretty(&config)?;
-    fs::write(&path, json).with_context(|| format!("could not write {}", path.display()))?;
-    set_file_permissions_600(&path)?;
+    let tmp = repo_local_staging_path(&path);
+    fs::write(&tmp, json).with_context(|| format!("could not write {}", tmp.display()))?;
+    set_file_permissions_600(&tmp)?;
+    fs::rename(&tmp, &path)
+        .with_context(|| format!("could not move repo-local binding into {}", path.display()))?;
     Ok(())
+}
+
+/// Sibling temp path used to keep repo-local binding writes atomic.
+fn repo_local_staging_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_else(|| std::borrow::Cow::Borrowed("aisw.json"));
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    parent.join(format!(".{file_name}.aisw-tmp-{}", std::process::id()))
 }
 
 pub fn detect_repo(start: &Path) -> Result<Option<RepoInfo>> {
@@ -730,6 +743,28 @@ mod tests {
         assert!(message.contains("timed out waiting for workspace config lock"));
         assert!(message.contains("workspaces.json.lock"));
         assert!(message.contains("retry after it finishes"));
+    }
+
+    #[test]
+    fn repo_local_config_replaces_existing_document_atomically() {
+        let temp = TempDir::new().unwrap();
+        let git_dir = temp.path().join("repo").join(".git");
+        fs::create_dir_all(git_dir.join("info")).unwrap();
+        let repo = RepoInfo {
+            root: git_dir.parent().unwrap().to_path_buf(),
+            git_dir: git_dir.clone(),
+            remotes: Vec::new(),
+        };
+
+        save_repo_local_config(&repo, "first").unwrap();
+        save_repo_local_config(&repo, "second").unwrap();
+
+        let saved = load_repo_local_config(&repo).unwrap().unwrap();
+        assert_eq!(saved.context, "second");
+        assert!(
+            !repo_local_staging_path(&repo_local_config_path(&repo)).exists(),
+            "successful replacement should remove its staging file"
+        );
     }
 
     #[test]
