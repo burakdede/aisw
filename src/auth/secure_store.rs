@@ -67,6 +67,15 @@ pub fn snapshot_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) 
 }
 
 pub fn restore_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) -> Result<()> {
+    let bytes = read_backup_secret(tool, profile_name, backup_id)?;
+    write_profile_secret(tool, profile_name, &bytes)
+}
+
+pub fn ensure_backup_secret(tool: Tool, profile_name: &str, backup_id: &str) -> Result<()> {
+    read_backup_secret(tool, profile_name, backup_id).map(|_| ())
+}
+
+fn read_backup_secret(tool: Tool, profile_name: &str, backup_id: &str) -> Result<Vec<u8>> {
     let Some(bytes) = secure_backend::read_generic_password(
         BACKEND,
         SERVICE,
@@ -81,7 +90,7 @@ pub fn restore_profile_secret(tool: Tool, profile_name: &str, backup_id: &str) -
             profile_name
         );
     };
-    write_profile_secret(tool, profile_name, &bytes)
+    Ok(bytes)
 }
 
 pub fn delete_backup_secret(tool: Tool, profile_name: &str, backup_id: &str) -> Result<()> {

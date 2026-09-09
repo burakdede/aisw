@@ -205,6 +205,9 @@ impl BackupManager {
                 let profile_meta =
                     restore_profile_meta(config_store, tool, &profile_name, &profile_path)?;
                 profile_meta.credential_backend.validate_for_tool(tool)?;
+                if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
+                    secure_store::ensure_backup_secret(tool, &profile_name, backup_id)?;
+                }
 
                 let changes = prepare_profile_restore(&profile_path, &dest_dir)?;
                 plans.push(RestorePlan {
@@ -853,6 +856,49 @@ mod tests {
         assert!(cs.load().unwrap().profiles_for(Tool::Claude).is_empty());
         assert!(!ps.exists(Tool::Gemini, "broken"));
         assert!(claude_backup.join("state.json").exists());
+    }
+
+    #[test]
+    fn restore_preflights_missing_secure_secret_before_mutating_files() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+        let backup_id = "missing-secure-secret";
+        let backup_dir = write_legacy_backup(
+            dir.path(),
+            backup_id,
+            Tool::Claude,
+            "work",
+            &[("state.json", b"restored")],
+        );
+        write_metadata(
+            &backup_dir.join(METADATA_FILE),
+            &BackupProfileMetadata {
+                profile_meta: ProfileMeta {
+                    auth_method: AuthMethod::OAuth,
+                    credential_backend: CredentialBackend::SystemKeyring,
+                    ..profile_meta()
+                },
+            },
+        )
+        .unwrap();
+
+        let ps = profile_store(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(Tool::Claude, "work", "state.json", b"original")
+            .unwrap();
+        let cs = ConfigStore::new(dir.path());
+
+        let err = manager(dir.path())
+            .restore(backup_id, &ps, &cs)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("missing secure credentials"));
+        assert_eq!(
+            ps.read_file(Tool::Claude, "work", "state.json").unwrap(),
+            b"original"
+        );
+        assert!(cs.load().unwrap().profiles_for(Tool::Claude).is_empty());
     }
 
     #[test]
