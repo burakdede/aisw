@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::types::Tool;
 
@@ -148,10 +148,20 @@ impl ProfileStore {
                 .with_context(|| format!("could not create {}", parent.display()))?;
         }
         let tmp = staging_path_for(&dest);
-        fs::write(&tmp, contents).with_context(|| format!("could not write {}", tmp.display()))?;
-        set_permissions_600(&tmp)?;
-        fs::rename(&tmp, &dest)
+        if let Err(error) =
+            fs::write(&tmp, contents).with_context(|| format!("could not write {}", tmp.display()))
+        {
+            return Err(cleanup_staged_file_after_error(&tmp, error));
+        }
+        if let Err(error) = set_permissions_600(&tmp) {
+            return Err(cleanup_staged_file_after_error(&tmp, error));
+        }
+        if let Err(error) = fs::rename(&tmp, &dest)
             .with_context(|| format!("could not move file into place at {}", dest.display()))
+        {
+            return Err(cleanup_staged_file_after_error(&tmp, error));
+        }
+        Ok(())
     }
 
     pub fn copy_file_into(
@@ -278,6 +288,17 @@ fn staging_path_for(dest: &Path) -> PathBuf {
         .unwrap_or_else(|| "profile".to_owned());
     let parent = dest.parent().unwrap_or_else(|| Path::new("."));
     parent.join(format!(".{}.aisw-tmp-{}", file_name, std::process::id()))
+}
+
+fn cleanup_staged_file_after_error(path: &Path, error: anyhow::Error) -> anyhow::Error {
+    match fs::remove_file(path) {
+        Ok(()) => error,
+        Err(cleanup_error) if cleanup_error.kind() == std::io::ErrorKind::NotFound => error,
+        Err(cleanup_error) => anyhow!(
+            "{error:#}\nStaged-file cleanup also failed: {}",
+            cleanup_error
+        ),
+    }
 }
 
 #[cfg(unix)]
@@ -445,6 +466,29 @@ mod tests {
         assert!(
             !outside.join("auth.json").exists(),
             "write must not follow a symlinked nested directory"
+        );
+    }
+
+    #[test]
+    fn write_file_cleans_staged_secret_when_rename_fails() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        s.create(Tool::Codex, "work").unwrap();
+        let profile_dir = s.profile_dir(Tool::Codex, "work");
+        std::fs::create_dir(profile_dir.join("auth.json")).unwrap();
+
+        let err = s
+            .write_file(Tool::Codex, "work", "auth.json", b"secret")
+            .unwrap_err();
+
+        assert!(err.to_string().contains("could not move file into place"));
+        let entries: Vec<_> = std::fs::read_dir(profile_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            entries.iter().all(|name| !name.contains(".aisw-tmp-")),
+            "staged files should be removed after rename failure: {entries:?}"
         );
     }
 
