@@ -74,6 +74,12 @@ aisw doctor --json
 
 With `--json`, success and expected command failures are emitted as structured JSON on stdout. Human-oriented stdout/stderr output is suppressed. The process still exits non-zero on failure.
 
+Mutation results are wrapped in a top-level `result` object. For `use`,
+`result.warnings` contains non-fatal diagnostics such as a failed OAuth
+profile synchronization; an empty array means no such diagnostic was raised.
+Warnings never include credential contents. In `--emit-env` mode, stdout
+remains executable shell code and diagnostics stay on stderr.
+
 For OAuth-based `add`, use `--progress-json` to stream newline-delimited JSON progress events:
 
 ```sh

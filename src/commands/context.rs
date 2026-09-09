@@ -333,7 +333,7 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
 
     if args.emit_env {
         for switch in &switches {
-            apply_resolved_profile_switch(switch, true, home, &user_home)?;
+            let _ = apply_resolved_profile_switch(switch, true, home, &user_home)?;
         }
         let activations = switches
             .iter()
@@ -370,7 +370,7 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
 
     let apply_result = (|| -> Result<()> {
         for switch in &switches {
-            apply_resolved_profile_switch(switch, false, home, &user_home)?;
+            let _ = apply_resolved_profile_switch(switch, false, home, &user_home)?;
         }
         store.activate_profiles(&activations)?;
         Ok(())
