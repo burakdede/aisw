@@ -224,6 +224,9 @@ pub(crate) fn run_restore_inner(
     let manager = BackupManager::new(home);
     let profile_store = ProfileStore::new(home);
     let config_store = ConfigStore::new(home);
+    // Restores mutate profile files and config, so they must not interleave
+    // with switching or another profile lifecycle operation.
+    let _switch_lock = config_store.acquire_switch_lock()?;
 
     let entries = manager.list()?;
     let matching: Vec<_> = entries
@@ -259,6 +262,9 @@ pub(crate) fn run_restore_inner(
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
+    use std::time::Duration;
+
     use tempfile::tempdir;
 
     use super::*;
@@ -348,6 +354,23 @@ mod tests {
 
         let contents = ps.read_file(Tool::Claude, "work", "creds.json").unwrap();
         assert_eq!(contents, b"{\"key\":\"val\"}");
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn restore_waits_for_an_in_progress_switch() {
+        let dir = tempdir().unwrap();
+        make_profile(dir.path(), Tool::Claude, "work");
+        let backup_id = snapshot(dir.path(), Tool::Claude, "work");
+
+        let switch_lock = ConfigStore::new(dir.path()).acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run_restore_inner(&backup_id, dir.path()).unwrap();
+        releaser.join().unwrap();
     }
 
     #[test]
