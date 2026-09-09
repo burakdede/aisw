@@ -84,6 +84,23 @@ const DOCS = [
     ],
   },
   {
+    source: 'faq.md',
+    output: 'faq.md',
+    title: 'Frequently Asked Questions',
+    description: 'Direct answers to common questions about switching Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts with aisw.',
+    section: 'overview',
+    queries: [
+      'aisw FAQ',
+      'switch between two Claude Code accounts',
+      'multiple Codex CLI accounts',
+      'different AI accounts per repository',
+      'prevent wrong Claude account in repo',
+      'does aisw send credentials to a server',
+      'aisw GUI integration',
+      'aisw macOS Linux Windows support',
+    ],
+  },
+  {
     source: 'quickstart.md',
     output: 'quickstart.md',
     title: 'Quickstart',

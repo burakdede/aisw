@@ -162,6 +162,7 @@ export default defineConfig({
 						{ label: 'Overview', slug: '' },
 						{ label: 'Quickstart', slug: 'quickstart' },
 						{ label: 'Common Switching Situations', slug: 'common-situations' },
+						{ label: 'FAQ', slug: 'faq' },
 						{ label: 'Shell Integration', slug: 'shell-integration' },
 					],
 				},

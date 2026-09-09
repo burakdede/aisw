@@ -8,6 +8,7 @@ Current version: 0.3.8
 
 - [aisw documentation](https://burakdede.github.io/aisw/): aisw manages named profiles and contexts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
 - [Common Switching Situations](https://burakdede.github.io/aisw/common-situations/): Real aisw workflows for work vs personal accounts, client-specific profiles, repo guardrails, GUI-safe secret entry, and verifying that a coding agent switch actually worked.
+- [Frequently Asked Questions](https://burakdede.github.io/aisw/faq/): Direct answers to common questions about switching Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts with aisw.
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts in under five minutes.
 - [Commands](https://burakdede.github.io/aisw/commands/): Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 - [Automation and Scripting](https://burakdede.github.io/aisw/automation/): Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.

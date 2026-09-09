@@ -28,6 +28,8 @@ If you work on client repos alongside personal projects, you may have noticed th
 
 The workspace feature lets you bind a repo or directory to an expected `aisw` context. The shell hook then checks that binding before each agent launch and either warns you or blocks the launch entirely.
 
+Workspace guardrails are policy, not credential storage. A binding names the context that should be active; the context names profiles; the profiles contain the managed auth state. Removing a binding does not remove credentials, and changing a context does not rewrite a binding.
+
 ## Concepts
 
 **Workspace binding** maps a location to an expected context. The location can be:
@@ -45,6 +47,8 @@ The workspace feature lets you bind a repo or directory to an expected `aisw` co
 2. User path rule (`~/.aisw/workspaces.json`, longest prefix match)
 3. User git-remote rule (most-specific pattern match)
 4. Default context
+
+Resolution happens at the current directory when the shell hook runs. A repo-local binding therefore follows the repository's `.git` directory, while path and remote rules remain user-level policy. `aisw workspace status` is the authoritative way to see which rule matched and which remediation command would bring the active state into compliance.
 
 ## Setup
 

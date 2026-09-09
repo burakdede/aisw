@@ -24,6 +24,8 @@ head:
 
 `aisw` is designed to be used safely in CI pipelines, shell scripts, and non-interactive environments.
 
+The safest integration pattern is: discover the interface version, provide secrets through the environment or stdin, run with `--non-interactive`, consume JSON by field rather than by message, and gate the next step on the exit code. The CLI is the process boundary; aisw does not keep a background session for a caller.
+
 ## Baseline flags
 
 ```sh
@@ -95,6 +97,8 @@ result in the same JSON document rather than deriving it from individual
 checks; the command still exits non-zero when `ok` is `false`.
 
 With `--json`, success and expected command failures are emitted as structured JSON on stdout. Human-oriented stdout/stderr output is suppressed. The process still exits non-zero on failure.
+
+Do not parse human-readable tables, error messages, or colored output. In machine mode, branch on `ok`, `error.kind`, and documented result fields. Treat unknown schema versions as unsupported, and preserve stdout exactly when using `--emit-env` because that output is executable shell code rather than a JSON document.
 
 ### Machine interface versions
 
@@ -253,6 +257,12 @@ eval "$(aisw context use acme --emit-env)"
 ```
 
 `--emit-env` prints `export VAR=value` or `unset VAR` lines for any environment variables the activation sets (e.g. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_API_KEY`).
+
+Environment changes only affect the shell process that evaluates the output. A subprocess that invokes `aisw --emit-env` without `eval` receives no environment update; for a single command, use a subshell:
+
+```sh
+(eval "$(aisw use codex ci --emit-env)"; codex exec "run the check")
+```
 
 ## Concurrency
 

@@ -22,6 +22,15 @@ Source: https://github.com/burakdede/aisw/blob/main/docs/common-situations.md
 Headings: One tool, two accounts | Same profile name across every tool | Different profile names for the same client or workspace | Capture what is already live | GUI-safe and automation-safe secret entry | Keep the right account active per repo | Verify that switching really worked | Which feature should I reach for? | Next steps
 Common queries: switch between two Claude Code accounts | multiple Codex CLI accounts | Gemini CLI work personal profiles | coding agent account switch per repo | client-specific ai coding agent accounts | how to keep client and personal coding agent accounts separate | desktop app account switching for claude code codex gemini | verify coding agent account switch worked
 
+## Frequently Asked Questions
+
+URL: https://burakdede.github.io/aisw/faq/
+Section: overview
+Summary: Direct answers to common questions about switching Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts with aisw.
+Source: https://github.com/burakdede/aisw/blob/main/docs/faq.md
+Headings: How do I switch between two Claude Code accounts? | Can I manage multiple Codex CLI accounts on one machine? | How do I use different Claude, Codex, and Gemini accounts for one client? | How do I prevent using my personal account in a client repository? | Does aisw send credentials or prompts to a server? | What exactly changes when I run `aisw use`? | Can I capture an account that is already logged in? | Can a GUI or another program use aisw? | Does aisw work on macOS, Linux, and Windows? | What should I run when a switch looks wrong? | What does aisw not manage? | Further reading
+Common queries: aisw FAQ | switch between two Claude Code accounts | multiple Codex CLI accounts | different AI accounts per repository | prevent wrong Claude account in repo | does aisw send credentials to a server | aisw GUI integration | aisw macOS Linux Windows support
+
 ## Quickstart
 
 URL: https://burakdede.github.io/aisw/quickstart/
@@ -73,7 +82,7 @@ URL: https://burakdede.github.io/aisw/adding-profiles/
 Section: reference
 Summary: How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.
 Source: https://github.com/burakdede/aisw/blob/main/docs/adding-profiles.md
-Headings: API key | From environment variable | Interactive OAuth | Capture current live credentials | Useful flags | Profile storage | Duplicate account detection | Related
+Headings: Choose an input path | API key | From environment variable | Interactive OAuth | Capture current live credentials | Useful flags | Profile storage | Duplicate account detection | Related
 Common queries: add second Claude Code account | add second Codex CLI account | add second Gemini CLI account | AI CLI OAuth profile manager | aisw add --from-live | how to add work account claude code | store multiple anthropic api keys | capture existing claude credentials
 
 ## Supported Tools
@@ -109,7 +118,7 @@ URL: https://burakdede.github.io/aisw/how-it-works/
 Section: reference
 Summary: Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.
 Source: https://github.com/burakdede/aisw/blob/main/docs/how-it-works.md
-Headings: Profile and context model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Antigravity CLI | Automatic Synchronization | Identity deduplication and matching | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
+Headings: The runtime model | Profile and context model | Atomic switching with rollback | Credential storage backends | OS keyring support | Per-tool implementation | Claude Code | Codex CLI | Gemini CLI | Antigravity CLI | Automatic Synchronization | Identity deduplication and matching | Token expiry warnings | Config locking | Backup behavior | What aisw does not do
 Common queries: how does aisw switch accounts | aisw credential storage | aisw keyring integration | aisw atomic switching | aisw profile model
 
 ## Security
