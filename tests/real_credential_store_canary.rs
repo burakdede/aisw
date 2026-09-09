@@ -118,7 +118,10 @@ fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Out
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME");
     #[cfg(target_os = "macos")]
-    cmd.env_remove("HOME");
+    cmd.env(
+        "HOME",
+        std::env::var("HOME").expect("macOS runner home should be set"),
+    );
     #[cfg(windows)]
     {
         // `dirs::home_dir()` uses the Windows profile known folder, not HOME.
