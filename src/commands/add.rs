@@ -371,15 +371,15 @@ impl FromLiveOverwriteSnapshot {
         name: &str,
     ) -> Result<Self> {
         let config = config_store.load()?;
-        let files =
-            auth::files::list_regular_files_recursive(&profile_store.profile_dir(tool, name))?
-                .into_iter()
-                .map(|file| {
-                    let bytes = fs::read(&file.path)
-                        .with_context(|| format!("could not read {}", file.path.display()))?;
-                    Ok((file.file_name.to_string_lossy().into_owned(), bytes))
-                })
-                .collect::<Result<Vec<_>>>()?;
+        let profile_dir = profile_store.validated_profile_dir(tool, name)?;
+        let files = auth::files::list_regular_files_recursive(&profile_dir)?
+            .into_iter()
+            .map(|file| {
+                let bytes = fs::read(&file.path)
+                    .with_context(|| format!("could not read {}", file.path.display()))?;
+                Ok((file.file_name.to_string_lossy().into_owned(), bytes))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let old_backend = config
             .profiles_for(tool)
             .get(name)

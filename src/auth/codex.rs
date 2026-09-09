@@ -451,21 +451,21 @@ fn persist_managed_credentials(
     }
 }
 
-fn imported_bootstrap_marker_path(profile_store: &ProfileStore, name: &str) -> PathBuf {
-    profile_store
-        .profile_dir(Tool::Codex, name)
-        .join(IMPORTED_BOOTSTRAP_MARKER_FILE)
+fn imported_bootstrap_marker_path(profile_store: &ProfileStore, name: &str) -> Result<PathBuf> {
+    Ok(profile_store
+        .validated_profile_dir(Tool::Codex, name)?
+        .join(IMPORTED_BOOTSTRAP_MARKER_FILE))
 }
 
 pub fn mark_imported_bootstrap(profile_store: &ProfileStore, name: &str) -> Result<()> {
-    let path = imported_bootstrap_marker_path(profile_store, name);
+    let path = imported_bootstrap_marker_path(profile_store, name)?;
     fs::write(&path, b"chatgpt_from_live_bootstrap\n")
         .with_context(|| format!("could not write {}", path.display()))?;
     files::set_permissions_600(&path)
 }
 
 pub fn clear_imported_bootstrap_marker(profile_store: &ProfileStore, name: &str) -> Result<()> {
-    let path = imported_bootstrap_marker_path(profile_store, name);
+    let path = imported_bootstrap_marker_path(profile_store, name)?;
     if path.exists() {
         fs::remove_file(&path).with_context(|| format!("could not remove {}", path.display()))?;
     }
@@ -473,7 +473,7 @@ pub fn clear_imported_bootstrap_marker(profile_store: &ProfileStore, name: &str)
 }
 
 pub fn is_imported_bootstrap(profile_store: &ProfileStore, name: &str) -> bool {
-    imported_bootstrap_marker_path(profile_store, name).exists()
+    imported_bootstrap_marker_path(profile_store, name).is_ok_and(|path| path.exists())
 }
 
 pub fn classify_profile(

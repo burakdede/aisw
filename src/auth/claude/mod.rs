@@ -133,7 +133,8 @@ pub fn classify_profile(
                         ClaudeAuthClassification::OAuthMacosKeychainSharedLive
                     }
                     KeychainScheme::ScopedByConfigDir => {
-                        let profile_dir = profile_store.profile_dir(Tool::Claude, name);
+                        let profile_dir =
+                            profile_store.validated_profile_dir(Tool::Claude, name)?;
                         let service = scoped_keychain_service_for_config_dir(
                             &profile_dir,
                             user_home,
@@ -181,7 +182,7 @@ pub fn apply_live_credentials(
             let service = match state_mode {
                 StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
                 StateMode::Isolated => scoped_keychain_service_for_config_dir(
-                    &profile_store.profile_dir(Tool::Claude, name),
+                    &profile_store.validated_profile_dir(Tool::Claude, name)?,
                     user_home,
                     current_keychain_scheme(),
                 ),
@@ -231,7 +232,7 @@ pub fn live_credentials_match(
             let service = match state_mode {
                 StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
                 StateMode::Isolated => scoped_keychain_service_for_config_dir(
-                    &profile_store.profile_dir(Tool::Claude, name),
+                    &profile_store.validated_profile_dir(Tool::Claude, name)?,
                     user_home,
                     current_keychain_scheme(),
                 ),

@@ -100,7 +100,7 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     ensure_not_referenced_by_context(&config, args.tool, profile_name)?;
 
     // Final backup before deleting.
-    let profile_dir = profile_store.profile_dir(args.tool, profile_name);
+    let profile_dir = profile_store.validated_profile_dir(args.tool, profile_name)?;
     let profile_meta = config
         .profiles_for(args.tool)
         .get(profile_name)

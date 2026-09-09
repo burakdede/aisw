@@ -218,7 +218,13 @@ pub fn check_profile_permissions(
             continue;
         }
 
-        let profile_dir = profile_store.profile_dir(tool, name);
+        let profile_dir = match profile_store.validated_profile_dir(tool, name) {
+            Ok(path) => path,
+            Err(error) => {
+                results.push(CheckResult::fail(&check_name, error.to_string()));
+                continue;
+            }
+        };
 
         // Check every stored file rather than one hardcoded name per tool: the
         // filename depends on the auth method (Gemini stores `.env` for API

@@ -223,7 +223,7 @@ pub(super) fn apply_live_oauth_account_metadata(
     user_home: &Path,
 ) -> Result<()> {
     let profile_path = profile_store
-        .profile_dir(Tool::Claude, name)
+        .validated_profile_dir(Tool::Claude, name)?
         .join(super::OAUTH_ACCOUNT_FILE);
     if !profile_path.exists() {
         return Ok(());
@@ -317,8 +317,9 @@ pub(super) fn add_oauth_with(
 
     let user_home = dirs::home_dir().context("could not determine home directory")?;
     let login_targets_profile_state = super::login_targets_profile_state(&user_home);
-    let target_config_dir =
-        login_targets_profile_state.then(|| profile_store.profile_dir(Tool::Claude, name));
+    let target_config_dir = login_targets_profile_state
+        .then(|| profile_store.validated_profile_dir(Tool::Claude, name))
+        .transpose()?;
 
     let auth_bytes = files::cleanup_profile_on_error(
         run_oauth_flow(
@@ -625,7 +626,7 @@ fn active_credentials_snapshot_for_sync(
                 return Ok(None);
             }
             let service = keychain_service_for_config_dir(
-                &profile_store.profile_dir(Tool::Claude, name),
+                &profile_store.validated_profile_dir(Tool::Claude, name)?,
                 user_home,
                 scheme,
             );
