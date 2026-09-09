@@ -42,7 +42,7 @@ anyhow = "1"
 fs2 = "0.4"
 base64 = "0.22"
 libc = "0.2"
-indicatif = "0.17"
+indicatif = "0.18"
 comfy-table = "7"
 semver = "1"
 sha2 = "0.10"
@@ -71,7 +71,7 @@ tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
 dirs = "5"
-portable-pty = "0.8"
+portable-pty = "0.9"
 
 [profile.release]
 strip = true
