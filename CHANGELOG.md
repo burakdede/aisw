@@ -36,12 +36,14 @@
 - `aisw remove` no longer deletes credentials and profile files before checking whether a context still references the profile — the removal was rejected afterwards, leaving the data already destroyed.
 - Removing the active profile now clears `active` in the same locked config mutation, so config can no longer name a profile that does not exist.
 - `aisw status` no longer panics (`no entry found for key`) when `active` names a profile missing from the config; it reports the inconsistency instead.
+- Workspace configuration mutations now serialize their read-modify-write cycle, so concurrent `bind`, `unbind`, and `guard` commands cannot silently overwrite each other's changes.
 - `aisw status` now spells out when a Claude profile is stored in `~/.aisw` but the live upstream auth still comes from the macOS Keychain, avoiding the misleading "file-backed Claude" reading that surfaced in the OAuth switching bug report.
 - `aisw init --json` no longer aborts on a shell it has no hook for (for example `/bin/sh`, the default in many containers).
 - `aisw doctor` no longer reports a false `credentials file missing` failure for every Gemini profile. It now checks the files a profile actually stores rather than one hardcoded name per tool, which also stopped `aisw verify` from inheriting the failure.
 - Antigravity is now guarded by the generated shell hooks and included in `workspace status --json` and `status --context --json`.
 - OAuth capture no longer leaves an orphaned interactive login process when a step inside the polling loop fails.
 - Failed `aisw init` imports now remove newly copied Claude, Codex, and Gemini credentials when profile registration fails.
+- Failed profile removals now attempt to restore the fresh backup and report when automatic recovery is incomplete.
 
 ### Performance
 

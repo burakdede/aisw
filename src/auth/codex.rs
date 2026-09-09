@@ -28,7 +28,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
 
 fn live_dir(user_home: &Path) -> PathBuf {
-    user_home.join(".codex")
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| user_home.join(".codex"))
 }
 
 fn live_auth_path(user_home: &Path) -> PathBuf {
@@ -44,6 +46,7 @@ pub enum LiveAuthStorage {
     Auto,
     File,
     Keyring,
+    Ephemeral,
     Unknown,
 }
 
@@ -53,6 +56,7 @@ impl LiveAuthStorage {
             LiveAuthStorage::Auto => "auto",
             LiveAuthStorage::File => "file",
             LiveAuthStorage::Keyring => "keyring",
+            LiveAuthStorage::Ephemeral => "ephemeral",
             LiveAuthStorage::Unknown => "unknown",
         }
     }
@@ -182,6 +186,7 @@ fn auth_storage_from_str(raw: &str) -> LiveAuthStorage {
         "auto" => LiveAuthStorage::Auto,
         "file" => LiveAuthStorage::File,
         "keyring" => LiveAuthStorage::Keyring,
+        "ephemeral" => LiveAuthStorage::Ephemeral,
         _ => LiveAuthStorage::Unknown,
     }
 }
@@ -451,21 +456,21 @@ fn persist_managed_credentials(
     }
 }
 
-fn imported_bootstrap_marker_path(profile_store: &ProfileStore, name: &str) -> PathBuf {
-    profile_store
-        .profile_dir(Tool::Codex, name)
-        .join(IMPORTED_BOOTSTRAP_MARKER_FILE)
+fn imported_bootstrap_marker_path(profile_store: &ProfileStore, name: &str) -> Result<PathBuf> {
+    Ok(profile_store
+        .validated_profile_dir(Tool::Codex, name)?
+        .join(IMPORTED_BOOTSTRAP_MARKER_FILE))
 }
 
 pub fn mark_imported_bootstrap(profile_store: &ProfileStore, name: &str) -> Result<()> {
-    let path = imported_bootstrap_marker_path(profile_store, name);
+    let path = imported_bootstrap_marker_path(profile_store, name)?;
     fs::write(&path, b"chatgpt_from_live_bootstrap\n")
         .with_context(|| format!("could not write {}", path.display()))?;
     files::set_permissions_600(&path)
 }
 
 pub fn clear_imported_bootstrap_marker(profile_store: &ProfileStore, name: &str) -> Result<()> {
-    let path = imported_bootstrap_marker_path(profile_store, name);
+    let path = imported_bootstrap_marker_path(profile_store, name)?;
     if path.exists() {
         fs::remove_file(&path).with_context(|| format!("could not remove {}", path.display()))?;
     }
@@ -473,7 +478,7 @@ pub fn clear_imported_bootstrap_marker(profile_store: &ProfileStore, name: &str)
 }
 
 pub fn is_imported_bootstrap(profile_store: &ProfileStore, name: &str) -> bool {
-    imported_bootstrap_marker_path(profile_store, name).exists()
+    imported_bootstrap_marker_path(profile_store, name).is_ok_and(|path| path.exists())
 }
 
 pub fn classify_profile(
@@ -666,10 +671,13 @@ pub fn apply_live_credentials(
     let config_dest = live_config_path(user_home);
     let config_bytes = desired_live_file_store_config(user_home)?.into_bytes();
 
-    crate::live_apply::apply_transaction(vec![
-        LiveFileChange::write(auth_dest, auth_bytes),
-        LiveFileChange::write(config_dest, config_bytes),
-    ])
+    crate::live_apply::apply_transaction(
+        user_home,
+        vec![
+            LiveFileChange::write(auth_dest, auth_bytes),
+            LiveFileChange::write(config_dest, config_bytes),
+        ],
+    )
 }
 
 pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Path) -> Result<()> {
@@ -956,6 +964,15 @@ mod tests {
             parse_live_auth_storage("cli_auth_credentials_store = \"keyring\"\n"),
             LiveAuthStorage::Keyring
         );
+    }
+
+    #[test]
+    fn parse_live_auth_storage_reads_ephemeral_backend() {
+        assert_eq!(
+            parse_live_auth_storage("cli_auth_credentials_store = \"ephemeral\"\n"),
+            LiveAuthStorage::Ephemeral
+        );
+        assert_eq!(LiveAuthStorage::Ephemeral.description(), "ephemeral");
     }
 
     #[test]
