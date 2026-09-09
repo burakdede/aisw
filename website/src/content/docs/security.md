@@ -97,9 +97,11 @@ Backups are also created before profile switching when `backup_on_switch` is ena
 
 All commands that modify `~/.aisw/config.json` take an exclusive lock on the file before writing. If two `aisw` commands run concurrently, the second will wait briefly and then fail with a clear error rather than producing a partial write. This prevents config corruption in parallel CI environments.
 
+Live profile switches take a separate operation lock for their full multi-file transaction. This prevents concurrent `use` and `context use` commands from interleaving credential-file writes with active-profile metadata updates.
+
 ### Input validation
 
-Profile names are restricted to `a-z`, `A-Z`, `0-9`, `-`, and `_`, and every read and write resolves inside the profile directory, so a name can never reach a path outside `~/.aisw/profiles/`. `aisw` refuses to read or write through a symlink at a credential path.
+Profile names are restricted to `a-z`, `A-Z`, `0-9`, `-`, and `_`, and every read and write resolves inside the profile directory, so a name can never reach a path outside `~/.aisw/profiles/`. `aisw` refuses to read or write through a symlink at a credential path. Permission repair also refuses a symlinked `AISW_HOME` root, so it cannot traverse an alias into an unrelated directory.
 
 API keys must be a single line. Keys containing control characters are rejected, because stored credentials are later materialized into formats where such characters change meaning rather than being escaped  -  a Gemini API key is written to a `.env` file the CLI sources, so an embedded newline would otherwise inject additional environment variables.
 
@@ -124,6 +126,11 @@ For Claude Code, `aisw` uses the most reliable auth target the installed Claude 
 3. Shell config files (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`)  -  only when you explicitly run `aisw shell-hook` and redirect its output there yourself, or when `aisw uninstall` removes managed hook blocks you previously added.
 
 It does not access any other files or system resources.
+
+For both managed profiles and live agent state, `aisw` refuses to traverse a
+symlinked directory or intermediate parent. This keeps credential reads and
+writes inside the documented storage boundary; symlink-based layouts must be
+replaced with real directories before switching or restoring state.
 
 ## Reporting a vulnerability
 

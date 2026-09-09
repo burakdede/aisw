@@ -130,7 +130,8 @@ A repo can also carry its own binding at `<repo>/.git/info/aisw.json`, which tak
 ```text
 ~/.aisw/
 ├── config.json                        # profile registry and settings (0600)
-├── config.json.lock                   # advisory write lock
+├── config.json.lock                   # advisory config write lock
+├── switch.lock                        # advisory live-switch operation lock
 ├── workspaces.json                    # workspace binding rules (0600)
 ├── profiles/
 │   ├── claude/

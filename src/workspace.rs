@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::status::{
@@ -14,6 +17,8 @@ use crate::types::Tool;
 
 const WORKSPACES_VERSION: u32 = 1;
 const WORKSPACES_FILE: &str = "workspaces.json";
+const WORKSPACES_LOCK_FILE: &str = "workspaces.json.lock";
+const WORKSPACES_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(2);
 const REPO_LOCAL_FILE: &str = "aisw.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -130,12 +135,14 @@ fn workspace_version() -> u32 {
 
 pub struct WorkspaceStore {
     path: PathBuf,
+    lock_path: PathBuf,
 }
 
 impl WorkspaceStore {
     pub fn new(home: &Path) -> Self {
         Self {
             path: home.join(WORKSPACES_FILE),
+            lock_path: home.join(WORKSPACES_LOCK_FILE),
         }
     }
 
@@ -144,6 +151,21 @@ impl WorkspaceStore {
     }
 
     pub fn load(&self) -> Result<WorkspaceConfig> {
+        self.load_unlocked()
+    }
+
+    pub fn update<F>(&self, mutate: F) -> Result<WorkspaceConfig>
+    where
+        F: FnOnce(&mut WorkspaceConfig) -> Result<()>,
+    {
+        let _lock = self.acquire_lock()?;
+        let mut config = self.load_unlocked()?;
+        mutate(&mut config)?;
+        self.save_unlocked(&config)?;
+        Ok(config)
+    }
+
+    fn load_unlocked(&self) -> Result<WorkspaceConfig> {
         if !self.path.exists() {
             return Ok(WorkspaceConfig::default());
         }
@@ -158,6 +180,11 @@ impl WorkspaceStore {
     }
 
     pub fn save(&self, config: &WorkspaceConfig) -> Result<()> {
+        let _lock = self.acquire_lock()?;
+        self.save_unlocked(config)
+    }
+
+    fn save_unlocked(&self, config: &WorkspaceConfig) -> Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("could not create directory {}", parent.display()))?;
@@ -169,6 +196,57 @@ impl WorkspaceStore {
         fs::rename(&tmp, &self.path)
             .with_context(|| format!("could not move {}", self.path.display()))?;
         Ok(())
+    }
+
+    fn acquire_lock(&self) -> Result<WorkspaceLockGuard> {
+        if let Some(parent) = self.lock_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("could not create directory {}", parent.display()))?;
+        }
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&self.lock_path)
+            .with_context(|| format!("could not open {}", self.lock_path.display()))?;
+        set_file_permissions_600(&self.lock_path)?;
+
+        let started = Instant::now();
+        loop {
+            match file.try_lock_exclusive() {
+                Ok(()) => return Ok(WorkspaceLockGuard { file }),
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        ErrorKind::WouldBlock | ErrorKind::PermissionDenied
+                    ) || err.raw_os_error() == Some(33) =>
+                {
+                    if started.elapsed() >= WORKSPACES_LOCK_WAIT_TIMEOUT {
+                        anyhow::bail!(
+                            "timed out waiting for workspace config lock at {}.\n  \
+                             Another aisw workspace command may still be running; retry after it finishes.",
+                            self.lock_path.display()
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => {
+                    return Err(err)
+                        .with_context(|| format!("could not lock {}", self.lock_path.display()));
+                }
+            }
+        }
+    }
+}
+
+struct WorkspaceLockGuard {
+    file: fs::File,
+}
+
+impl Drop for WorkspaceLockGuard {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.file);
     }
 }
 
@@ -591,6 +669,68 @@ mod tests {
     use super::*;
     use crate::config::{ContextEntry, ContextProfiles};
     use tempfile::TempDir;
+
+    #[test]
+    fn concurrent_updates_preserve_both_changes() {
+        use std::sync::{mpsc, Arc, Barrier};
+        use std::time::Duration;
+
+        let temp = TempDir::new().unwrap();
+        let store = Arc::new(WorkspaceStore::new(temp.path()));
+        let first_entered = Arc::new(Barrier::new(2));
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+
+        let first_store = Arc::clone(&store);
+        let first_entered_clone = Arc::clone(&first_entered);
+        let first = std::thread::spawn(move || {
+            first_store
+                .update(|config| {
+                    config.default_context = Some("first".to_owned());
+                    first_entered_clone.wait();
+                    release_first_rx.recv().unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        });
+
+        first_entered.wait();
+        let second_store = Arc::clone(&store);
+        let second = std::thread::spawn(move || {
+            second_store
+                .update(|config| {
+                    second_entered_tx.send(()).unwrap();
+                    config.guard_mode = GuardMode::Strict;
+                    Ok(())
+                })
+                .unwrap();
+        });
+        assert!(second_entered_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err());
+
+        release_first_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+
+        let config = store.load().unwrap();
+        assert_eq!(config.default_context.as_deref(), Some("first"));
+        assert_eq!(config.guard_mode, GuardMode::Strict);
+    }
+
+    #[test]
+    fn update_reports_workspace_lock_timeout() {
+        let temp = TempDir::new().unwrap();
+        let store = WorkspaceStore::new(temp.path());
+        let _lock = store.acquire_lock().unwrap();
+
+        let error = store.update(|_| Ok(())).unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(message.contains("timed out waiting for workspace config lock"));
+        assert!(message.contains("workspaces.json.lock"));
+        assert!(message.contains("retry after it finishes"));
+    }
 
     #[test]
     fn normalize_remote_variants() {
