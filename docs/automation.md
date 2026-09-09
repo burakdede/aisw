@@ -162,8 +162,8 @@ aisw status --json | jq '.[] | select(.active_profile_applied == false) | {tool,
 aisw status --json | jq '.[] | select(.credentials_present == false or .permissions_ok == false) | .tool'
 
 # Get the most recent backup for a specific profile
-# Backup ids sort lexicographically, newest last.
-aisw backup list --json | jq -r '[.[] | select(.tool == "claude" and .profile == "work")] | sort_by(.backup_id) | last | .backup_id'
+# Backup ids sort lexicographically, newest first.
+aisw backup list --json | jq -r '[.[] | select(.tool == "claude" and .profile == "work")] | sort_by(.backup_id) | first | .backup_id'
 ```
 
 ## Output contract
