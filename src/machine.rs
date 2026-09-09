@@ -187,7 +187,7 @@ pub fn parse_error(command: Option<&str>, err: &clap::Error) -> MachineFailureEn
         command: command.unwrap_or("unknown").to_owned(),
         error: MachineError {
             kind: kind.to_owned(),
-            message: err.to_string().trim().to_owned(),
+            message: redact_sensitive_text(err.to_string().trim()),
             exit_code: err.exit_code(),
             remediation: None,
         },
@@ -240,5 +240,26 @@ mod tests {
         assert_eq!(machine.kind, "validation_error");
         assert!(!machine.message.contains("AIza-secret-value"));
         assert!(machine.message.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn parse_machine_errors_redact_secrets() {
+        let error = crate::cli::parse_from(
+            [
+                "aisw",
+                "add",
+                "claude",
+                "work",
+                "--credential-backend",
+                "sk-ant-secret-value",
+            ],
+            true,
+        )
+        .expect_err("the invalid credential backend should produce a parse error");
+
+        let failure = parse_error(None, &error);
+
+        assert!(!failure.error.message.contains("sk-ant-secret-value"));
+        assert!(failure.error.message.contains("[REDACTED]"));
     }
 }
