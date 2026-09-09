@@ -91,8 +91,10 @@ const DOCS = [
     section: 'overview',
     queries: [
       'aisw FAQ',
-      'switch between two Claude Code accounts',
-      'multiple Codex CLI accounts',
+      'how to switch between two Claude Code accounts',
+      'Claude Code work and personal accounts on one machine',
+      'switch Codex CLI accounts without copying auth.json',
+      'how to switch between Gemini CLI accounts',
       'different AI accounts per repository',
       'prevent wrong Claude account in repo',
       'does aisw send credentials to a server',

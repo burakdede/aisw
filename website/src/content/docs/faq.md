@@ -37,7 +37,21 @@ aisw use claude personal
 
 Start a new Claude process after switching. For OAuth, API keys, live imports, and Claude's shared-Keychain limitation, see [Adding profiles](/aisw/adding-profiles/) and [Supported tools](/aisw/supported-tools/).
 
-## Can I manage multiple Codex CLI accounts on one machine?
+## Can I use work and personal Claude Code accounts on one machine?
+
+Yes. Store each login as an isolated `aisw` profile, then switch the active profile before starting Claude Code in the relevant project:
+
+```sh
+aisw use claude work
+claude
+
+aisw use claude personal
+claude
+```
+
+`aisw` manages one active live state per tool. It is designed for deliberate switching and workspace protection; it does not make two already-running Claude processes share or hot-swap credentials. Restart Claude Code after a switch so the new process reads the selected state. If you need independent sessions running concurrently, use Claude Code's own isolated configuration-directory workflow and read [How aisw works](/aisw/how-it-works/) to understand the boundary.
+
+## How do I switch between multiple Codex CLI accounts without copying `auth.json`?
 
 Yes. API-key profiles and ChatGPT-managed profiles authenticated directly inside their own isolated `CODEX_HOME` are supported:
 
@@ -48,6 +62,19 @@ aisw use codex client-a
 ```
 
 `aisw add codex <name> --from-live` is a bootstrap import for ChatGPT-managed auth, not the durable multi-profile setup. Shared-mode switching is intentionally blocked for that auth because Codex refreshes the session in place. See [Codex CLI details](supported-tools.md#codex-cli).
+
+## How do I switch between Gemini CLI accounts?
+
+Create one named profile per Gemini account and activate the profile before launching Gemini CLI:
+
+```sh
+aisw add gemini work
+aisw add gemini personal
+aisw use gemini work
+gemini
+```
+
+For API-key profiles, pass the key during `aisw add`. For an account already active in Gemini CLI, use `aisw add gemini <name> --from-live`. Start a new Gemini process after switching; see [Adding profiles](/aisw/adding-profiles/) and [Gemini CLI details](supported-tools.md#gemini-cli).
 
 ## How do I use different Claude, Codex, and Gemini accounts for one client?
 
