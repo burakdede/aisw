@@ -486,6 +486,7 @@ the binary fields in JSON output.
 
 Notes:
 - "Live match" indicates whether the tool's current live credentials match the `aisw`-recorded active profile.
+- `live_state_diagnostic` is `inspection_failed` when live-state comparison could not be completed. In that case `active_profile_applied` is `null`; status still returns all tool rows without exposing the underlying error or credential contents.
 - `credential_state` is `present` when the known primary credential is stored,
   `missing` when no profile files or secure credential exist, and `unknown` when
   files exist but do not match a known credential layout. Unknown layouts are
