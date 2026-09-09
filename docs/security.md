@@ -100,10 +100,13 @@ Backups are also created before profile switching when `backup_on_switch` is ena
 
 All commands that modify `~/.aisw/config.json` take an exclusive lock on the file before writing. If two `aisw` commands run concurrently, the second will wait briefly and then fail with a clear error rather than producing a partial write. This prevents config corruption in parallel CI environments.
 
-Live profile switches, backup restores, and profile lifecycle mutations take
-the same operation lock for their storage changes. This prevents concurrent
-`use`, `context use`, `backup restore`, `rename`, and `remove` commands from
-interleaving credential-file, keyring, and active-profile metadata updates.
+Initialization, live profile switches, backup restores, and profile lifecycle
+mutations take the same operation lock for their storage changes. This
+prevents concurrent `init`, `use`, `context use`, `backup restore`, `rename`,
+and `remove` commands from interleaving credential-file, keyring, shell-hook,
+and active-profile metadata updates. Machine-readable initialization holds
+the lock while creating or loading AISW state, then performs read-only
+detection outside it.
 
 Profile additions and live imports use the same lock because OAuth capture and
 credential writes can also change the live credential owner. An interactive

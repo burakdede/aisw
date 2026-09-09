@@ -73,6 +73,10 @@ pub(crate) fn run_inner(
     shell_env: Option<&str>,
     confirmed: bool,
 ) -> Result<()> {
+    // Init imports credentials and may activate profiles, so it must not
+    // interleave with another operation that changes managed state.
+    let _switch_lock = ConfigStore::new(aisw_home).acquire_switch_lock()?;
+
     // Ensure ~/.aisw/ exists with a default config.json.
     fs::create_dir_all(aisw_home)
         .with_context(|| format!("could not create {}", aisw_home.display()))?;
@@ -131,7 +135,11 @@ pub(crate) fn run_machine(
         );
     }
 
-    let (created_home, created_config) = ensure_aisw_home(aisw_home)?;
+    let (created_home, created_config) = {
+        // Home/config creation is the only mutating part of machine init.
+        let _switch_lock = ConfigStore::new(aisw_home).acquire_switch_lock()?;
+        ensure_aisw_home(aisw_home)?
+    };
     let detected_tools = detect_supported_tools();
     let shell_name = normalized_shell_name(shell_env);
     let live_accounts = if args.detect_live {
@@ -1479,6 +1487,8 @@ fn import_gemini(
 #[cfg(test)]
 mod tests {
     use std::fs;
+    #[cfg(not(windows))]
+    use std::{thread, time::Duration};
 
     use tempfile::tempdir;
 
@@ -1500,6 +1510,25 @@ mod tests {
         let (created_home, created_config) = ensure_aisw_home(&aisw_home).unwrap();
         assert!(!created_home);
         assert!(!created_config);
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn init_waits_for_an_in_progress_switch() {
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        let config_store = ConfigStore::new(&aisw_home);
+        let switch_lock = config_store.acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run(&aisw_home, &user_home, None).unwrap();
+        releaser.join().unwrap();
+
+        assert!(aisw_home.join("config.json").exists());
     }
 
     #[test]
