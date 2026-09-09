@@ -44,7 +44,8 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
         let tool = args
             .tool
             .context("use requires <tool> unless --all is provided")?;
-        run_for_tool(
+        let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+        run_for_tool_unlocked(
             tool,
             args.profile_name.as_deref(),
             args.state_mode,
@@ -53,6 +54,7 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
             home,
             &user_home,
         )
+        .map(|_| ())
     }
 }
 
@@ -65,9 +67,11 @@ pub(crate) fn run_all_in(
     user_home: &Path,
 ) -> Result<()> {
     let config_store = ConfigStore::new(home);
+    let _switch_lock = config_store.acquire_switch_lock()?;
     let config = config_store.load()?;
     let mut switched = 0usize;
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     let before_backup_ids = backup_ids_for(home, None)?;
     let mut affected_tools = Vec::new();
 
@@ -85,7 +89,7 @@ pub(crate) fn run_all_in(
         // `--state-mode` only applies to tools that support it; passing it to
         // the others would make the whole `--all` switch fail.
         let tool_state_mode = state_mode_override.filter(|_| tool.supports_state_mode());
-        match run_for_tool(
+        match run_for_tool_unlocked(
             tool,
             Some(profile_name),
             tool_state_mode,
@@ -94,9 +98,10 @@ pub(crate) fn run_all_in(
             home,
             user_home,
         ) {
-            Ok(()) => {
+            Ok(tool_warnings) => {
                 switched += 1;
                 affected_tools.push(tool);
+                warnings.extend(tool_warnings);
             }
             Err(e) => errors.push(format!("{}: {}", tool, e)),
         }
@@ -134,7 +139,7 @@ pub(crate) fn run_all_in(
                 "state_mode": state_mode_map(home, &affected_tools)?,
                 "live_match": live_match_map(home, user_home, &affected_tools)?,
                 "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
-                "warnings": Vec::<String>::new(),
+                "warnings": warnings,
             }),
         )?;
     }
@@ -147,7 +152,8 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     let tool = args
         .tool
         .context("run_in requires tool when --all is not set")?;
-    run_for_tool(
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+    run_for_tool_unlocked(
         tool,
         args.profile_name.as_deref(),
         args.state_mode,
@@ -156,9 +162,10 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         home,
         user_home,
     )
+    .map(|_| ())
 }
 
-fn run_for_tool(
+fn run_for_tool_unlocked(
     tool: Tool,
     requested_profile_name: Option<&str>,
     state_mode_override: Option<StateMode>,
@@ -166,7 +173,7 @@ fn run_for_tool(
     json: bool,
     home: &Path,
     user_home: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let before_backup_ids = backup_ids_for(home, Some(tool))?;
     let resolved = resolve_profile_switch_request(
         tool,
@@ -176,7 +183,7 @@ fn run_for_tool(
         home,
         user_home,
     )?;
-    apply_and_activate_profile_switch(&resolved, emit_env, home, user_home, || {
+    let warnings = apply_and_activate_profile_switch(&resolved, emit_env, home, user_home, || {
         ConfigStore::new(home).activate_profile(
             tool,
             &resolved.profile_name,
@@ -195,14 +202,14 @@ fn run_for_tool(
                 "state_mode": state_mode_map(home, &[tool])?,
                 "live_match": live_match_map(home, user_home, &[tool])?,
                 "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
-                "warnings": Vec::<String>::new(),
+                "warnings": warnings.clone(),
             }),
         )?;
     } else if !emit_env {
         print_switch_summary(&resolved, home, user_home);
     }
 
-    Ok(())
+    Ok(warnings)
 }
 
 fn apply_and_activate_profile_switch<F>(
@@ -211,30 +218,33 @@ fn apply_and_activate_profile_switch<F>(
     home: &Path,
     user_home: &Path,
     activate: F,
-) -> Result<()>
+) -> Result<Vec<String>>
 where
     F: FnOnce() -> Result<()>,
 {
     let snapshots = (!emit_env)
         .then(|| snapshot_live_state_for_context(std::slice::from_ref(resolved), user_home))
         .transpose()?;
-    let switch_result = (|| -> Result<()> {
-        apply_resolved_profile_switch(resolved, emit_env, home, user_home)?;
+    let switch_result = (|| -> Result<Vec<String>> {
+        let warnings = apply_resolved_profile_switch(resolved, emit_env, home, user_home)?;
         activate()?;
-        Ok(())
+        Ok(warnings)
     })();
 
-    if let Err(err) = switch_result {
-        if let Some(snapshots) = snapshots {
-            return match restore_live_state_for_context(&snapshots, user_home) {
-                Ok(()) => Err(err),
-                Err(rollback_err) => Err(switch_failure_with_rollback_error(err, rollback_err)),
-            };
+    let warnings = match switch_result {
+        Ok(warnings) => warnings,
+        Err(err) => {
+            if let Some(snapshots) = snapshots {
+                return match restore_live_state_for_context(&snapshots, user_home) {
+                    Ok(()) => Err(err),
+                    Err(rollback_err) => Err(switch_failure_with_rollback_error(err, rollback_err)),
+                };
+            }
+            return Err(err);
         }
-        return Err(err);
-    }
+    };
 
-    Ok(())
+    Ok(warnings)
 }
 
 fn switch_failure_with_rollback_error(
@@ -372,11 +382,13 @@ pub(crate) fn apply_resolved_profile_switch(
     emit_env: bool,
     home: &Path,
     user_home: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let profile_store = ProfileStore::new(home);
+    let mut warnings = Vec::new();
     if resolved.backup_on_switch {
         let backup_manager = BackupManager::new(home);
-        let profile_dir = profile_store.profile_dir(resolved.tool, &resolved.profile_name);
+        let profile_dir =
+            profile_store.validated_profile_dir(resolved.tool, &resolved.profile_name)?;
         backup_manager.snapshot(
             resolved.tool,
             &resolved.profile_name,
@@ -392,9 +404,9 @@ pub(crate) fn apply_resolved_profile_switch(
             resolved.tool,
             user_home,
         ) {
-            output::print_warning_stderr(format!(
-                "Warning: could not sync active profile before switching: {e:#}"
-            ));
+            let warning = format!("could not sync active profile before switching: {e:#}");
+            output::print_warning_stderr(format!("Warning: {warning}"));
+            warnings.push(warning);
         }
     }
 
@@ -519,7 +531,14 @@ pub(crate) fn apply_resolved_profile_switch(
         }
         Tool::Antigravity => {
             if emit_env {
-                auth::antigravity::emit_shell_env();
+                auth::antigravity::emit_shell_env(
+                    &profile_store,
+                    &resolved.profile_name,
+                    resolved.profile_meta.auth_method,
+                    resolved.profile_meta.credential_backend,
+                )?;
+            } else if resolved.profile_meta.auth_method == AuthMethod::ApiKey {
+                auth::antigravity::apply_api_key_settings(user_home)?;
             } else {
                 auth::antigravity::apply_live_credentials(
                     &profile_store,
@@ -531,7 +550,7 @@ pub(crate) fn apply_resolved_profile_switch(
         }
     }
 
-    Ok(())
+    Ok(warnings)
 }
 
 fn maybe_sync_active_profile_before_switch(
@@ -712,12 +731,18 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
             }
         }
     } else if resolved.tool == Tool::Antigravity {
-        output::print_effect(
-            "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
-        );
-        output::print_effect(
-            "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
-        );
+        if resolved.profile_meta.auth_method == AuthMethod::ApiKey {
+            output::print_effect(
+                "Antigravity selected modelProvider=gemini; use the shell hook or --emit-env so GEMINI_API_KEY is available to agy.",
+            );
+        } else {
+            output::print_effect(
+                "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
+            );
+            output::print_effect(
+                "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
+            );
+        }
     }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_use());

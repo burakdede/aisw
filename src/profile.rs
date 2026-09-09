@@ -28,18 +28,22 @@ impl ProfileStore {
         self.home.join("profiles").join(tool.dir_name()).join(name)
     }
 
-    fn validated_profile_dir(&self, tool: Tool, name: &str) -> Result<PathBuf> {
+    pub fn validated_profile_dir(&self, tool: Tool, name: &str) -> Result<PathBuf> {
         validate_profile_name(name)?;
-        Ok(self.profile_dir(tool, name))
+        let dir = self.profile_dir(tool, name);
+        reject_symlinked_components(&self.home, &dir)?;
+        Ok(dir)
     }
 
     pub fn exists(&self, tool: Tool, name: &str) -> bool {
-        validate_profile_name(name).is_ok() && self.profile_dir(tool, name).is_dir()
+        self.validated_profile_dir(tool, name)
+            .is_ok_and(|dir| dir.is_dir())
     }
 
     pub fn create(&self, tool: Tool, name: &str) -> Result<PathBuf> {
         validate_profile_name(name)?;
         let dir = self.profile_dir(tool, name);
+        reject_symlinked_components(&self.home, &dir)?;
         if dir.exists() {
             bail!(
                 "profile '{}' already exists for {}.\n  \
@@ -106,6 +110,7 @@ impl ProfileStore {
 
     pub fn list_profiles(&self, tool: Tool) -> Result<Vec<String>> {
         let base = self.home.join("profiles").join(tool.dir_name());
+        reject_symlinked_components(&self.home, &base)?;
         if !base.exists() {
             return Ok(vec![]);
         }
@@ -179,7 +184,9 @@ impl ProfileStore {
     fn profile_file_path(&self, tool: Tool, name: &str, filename: &str) -> Result<PathBuf> {
         let dir = self.validated_profile_dir(tool, name)?;
         validate_relative_filename(filename)?;
-        Ok(dir.join(filename))
+        let path = dir.join(filename);
+        reject_symlinked_components(&dir, &path)?;
+        Ok(path)
     }
 
     pub fn check_permissions(&self, path: &Path) -> Result<()> {
@@ -222,6 +229,20 @@ fn reject_symlink(path: &Path) -> Result<()> {
         }
         _ => Ok(()),
     }
+}
+
+fn reject_symlinked_components(root: &Path, path: &Path) -> Result<()> {
+    let relative = path
+        .strip_prefix(root)
+        .with_context(|| format!("path {} is outside {}", path.display(), root.display()))?;
+    let mut current = root.to_owned();
+    for component in relative.components() {
+        if let Component::Normal(part) = component {
+            current.push(part);
+            reject_symlink(&current)?;
+        }
+    }
+    Ok(())
 }
 
 /// Validate a profile-relative file name such as `auth.json` or
@@ -374,6 +395,74 @@ mod tests {
         assert!(
             !target.exists(),
             "write must not create the symlink's target"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn write_file_refuses_a_symlinked_profile_directory() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        let tool_dir = dir.path().join("profiles").join(Tool::Codex.dir_name());
+        std::fs::create_dir_all(&tool_dir).unwrap();
+
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, tool_dir.join("work")).unwrap();
+
+        let err = s
+            .write_file(Tool::Codex, "work", "auth.json", b"secret")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("symlink"),
+            "expected a symlink refusal, got: {err}"
+        );
+        assert!(
+            !outside.join("auth.json").exists(),
+            "write must not follow a symlinked profile directory"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn write_file_refuses_a_symlinked_nested_directory() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        s.create(Tool::Codex, "work").unwrap();
+
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let nested = s.profile_dir(Tool::Codex, "work").join("nested");
+        std::os::unix::fs::symlink(&outside, &nested).unwrap();
+
+        let err = s
+            .write_file(Tool::Codex, "work", "nested/auth.json", b"secret")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("symlink"),
+            "expected a symlink refusal, got: {err}"
+        );
+        assert!(
+            !outside.join("auth.json").exists(),
+            "write must not follow a symlinked nested directory"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn list_profiles_refuses_a_symlinked_tool_directory() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let tool_dir = dir.path().join("profiles").join(Tool::Codex.dir_name());
+        std::fs::create_dir_all(tool_dir.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&outside, &tool_dir).unwrap();
+
+        let err = s.list_profiles(Tool::Codex).unwrap_err();
+        assert!(
+            err.to_string().contains("symlink"),
+            "expected a symlink refusal, got: {err}"
         );
     }
 

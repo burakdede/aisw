@@ -196,15 +196,20 @@ pub fn add_api_key_with_backend(
         name,
     )?;
 
-    config_store.add_profile(
+    files::cleanup_profile_on_error(
+        config_store.add_profile(
+            Tool::Gemini,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::ApiKey,
+                credential_backend: backend,
+                label,
+            },
+        ),
+        profile_store,
         Tool::Gemini,
         name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::ApiKey,
-            credential_backend: backend,
-            label,
-        },
     )?;
 
     Ok(())
@@ -344,15 +349,20 @@ fn add_oauth_with(
         name,
     )?;
 
-    config_store.add_profile(
+    files::cleanup_profile_on_error(
+        config_store.add_profile(
+            Tool::Gemini,
+            name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::OAuth,
+                credential_backend: CredentialBackend::File,
+                label,
+            },
+        ),
+        profile_store,
         Tool::Gemini,
         name,
-        ProfileMeta {
-            added_at: Utc::now(),
-            auth_method: AuthMethod::OAuth,
-            credential_backend: CredentialBackend::File,
-            label,
-        },
     )?;
 
     // Best-effort identity display after capture
@@ -641,7 +651,7 @@ pub fn apply_token_cache(
     std::fs::create_dir_all(gemini_dir)
         .with_context(|| format!("could not create {}", gemini_dir.display()))?;
 
-    let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
+    let profile_dir = profile_store.validated_profile_dir(Tool::Gemini, name)?;
     let mut expected_files = std::collections::BTreeSet::new();
     let mut changes = Vec::new();
     for file in files::list_regular_files_recursive(&profile_dir)? {
@@ -668,7 +678,8 @@ pub fn apply_token_cache(
     let env_file = gemini_dir.join(ENV_FILE);
     changes.push(LiveFileChange::delete(env_file));
 
-    crate::live_apply::apply_transaction(changes)
+    let root = gemini_dir.parent().unwrap_or(gemini_dir);
+    crate::live_apply::apply_transaction(root, changes)
 }
 
 pub fn live_token_cache_matches(
@@ -676,7 +687,7 @@ pub fn live_token_cache_matches(
     name: &str,
     gemini_dir: &Path,
 ) -> Result<bool> {
-    let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
+    let profile_dir = profile_store.validated_profile_dir(Tool::Gemini, name)?;
     if !gemini_dir.exists() {
         return Ok(false);
     }
@@ -1055,6 +1066,24 @@ mod tests {
         assert!(!ps.exists(Tool::Gemini, "default"));
     }
 
+    #[test]
+    fn api_key_add_cleans_profile_when_config_save_fails() {
+        let dir = tempdir().unwrap();
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        std::fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_api_key(&ps, &cs, "default", valid_key(), None).unwrap_err();
+
+        assert!(err.to_string().contains("config.json.tmp"));
+        assert!(!ps.exists(Tool::Gemini, "default"));
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Gemini)
+            .contains_key("default"));
+    }
+
     // ---- OAuth tests ----
 
     // Poll interval used in all OAuth tests.
@@ -1125,6 +1154,38 @@ mod tests {
             .profile_dir(Tool::Gemini, "default")
             .join("oauth_creds.json")
             .exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oauth_add_cleans_profile_when_config_save_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin = make_oauth_mock(&bin_dir, true, false);
+        let (ps, cs) = stores(dir.path());
+        cs.load().unwrap();
+        std::fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+
+        let err = add_oauth_with(
+            &ps,
+            &cs,
+            "default",
+            None,
+            &bin,
+            Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("config.json.tmp"));
+        assert!(!ps.exists(Tool::Gemini, "default"));
+        assert!(!cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Gemini)
+            .contains_key("default"));
     }
 
     #[test]

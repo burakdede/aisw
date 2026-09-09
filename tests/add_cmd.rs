@@ -965,24 +965,22 @@ fn add_antigravity_from_live_fails_without_live_credentials() {
 }
 
 #[test]
-fn add_antigravity_rejects_api_key_auth_paths() {
+fn add_antigravity_accepts_api_key_auth_paths() {
     let env = TestEnv::new();
     env.add_fake_tool("agy", "agy 1.0.0");
 
     env.cmd()
         .args(["add", "antigravity", "work", "--api-key", VALID_GEMINI_KEY])
         .assert()
-        .failure()
-        .stderr(contains("OAuth-only"))
-        .stderr(contains("Use 'aisw add antigravity <name>'"));
+        .success()
+        .stdout(contains("api_key_environment"));
 
     env.cmd()
-        .args(["add", "antigravity", "work", "--from-env"])
+        .env("GEMINI_API_KEY", "AIza-antigravity-env-key")
+        .args(["add", "antigravity", "env", "--from-env"])
         .assert()
-        .failure()
-        .stderr(contains(
-            "does not document API-key or environment-variable authentication",
-        ));
+        .success()
+        .stdout(contains("api_key_environment"));
 }
 
 #[test]
