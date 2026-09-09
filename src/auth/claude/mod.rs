@@ -890,7 +890,7 @@ mod tests {
              target=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"\n\
              mkdir -p \"$target\"\n\
              printf '%s' '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$target/.credentials.json\"\n\
-             printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"burak@example.com\",\"organizationUuid\":\"org-b\"}}' > \"$HOME/.claude.json\"\n",
+             printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"burak@example.com\",\"organizationUuid\":\"org-b\"}}' > \"$target/.claude.json\"\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
