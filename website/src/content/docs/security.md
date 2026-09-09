@@ -127,6 +127,11 @@ For Claude Code, `aisw` uses the most reliable auth target the installed Claude 
 
 It does not access any other files or system resources.
 
+For both managed profiles and live agent state, `aisw` refuses to traverse a
+symlinked directory or intermediate parent. This keeps credential reads and
+writes inside the documented storage boundary; symlink-based layouts must be
+replaced with real directories before switching or restoring state.
+
 ## Reporting a vulnerability
 
 To report a security issue, open a private advisory at [github.com/burakdede/aisw/security/advisories](https://github.com/burakdede/aisw/security/advisories) or email the repository owner directly.

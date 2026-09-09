@@ -666,10 +666,13 @@ pub fn apply_live_credentials(
     let config_dest = live_config_path(user_home);
     let config_bytes = desired_live_file_store_config(user_home)?.into_bytes();
 
-    crate::live_apply::apply_transaction(vec![
-        LiveFileChange::write(auth_dest, auth_bytes),
-        LiveFileChange::write(config_dest, config_bytes),
-    ])
+    crate::live_apply::apply_transaction(
+        user_home,
+        vec![
+            LiveFileChange::write(auth_dest, auth_bytes),
+            LiveFileChange::write(config_dest, config_bytes),
+        ],
+    )
 }
 
 pub fn apply_live_files(profile_store: &ProfileStore, name: &str, user_home: &Path) -> Result<()> {

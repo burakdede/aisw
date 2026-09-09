@@ -668,7 +668,8 @@ pub fn apply_token_cache(
     let env_file = gemini_dir.join(ENV_FILE);
     changes.push(LiveFileChange::delete(env_file));
 
-    crate::live_apply::apply_transaction(changes)
+    let root = gemini_dir.parent().unwrap_or(gemini_dir);
+    crate::live_apply::apply_transaction(root, changes)
 }
 
 pub fn live_token_cache_matches(

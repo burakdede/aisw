@@ -303,7 +303,7 @@ pub fn apply_live_credentials(
     };
 
     let changes = build_apply_transaction(profile_store, profile_name, user_home)?;
-    crate::live_apply::apply_transaction(changes)?;
+    crate::live_apply::apply_transaction(user_home, changes)?;
     super::system_keyring::upsert_generic_password(
         &keyring_ref.service,
         &keyring_ref.account,
@@ -512,7 +512,7 @@ pub fn restore_snapshot_to_live(snapshot: &LiveSnapshot, user_home: &Path) -> Re
         ));
         changes
     };
-    crate::live_apply::apply_transaction(changes)?;
+    crate::live_apply::apply_transaction(user_home, changes)?;
     match snapshot.keyring_secret.as_deref() {
         Some(secret) => super::system_keyring::upsert_generic_password(
             &snapshot.keyring_ref.service,
