@@ -4,8 +4,9 @@ import path from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 
+const projectRoot = path.resolve(process.cwd(), '..');
 const outputPath = path.join(
-  process.cwd(),
+  projectRoot,
   'website',
   'public',
   'demos',
@@ -205,7 +206,7 @@ function captureCommandOutput(command, env) {
   // Keep capture portable across macOS/Linux and CI environments.
   // CLICOLOR_FORCE in env preserves colored aisw output for the cast.
   return execFileSync('bash', ['-lc', command], {
-    cwd: process.cwd(),
+    cwd: projectRoot,
     env,
     encoding: 'utf8',
   });
@@ -232,7 +233,7 @@ async function setupDemoEnv() {
   const fakeHome = path.join(tempRoot, 'home');
   const aiswHome = path.join(fakeHome, '.aisw');
   const binDir = path.join(tempRoot, 'bin');
-  const aiswBinDir = path.join(process.cwd(), 'target', 'debug');
+  const aiswBinDir = path.join(projectRoot, 'target', 'debug');
   const codexDir = path.join(fakeHome, '.codex');
 
   await fs.mkdir(binDir, { recursive: true });
@@ -275,9 +276,6 @@ async function main() {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const demoEnv = await setupDemoEnv();
   const state = {};
-
-  clearScreen();
-  pause(0.4);
 
   for (let index = 0; index < steps.length; index += 1) {
     const step = steps[index];

@@ -7,6 +7,8 @@ description: Install aisw, store your first profiles, and switch between Claude 
 
 From install to switching accounts in five minutes.
 
+This guide gets one account under management and proves the basic switch. For a decision-oriented tour of real setups, see [Common switching situations](common-situations.md). For provider-specific limitations, read [Supported tools](supported-tools.md) before automating a workflow.
+
 ## 1. Install
 
 ```sh
@@ -44,6 +46,8 @@ aisw init --json --no-shell-hook --detect-live
 ```
 
 ## 3. Add profiles
+
+Choose the authentication source that matches how the account is managed. Direct login is usually the best choice for a second interactive account; `--from-live` captures state that is already active; API keys and `--from-env` are the automation-friendly paths.
 
 **API key:**
 
@@ -87,6 +91,8 @@ For Codex ChatGPT-managed auth, this interactive path is the durable setup becau
 Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accounts on June 18, 2026; those users should migrate to Antigravity. Enterprise Google-account setups may require `GOOGLE_CLOUD_PROJECT`. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI. See the [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
 
 For Antigravity, `aisw add antigravity <name>` captures the shared live keyring-backed OAuth session that `agy` creates and stores the documented Antigravity config roots alongside it. Upstream does not currently document an isolated per-profile auth root.
+
+For complete flag behavior, duplicate-account rules, and storage details, see [Adding profiles](adding-profiles.md).
 
 If you want machine-readable OAuth progress for a GUI:
 
@@ -153,6 +159,8 @@ The default is `isolated`. Use `shared` when you want the tool to behave as if i
 
 For Codex, shared mode is for API-key profiles only. ChatGPT-managed Codex profiles stay in isolated mode because upstream refreshes that auth in place.
 
+Switching changes the credentials that a new agent process will read. Start a fresh `claude`, `codex`, `gemini`, or `agy` process after the switch; do not rely on a resumable session from the previous account. The [How aisw works](how-it-works.md) guide explains the transaction and rollback model.
+
 ## 5. Inspect state
 
 ```sh
@@ -175,6 +183,8 @@ aisw list --json
 aisw context list
 aisw context list --json
 ```
+
+Use `status` for a human check, `verify` for a pass/warn/fail decision, and `repair --dry-run` when you want to preview safe local repairs. The stable JSON contract is documented in [Automation and scripting](automation.md).
 
 ## 6. Maintain profiles
 

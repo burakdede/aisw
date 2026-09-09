@@ -92,13 +92,19 @@ This is the practical answer to "how do I avoid opening a client repository with
 
 ## Demo
 
-General workflow:
+These are short, recorded command-line workflows generated from isolated demo environments, so the commands and output show real aisw behavior without exposing credentials. Use them as a visual companion to the written guides:
+
+- **Profiles and recovery** — initialize aisw, add work and personal profiles, switch, inspect status, then remove and restore a profile. Start with [Quickstart](https://burakdede.github.io/aisw/quickstart/).
 
 ![aisw CLI demo](website/public/demos/aisw-important-workflows.gif)
 
-Context workflow:
+- **Mixed-tool contexts** — keep different Claude, Codex, and Gemini profile names behind one client context, then activate and verify it. Read [Common switching situations](https://burakdede.github.io/aisw/common-situations/).
 
 ![aisw context demo](website/public/demos/aisw-context-workflow.gif)
+
+- **Repo guardrails** — bind a client repository to its expected context and see the shell guard detect a mismatch before an agent launch. Follow [Workspace guardrails](https://burakdede.github.io/aisw/workspace/).
+
+![aisw workspace guardrails demo](website/public/demos/aisw-workspace-workflow.gif)
 
 ## Install
 

@@ -171,6 +171,7 @@ export default defineConfig({
 						{ label: 'Commands', slug: 'commands' },
 						{ label: 'Adding Profiles', slug: 'adding-profiles' },
 						{ label: 'Supported Tools', slug: 'supported-tools' },
+						{ label: 'Acceptance Matrix', slug: 'acceptance-matrix' },
 						{ label: 'Configuration', slug: 'configuration' },
 						{ label: 'How It Works', slug: 'how-it-works' },
 						{ label: 'Security', slug: 'security' },

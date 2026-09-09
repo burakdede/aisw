@@ -13,6 +13,8 @@ Most people do not go looking for a "profile manager." They go looking for a fix
 
 This page is the shortest path from those problems to the `aisw` feature that actually solves them.
 
+If you are new to aisw, follow [Quickstart](quickstart.md) first. If you are integrating it into another program, skip to [Automation and scripting](automation.md); if you need to understand what is written to disk or the keyring, read [How aisw works](how-it-works.md) and [Security](security.md).
+
 ## One tool, two accounts
 
 This is the most common starting point: one tool, one work account, one personal account.
@@ -34,6 +36,8 @@ What this solves:
 - You get a named switch instead of a one-off shell trick you need to remember later.
 
 The same pattern works for Codex CLI and Gemini CLI.
+
+For authentication-source details and the difference between direct login and live import, see [Adding profiles](adding-profiles.md).
 
 ## Same profile name across every tool
 
@@ -69,6 +73,8 @@ aisw context use client-acme
 ```
 
 Use a context when the thing you are switching is not "one tool account" but "one whole work mode."
+
+Contexts only reference existing profiles. [How aisw works](how-it-works.md) covers how context activation remains transactional when several tools are mapped.
 
 ## Capture what is already live
 
@@ -130,6 +136,8 @@ With the shell hook installed, `aisw` checks the expected context before `claude
 - "prevent wrong Claude account in client repository"
 - "different AI CLI accounts for different projects"
 
+The [Workspace guardrails](workspace.md) guide covers binding precedence, remote patterns, path rules, and strict versus warning mode.
+
 ## Verify that switching really worked
 
 People rarely want switching by itself. They want confidence.
@@ -142,6 +150,8 @@ aisw repair --json --dry-run
 ```
 
 Use `verify` when you want a machine-readable confidence check after a switch. Use `repair --dry-run` when you want to see what `aisw` believes is fixable before letting it mutate anything.
+
+For scripts and GUI integrations, pair these checks with the stable JSON and exit-code contract in [Automation and scripting](automation.md).
 
 ## Which feature should I reach for?
 
@@ -169,3 +179,5 @@ Use workspace guardrails when:
 - [Why aisw](why-aisw.md)
 - [Workspace guardrails](workspace.md)
 - [Automation and scripting](automation.md)
+- [Supported tools](supported-tools.md) - provider and platform limits
+- [Troubleshooting](troubleshooting.md) - recovery paths when state drifts

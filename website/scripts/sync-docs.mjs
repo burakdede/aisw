@@ -188,6 +188,21 @@ const DOCS = [
     ],
   },
   {
+    source: 'acceptance-matrix.md',
+    output: 'acceptance-matrix.md',
+    title: 'Acceptance Matrix',
+    description: 'Versioned compatibility and acceptance baseline for aisw-supported Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI auth paths.',
+    section: 'reference',
+    queries: [
+      'aisw compatibility matrix',
+      'aisw supported versions',
+      'aisw acceptance baseline',
+      'Claude Code aisw compatibility',
+      'Codex CLI aisw compatibility',
+      'Gemini CLI aisw compatibility',
+    ],
+  },
+  {
     source: 'config.md',
     output: 'configuration.md',
     title: 'Configuration',
