@@ -186,7 +186,7 @@ Activate a stored profile as the live account.
 Notes:
 - `--state-mode` applies to Claude Code and Codex CLI only. Gemini and Antigravity do not support it. With `--all`, it is applied only to the tools that support it rather than failing the whole switch.
 - Switching is atomic: the previous live state is snapshotted before any write. A failed write triggers a full rollback.
-- With `--all`, a tool that has no profile of that name is skipped and the command still succeeds. A tool that has the profile but fails to switch is reported and the command exits non-zero.
+- With `--all`, every matching tool is resolved before any live state changes. If a switch fails, all live states are restored and the command exits non-zero; a tool without the profile is skipped.
 - With shell hook active, `aisw use` also emits the environment variable exports into the current shell session.
 - `--emit-env` is used internally by the shell hook. You can use it directly to apply exports in a subshell: `eval "$(aisw use claude work --emit-env)"`.
 - Codex shared mode remains supported for API-key profiles.

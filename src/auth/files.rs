@@ -148,22 +148,30 @@ pub(crate) fn shell_single_quote(value: &str) -> String {
 /// We detect Fish by checking for `FISH_VERSION`, which Fish always exports into
 /// child-process environments.
 pub(crate) fn emit_export(key: &str, value: &str) {
+    println!("{}", export_line(key, value));
+}
+
+pub(crate) fn export_line(key: &str, value: &str) -> String {
     match std::env::var("AISW_SHELL").ok().as_deref() {
-        Some("pwsh") => println!("$env:{} = {}", key, powershell_single_quote(value)),
+        Some("pwsh") => format!("$env:{} = {}", key, powershell_single_quote(value)),
         _ if std::env::var_os("FISH_VERSION").is_some() => {
-            println!("set -gx {} {}", key, shell_single_quote(value));
+            format!("set -gx {} {}", key, shell_single_quote(value))
         }
-        _ => println!("export {}={}", key, shell_single_quote(value)),
+        _ => format!("export {}={}", key, shell_single_quote(value)),
     }
 }
 
 /// Emit a shell unset statement for `key`, choosing the correct syntax for the
 /// active shell.
 pub(crate) fn emit_unset(key: &str) {
+    println!("{}", unset_line(key));
+}
+
+pub(crate) fn unset_line(key: &str) -> String {
     match std::env::var("AISW_SHELL").ok().as_deref() {
-        Some("pwsh") => println!("Remove-Item Env:{} -ErrorAction SilentlyContinue", key),
-        _ if std::env::var_os("FISH_VERSION").is_some() => println!("set -e {}", key),
-        _ => println!("unset {}", key),
+        Some("pwsh") => format!("Remove-Item Env:{} -ErrorAction SilentlyContinue", key),
+        _ if std::env::var_os("FISH_VERSION").is_some() => format!("set -e {}", key),
+        _ => format!("unset {}", key),
     }
 }
 
