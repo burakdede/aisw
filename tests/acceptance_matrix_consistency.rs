@@ -190,6 +190,24 @@ fn linux_ci_dependency_install_ignores_unrelated_apt_sources() {
 }
 
 #[test]
+fn ci_cargo_invocations_use_the_committed_lockfile() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ci = std::fs::read_to_string(repo_root.join(".github/workflows/ci.yml"))
+        .expect("CI workflow should be readable");
+
+    for line in ci.lines().filter(|line| {
+        let trimmed = line.trim_start();
+        (trimmed.starts_with("run: cargo") && !trimmed.contains("cargo fmt"))
+            || trimmed.starts_with("cargo +nightly llvm-cov")
+    }) {
+        assert!(
+            line.contains("--locked"),
+            "CI Cargo invocation must use the committed lockfile: {line}"
+        );
+    }
+}
+
+#[test]
 fn optional_docs_deploy_notification_skips_without_token() {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow_path = repo_root

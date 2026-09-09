@@ -36,7 +36,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   test:
     name: Test
@@ -59,7 +59,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Completion smoke test
         if: matrix.os == 'ubuntu-latest'
@@ -113,7 +113,7 @@ jobs:
 
       - name: Run coverage with quality gates
         run: |
-          cargo +nightly llvm-cov \
+          cargo +nightly llvm-cov --locked \
             --json \
             --summary-only \
             --branch \
@@ -121,7 +121,7 @@ jobs:
           .github/scripts/coverage-gate.sh coverage-summary.json
 
       - name: Generate coverage report
-        run: cargo +nightly llvm-cov --lcov --branch --output-path lcov.info
+        run: cargo +nightly llvm-cov --locked --lcov --branch --output-path lcov.info
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
