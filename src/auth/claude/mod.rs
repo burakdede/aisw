@@ -28,7 +28,7 @@ use keychain::{
     keychain_service_for_config_dir as scoped_keychain_service_for_config_dir, ClaudeAuthStorage,
     ClaudeKeychainScheme as KeychainScheme,
 };
-use paths::live_credentials_path;
+use paths::{live_credentials_path, live_credentials_root};
 
 // ---- Constants ----
 
@@ -172,7 +172,7 @@ pub fn apply_live_credentials(
 
     match auth_storage(user_home) {
         ClaudeAuthStorage::File => crate::live_apply::apply_transaction(
-            user_home,
+            &live_credentials_root(user_home),
             vec![crate::live_apply::LiveFileChange::write(
                 live_credentials_path(user_home),
                 stored,

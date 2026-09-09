@@ -52,6 +52,11 @@ Antigravity does not currently expose a documented per-profile auth/data root li
 | Linux | `~/.claude/.credentials.json` | Supported via Secret Service |
 | Windows | `~/.claude/.credentials.json` | Supported via Windows Credential Manager |
 
+When `CLAUDE_CONFIG_DIR` is set, Claude Code reads `.credentials.json` from
+that directory instead of the default locations above. `aisw` honors the
+explicit variable for live credential reads, writes, detection, and cleanup;
+the separate OAuth account metadata file remains `~/.claude.json`.
+
 OAuth account metadata (display name, organization) is stored in `~/.claude.json` under the `oauthAccount` key. `aisw` captures and restores this alongside credentials.
 
 Claude Code also stores MCP OAuth tokens in the credentials payload. `aisw` preserves the full credential payload including `mcpOAuth` keys when writing to any backend.

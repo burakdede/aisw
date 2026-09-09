@@ -81,7 +81,8 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 
 **Credential locations:**
 - macOS: `~/Library/Application Support/Claude/` (Keychain) and `~/.claude/.credentials.json` (file fallback)
-- Linux/Windows: `~/.claude/.credentials.json`
+- Linux/Windows: `~/.claude/.credentials.json`, or
+  `$CLAUDE_CONFIG_DIR/.credentials.json` when configured
 - OAuth account metadata: `~/.claude.json` (`oauthAccount` field)
 
 **How `aisw` captures credentials:**

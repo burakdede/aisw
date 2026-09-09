@@ -258,6 +258,27 @@ fn use_claude_api_key_emit_env_prints_claude_config_dir() {
 }
 
 #[test]
+fn use_claude_honors_configured_credential_directory() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+    let configured_dir = env.fake_home.join("claude-config");
+
+    env.cmd()
+        .env("AISW_CLAUDE_AUTH_STORAGE", "file")
+        .env("CLAUDE_CONFIG_DIR", &configured_dir)
+        .args(["use", "claude", "work"])
+        .assert()
+        .success();
+
+    assert!(configured_dir.join(".credentials.json").is_file());
+    assert!(!env
+        .fake_home
+        .join(".claude")
+        .join(".credentials.json")
+        .exists());
+}
+
+#[test]
 fn use_claude_shared_emit_env_unsets_claude_config_dir() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");

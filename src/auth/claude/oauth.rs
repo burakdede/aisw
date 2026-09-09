@@ -30,7 +30,8 @@ use super::keychain::{
     ClaudeAuthStorage,
 };
 use super::paths::{
-    live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
+    live_account_metadata_path, live_credentials_path, live_credentials_paths,
+    live_credentials_root, live_local_state_dir,
 };
 use super::{read_stored_credentials, LiveCredentialSnapshot, LiveCredentialSource};
 use crate::live_apply::{apply_transaction, LiveFileChange};
@@ -122,7 +123,10 @@ fn restore_live_credentials_snapshot(
     match snapshot {
         Some(snapshot) => match snapshot.source {
             LiveCredentialSource::File(path) => {
-                apply_transaction(user_home, vec![LiveFileChange::write(path, snapshot.bytes)])?;
+                apply_transaction(
+                    &live_credentials_root(user_home),
+                    vec![LiveFileChange::write(path, snapshot.bytes)],
+                )?;
             }
             LiveCredentialSource::Keychain => {
                 super::keychain::write_keychain_credentials(&snapshot.bytes)?;
@@ -134,7 +138,7 @@ fn restore_live_credentials_snapshot(
                 .filter(|path| path.exists())
                 .map(LiveFileChange::delete)
                 .collect();
-            apply_transaction(user_home, changes)?;
+            apply_transaction(&live_credentials_root(user_home), changes)?;
             // Best effort cleanup for environments where Claude stores auth in keychain.
             let _ = super::keychain::delete_keychain_credentials();
         }
