@@ -162,11 +162,13 @@ fn restore_live_oauth_account_metadata_snapshot(
         return Ok(());
     }
     let mut live_json = if live_path.exists() {
-        serde_json::from_slice::<serde_json::Value>(
+        match serde_json::from_slice::<serde_json::Value>(
             &fs::read(&live_path)
                 .with_context(|| format!("could not read {}", live_path.display()))?,
-        )
-        .with_context(|| format!("could not parse {}", live_path.display()))?
+        ) {
+            Ok(value) => value,
+            Err(_) => return Ok(()),
+        }
     } else {
         serde_json::json!({})
     };
