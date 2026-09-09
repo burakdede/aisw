@@ -39,14 +39,18 @@ pub fn run(args: UninstallArgs, home: &Path, user_home: &Path) -> Result<()> {
 }
 
 pub(crate) fn run_inner(args: UninstallArgs, home: &Path, user_home: &Path) -> Result<()> {
-    let plan = build_plan(home, user_home)?;
-
     if args.dry_run {
+        let plan = build_plan(home, user_home)?;
         print_summary("Uninstall dry run", &plan, &args, true);
         output::print_blank_line();
         output::print_next_step("Review the plan above, then run 'aisw uninstall --yes' or add '--remove-data' if you also want to delete AISW_HOME.");
         return Ok(());
     }
+
+    // Uninstall removes shared state and may purge keyring credentials, so
+    // keep the complete destructive workflow exclusive with other operations.
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+    let plan = build_plan(home, user_home)?;
 
     let mut removed_hooks = Vec::new();
     for rc in &plan.shell_hook_files {
@@ -315,6 +319,9 @@ fn strip_hook_block(contents: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(windows))]
+    use std::{thread, time::Duration};
+
     use tempfile::tempdir;
 
     use super::*;
@@ -386,6 +393,36 @@ mod tests {
         assert!(fs::read_to_string(zshrc)
             .unwrap()
             .contains("shell-hook zsh"));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn uninstall_waits_for_an_in_progress_switch() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let config_store = ConfigStore::new(&home);
+        let switch_lock = config_store.acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run_inner(
+            UninstallArgs {
+                remove_data: false,
+                dry_run: false,
+                yes: true,
+            },
+            &home,
+            &user_home,
+        )
+        .unwrap();
+        releaser.join().unwrap();
+
+        assert!(home.exists());
     }
 
     #[test]
