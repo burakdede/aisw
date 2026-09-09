@@ -188,3 +188,20 @@ fn linux_ci_dependency_install_ignores_unrelated_apt_sources() {
         "the Linux credential-store canary should use the scoped dependency installer"
     );
 }
+
+#[test]
+fn optional_docs_deploy_notification_skips_without_token() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workflow_path = repo_root
+        .join(".github")
+        .join("workflows")
+        .join("notify-aiswitcher-dev.yml");
+    let workflow = std::fs::read_to_string(&workflow_path)
+        .expect("docs deploy notification workflow should be readable");
+
+    assert!(
+        workflow.contains("AISWITCHER_DEV_DISPATCH_TOKEN secret is not set. Skipping.")
+            && workflow.contains("exit 0"),
+        "missing optional dispatch token must skip successfully"
+    );
+}
