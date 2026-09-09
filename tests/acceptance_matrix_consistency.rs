@@ -151,6 +151,26 @@ fn website_command_docs_preserve_compatibility_warning() {
 }
 
 #[test]
+fn website_security_docs_preserve_recovery_failure_guarantees() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let canonical = std::fs::read_to_string(repo_root.join("docs/security.md"))
+        .expect("canonical security docs should be readable");
+    let website = std::fs::read_to_string(repo_root.join("website/src/content/docs/security.md"))
+        .expect("website security docs should be readable");
+
+    for guarantee in [
+        "If the commit and its automatic rollback both fail, `aisw` reports both errors",
+        "Staged\nfile cleanup failures are reported alongside the operation error as well.",
+    ] {
+        assert!(canonical.contains(guarantee));
+        assert!(
+            website.contains(guarantee),
+            "website security docs must preserve recovery guarantee: {guarantee}"
+        );
+    }
+}
+
+#[test]
 fn credential_store_canary_is_bounded_and_fail_closed() {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow_path = repo_root
