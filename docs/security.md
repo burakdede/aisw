@@ -105,6 +105,11 @@ lock for their storage changes. This prevents concurrent `use`, `context use`,
 `rename`, and `remove` commands from interleaving credential-file, keyring, and
 active-profile metadata updates.
 
+Profile additions and live imports use the same lock because OAuth capture and
+credential writes can also change the live credential owner. An interactive
+login may therefore make a concurrent switch wait or fail with the normal lock
+timeout rather than allowing two commands to compete for live state.
+
 ### Input validation
 
 Profile names are restricted to `a-z`, `A-Z`, `0-9`, `-`, and `_`, and every read and write resolves inside the profile directory, so a name can never reach a path outside `~/.aisw/profiles/`. `aisw` refuses to read or write through a symlink at a credential path. Permission repair also refuses a symlinked `AISW_HOME` root, so it cannot traverse an alias into an unrelated directory.
