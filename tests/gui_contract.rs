@@ -426,6 +426,31 @@ fn add_api_key_stdin_empty_is_structured_failure() {
 }
 
 #[test]
+fn add_missing_tool_is_structured_in_machine_mode() {
+    let env = TestEnv::new();
+    let output = env.output(&[
+        "add",
+        "claude",
+        "work",
+        "--api-key",
+        "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "--json",
+    ]);
+
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "add");
+    assert_eq!(json["error"]["kind"], "tool_not_installed");
+    assert_eq!(
+        json["error"]["remediation"]["command"],
+        "aisw doctor --json"
+    );
+    assert!(!env.aisw_home.join("profiles").join("claude").exists());
+}
+
+#[test]
 fn add_duplicate_profile_is_structured_in_machine_mode() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
