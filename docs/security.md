@@ -118,7 +118,7 @@ API keys must be a single line. Keys containing control characters are rejected,
 
 ### Deletion
 
-`aisw uninstall --remove-data` deletes `~/.aisw/` **and** the OS keyring entries `aisw` created for profiles and backups, so no managed secret outlives the data directory. It refuses to run when `AISW_HOME` points at your home directory.
+`aisw uninstall --remove-data` deletes `~/.aisw/` **and** the OS keyring entries `aisw` created for profiles and backups, so no managed secret outlives the data directory. It refuses to run when `AISW_HOME` points at your home directory. If managed metadata cannot be read or a keyring entry cannot be removed, uninstall fails before deleting `AISW_HOME`, leaving the data available for retry.
 
 ## OAuth flows
 

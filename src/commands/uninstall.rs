@@ -60,7 +60,7 @@ pub(crate) fn run_inner(args: UninstallArgs, home: &Path, user_home: &Path) -> R
         // Deleting AISW_HOME alone would strand credentials in the OS keyring,
         // which is the opposite of what "remove my data" means. Purge them
         // first, while the config and backup index that name them still exist.
-        purged_secrets = purge_managed_secrets(home);
+        purged_secrets = purge_managed_secrets(home)?;
         fs::remove_dir_all(home).with_context(|| format!("could not remove {}", home.display()))?;
         true
     } else {
@@ -152,48 +152,58 @@ fn ensure_safe_to_delete(home: &Path, user_home: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Delete every system-keyring secret aisw created under this home.
+/// Delete every managed keyring entry before the data directory is removed.
 ///
-/// Best effort: a keyring that is locked or unavailable must not block the
-/// filesystem cleanup, so failures are counted as "not purged" rather than
-/// aborting the uninstall. Returns the number of entries removed.
-fn purge_managed_secrets(home: &Path) -> usize {
+/// A failed purge must leave the directory in place so the user can fix the
+/// keyring or metadata and retry without losing the information needed to
+/// identify the remaining entries.
+fn purge_managed_secrets(home: &Path) -> Result<usize> {
     let mut purged = 0usize;
 
     let mut keyring_profiles = Vec::new();
-    if let Ok(config) = ConfigStore::new(home).load() {
-        for tool in Tool::ALL {
-            for (name, meta) in config.profiles_for(tool) {
-                if meta.credential_backend == CredentialBackend::SystemKeyring {
-                    keyring_profiles.push((tool, name.clone()));
-                }
+    let config = ConfigStore::new(home)
+        .load()
+        .context("could not read managed config while purging keyring credentials")?;
+    for tool in Tool::ALL {
+        for (name, meta) in config.profiles_for(tool) {
+            if meta.credential_backend == CredentialBackend::SystemKeyring {
+                keyring_profiles.push((tool, name.clone()));
             }
         }
     }
 
     for (tool, name) in &keyring_profiles {
-        if secure_store::delete_profile_secret(*tool, name).is_ok() {
-            purged += 1;
-        }
+        secure_store::delete_profile_secret(*tool, name).with_context(|| {
+            format!(
+                "could not purge system keyring credentials for {} profile '{}'",
+                tool, name
+            )
+        })?;
+        purged += 1;
     }
 
     // Backups only carry a keyring secret when their profile was keyring-backed,
     // so restrict the sweep to those profiles rather than probing every backup.
-    if let Ok(backups) = BackupManager::new(home).list() {
-        for entry in backups {
-            let keyring_backed = keyring_profiles
-                .iter()
-                .any(|(tool, name)| *tool == entry.tool && *name == entry.profile);
-            if keyring_backed
-                && secure_store::delete_backup_secret(entry.tool, &entry.profile, &entry.backup_id)
-                    .is_ok()
-            {
-                purged += 1;
-            }
+    for entry in BackupManager::new(home)
+        .list()
+        .context("could not read managed backups while purging keyring credentials")?
+    {
+        let keyring_backed = keyring_profiles
+            .iter()
+            .any(|(tool, name)| *tool == entry.tool && *name == entry.profile);
+        if keyring_backed {
+            secure_store::delete_backup_secret(entry.tool, &entry.profile, &entry.backup_id)
+                .with_context(|| {
+                    format!(
+                        "could not purge system keyring backup credentials for {} profile '{}' (backup {})",
+                        entry.tool, entry.profile, entry.backup_id
+                    )
+                })?;
+            purged += 1;
         }
     }
 
-    purged
+    Ok(purged)
 }
 
 fn file_contains_hook(path: &Path) -> Result<bool> {
@@ -319,6 +329,32 @@ mod tests {
     fn strip_hook_block_leaves_unrelated_content() {
         let text = "# Added by something else\necho hi\n";
         assert_eq!(strip_hook_block(text), text);
+    }
+
+    #[test]
+    fn remove_data_preserves_home_when_config_is_unreadable() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("user");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        fs::write(home.join("config.json"), "not valid config").unwrap();
+
+        let err = run_inner(
+            UninstallArgs {
+                remove_data: true,
+                dry_run: false,
+                yes: true,
+            },
+            &home,
+            &user_home,
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("could not read managed config while purging keyring credentials"));
+        assert!(home.exists());
     }
 
     #[test]
