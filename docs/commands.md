@@ -460,6 +460,9 @@ in `compatibility_baseline`; older, newer, missing, or unparseable versions
 are warnings and do not hard-fail `status`. Missing tools report `null` for
 the binary fields in JSON output.
 
+Prerelease and build-metadata suffixes are treated as unparseable so an
+unaudited build cannot be mistaken for the pinned stable release.
+
 | Flag | Effect |
 |---|---|
 | `--tool` | Filter to one tool: `claude`, `codex`, `gemini`, or `antigravity` |
