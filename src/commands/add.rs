@@ -44,7 +44,8 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
     // Tool detection is intentionally skipped: the tool is already installed
     // and logged in, which is the prerequisite for --from-live to succeed.
     if args.from_live {
-        let user_home = dirs::home_dir().context("could not determine home directory")?;
+        let user_home =
+            crate::runtime::user_home().context("could not determine home directory")?;
         return from_live(args, home, &user_home);
     }
 
@@ -189,14 +190,14 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                     Option<Vec<u8>>,
                     Option<std::path::PathBuf>,
                 ) = if args.set_active
-                    || dirs::home_dir()
+                    || crate::runtime::user_home()
                         .as_deref()
                         .is_some_and(auth::claude::login_targets_profile_state)
                 {
                     (None, None, None)
                 } else {
-                    let user_home =
-                        dirs::home_dir().context("could not determine home directory")?;
+                    let user_home = crate::runtime::user_home()
+                        .context("could not determine home directory")?;
                     (
                         auth::claude::live_credentials_snapshot_for_import(&user_home)?,
                         auth::claude::read_live_oauth_account_metadata_for_import(&user_home)?,
@@ -258,7 +259,8 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
             }
             Tool::Antigravity => {
                 let backend = requested_backend.unwrap_or(CredentialBackend::File);
-                let user_home = dirs::home_dir().context("could not determine home directory")?;
+                let user_home =
+                    crate::runtime::user_home().context("could not determine home directory")?;
                 let live_snapshot = (!args.set_active)
                     .then(|| auth::antigravity::capture_live_snapshot(&user_home))
                     .transpose()?;
@@ -300,7 +302,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
         config_store.set_active(args.tool, &args.profile_name)?;
     }
 
-    let user_home = dirs::home_dir();
+    let user_home = crate::runtime::user_home();
     emit_add_result(
         &args,
         backend,

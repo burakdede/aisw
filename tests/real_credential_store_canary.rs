@@ -66,6 +66,7 @@ fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Out
     cmd.args(args)
         .env("AISW_HOME", &env.aisw_home)
         .env("HOME", &env.fake_home)
+        .env("AISW_TEST_USER_HOME", &env.fake_home)
         .env("PATH", bin_dir)
         .env_remove("AISW_KEYRING_TEST_DIR")
         .env_remove("AISW_SECURITY_BIN")

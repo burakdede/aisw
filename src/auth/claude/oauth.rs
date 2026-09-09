@@ -315,7 +315,7 @@ pub(super) fn add_oauth_with(
 ) -> Result<()> {
     profile_store.create(Tool::Claude, name)?;
 
-    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let user_home = crate::runtime::user_home().context("could not determine home directory")?;
     let login_targets_profile_state = super::login_targets_profile_state(&user_home);
     let target_config_dir =
         login_targets_profile_state.then(|| profile_store.profile_dir(Tool::Claude, name));
@@ -340,7 +340,7 @@ pub(super) fn add_oauth_with(
         name,
     )?;
 
-    if let Some(user_home) = dirs::home_dir() {
+    if let Some(user_home) = crate::runtime::user_home() {
         files::cleanup_profile_on_error(
             persist_live_oauth_account_metadata(profile_store, name, &user_home),
             profile_store,

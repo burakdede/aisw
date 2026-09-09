@@ -404,7 +404,7 @@ fn print_json(report: &DoctorReport) -> Result<()> {
 // ---- Entry point ----
 
 pub fn run(args: DoctorArgs, home: &Path) -> Result<bool> {
-    let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
+    let user_home = crate::runtime::user_home().unwrap_or_else(|| Path::new(".").to_path_buf());
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     run_in(args, home, &user_home, &path_var)
 }

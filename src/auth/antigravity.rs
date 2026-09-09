@@ -439,7 +439,7 @@ pub fn add_oauth_with_backend(
     agy_bin: &Path,
     backend: CredentialBackend,
 ) -> Result<()> {
-    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let user_home = crate::runtime::user_home().context("could not determine home directory")?;
     let before = capture_live_snapshot(&user_home)?;
     let mut child = Command::new(agy_bin)
         .spawn()

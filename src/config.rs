@@ -198,7 +198,7 @@ impl ConfigStore {
         if let Ok(val) = std::env::var(AISW_HOME_ENV) {
             return Ok(PathBuf::from(val));
         }
-        let home = dirs::home_dir().context("could not determine home directory")?;
+        let home = crate::runtime::user_home().context("could not determine home directory")?;
         Ok(home.join(".aisw"))
     }
 

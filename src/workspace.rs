@@ -530,7 +530,7 @@ pub fn expand_tilde(path: &Path) -> Result<PathBuf> {
     let mut components = path.components();
     match components.next() {
         Some(Component::Normal(first)) if first == "~" => {
-            let home = dirs::home_dir().context("could not determine home directory")?;
+            let home = crate::runtime::user_home().context("could not determine home directory")?;
             let mut expanded = home;
             for component in components {
                 expanded.push(component.as_os_str());
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn expand_tilde_expands_home_and_leaves_plain_paths_unchanged() {
         let _temp = TempDir::new().unwrap();
-        let home = dirs::home_dir().expect("home directory should be available");
+        let home = crate::runtime::user_home().expect("home directory should be available");
         let expanded = expand_tilde(Path::new("~/clients/acme")).unwrap();
         assert_eq!(expanded, home.join("clients").join("acme"));
         assert_eq!(
