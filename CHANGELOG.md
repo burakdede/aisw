@@ -43,6 +43,7 @@
 - Antigravity is now guarded by the generated shell hooks and included in `workspace status --json` and `status --context --json`.
 - OAuth capture no longer leaves an orphaned interactive login process when a step inside the polling loop fails.
 - Failed `aisw init` imports now remove newly copied Claude, Codex, and Gemini credentials when profile registration fails.
+- Failed Gemini API-key and OAuth registrations now remove the newly created profile when the config write fails.
 - Failed profile removals now attempt to restore the fresh backup and report when automatic recovery is incomplete.
 
 ### Performance

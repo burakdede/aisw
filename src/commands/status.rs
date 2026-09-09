@@ -68,7 +68,7 @@ impl DerivedContextStatus {
 }
 
 pub fn run(args: StatusArgs, home: &Path) -> Result<()> {
-    let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
+    let user_home = crate::runtime::user_home().unwrap_or_else(|| Path::new(".").to_path_buf());
     run_in(
         args,
         home,

@@ -25,7 +25,7 @@ pub(crate) struct ResolvedProfileSwitch {
 }
 
 pub fn run(args: UseArgs, home: &Path) -> Result<()> {
-    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let user_home = crate::runtime::user_home().context("could not determine home directory")?;
     if args.all {
         let profile_name = args.all_profile.as_deref().unwrap_or_default();
         if profile_name.is_empty() {

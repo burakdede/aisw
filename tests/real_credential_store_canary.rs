@@ -100,6 +100,7 @@ fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Out
     cmd.args(args)
         .env("AISW_HOME", &env.aisw_home)
         .env("HOME", &env.fake_home)
+        .env("AISW_TEST_USER_HOME", &env.fake_home)
         .env("PATH", bin_dir)
         .env_remove("AISW_KEYRING_TEST_DIR")
         .env_remove("AISW_SECURITY_BIN")
@@ -107,6 +108,20 @@ fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Out
         .env_remove("CODEX_HOME")
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME");
+    #[cfg(windows)]
+    {
+        // `dirs::home_dir()` uses the Windows profile known folder, not HOME.
+        // Keep the canary's live-state writes inside its temporary sandbox.
+        let roaming = env.fake_home.join("AppData").join("Roaming");
+        let local = env.fake_home.join("AppData").join("Local");
+        fs::create_dir_all(&roaming).expect("failed to create fake AppData/Roaming");
+        fs::create_dir_all(&local).expect("failed to create fake AppData/Local");
+        cmd.env_remove("HOMEDRIVE")
+            .env_remove("HOMEPATH")
+            .env("USERPROFILE", &env.fake_home)
+            .env("APPDATA", roaming)
+            .env("LOCALAPPDATA", local);
+    }
     cmd.output().unwrap()
 }
 
@@ -343,6 +358,11 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
         "antigravity use",
+    );
+
+    assert!(
+        env.fake_home.join(".codex").join("auth.json").is_file(),
+        "Codex live credentials should stay inside the canary home"
     );
 
     let status = json_output(&env, &bin_dir, &["status", "--json"]);

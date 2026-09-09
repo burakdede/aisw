@@ -317,7 +317,7 @@ fn rename(args: ContextRenameArgs, home: &Path) -> Result<()> {
 fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
     let args = _args;
     let home = _home;
-    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let user_home = crate::runtime::user_home().context("could not determine home directory")?;
     let store = ConfigStore::new(home);
     let _switch_lock = store.acquire_switch_lock()?;
     let config = store.load()?;
