@@ -24,14 +24,22 @@ use crate::types::{StateMode, Tool};
 
 pub fn run(args: ContextArgs, home: &Path) -> Result<()> {
     match args.command {
-        ContextCommand::Create(args) => create(args, home),
+        ContextCommand::Create(args) => with_operation_lock(home, || create(args, home)),
         ContextCommand::List(args) => list(args, home),
         ContextCommand::Use(args) => use_context(args, home),
-        ContextCommand::Set(args) => set(args, home),
-        ContextCommand::Unset(args) => unset(args, home),
-        ContextCommand::Remove(args) => remove(args, home),
-        ContextCommand::Rename(args) => rename(args, home),
+        ContextCommand::Set(args) => with_operation_lock(home, || set(args, home)),
+        ContextCommand::Unset(args) => with_operation_lock(home, || unset(args, home)),
+        ContextCommand::Remove(args) => with_operation_lock(home, || remove(args, home)),
+        ContextCommand::Rename(args) => with_operation_lock(home, || rename(args, home)),
     }
+}
+
+fn with_operation_lock<F>(home: &Path, operation: F) -> Result<()>
+where
+    F: FnOnce() -> Result<()>,
+{
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+    operation()
 }
 
 fn create(args: ContextCreateArgs, home: &Path) -> Result<()> {
@@ -710,4 +718,67 @@ fn remaining_context_names(config: &Config) -> Vec<String> {
     let mut names = config.contexts().keys().cloned().collect::<Vec<_>>();
     names.sort();
     names
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(not(windows))]
+    use std::{thread, time::Duration};
+
+    use chrono::Utc;
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::config::{AuthMethod, CredentialBackend, ProfileMeta};
+    use crate::profile::ProfileStore;
+
+    #[test]
+    #[cfg(not(windows))]
+    fn context_create_waits_for_an_in_progress_switch() {
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("aisw");
+        let profile_store = ProfileStore::new(&home);
+        let config_store = ConfigStore::new(&home);
+        profile_store.create(Tool::Claude, "work").unwrap();
+        config_store
+            .add_profile(
+                Tool::Claude,
+                "work",
+                ProfileMeta {
+                    added_at: Utc::now(),
+                    auth_method: AuthMethod::ApiKey,
+                    credential_backend: CredentialBackend::File,
+                    label: None,
+                },
+            )
+            .unwrap();
+
+        let switch_lock = config_store.acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run(
+            ContextArgs {
+                command: ContextCommand::Create(ContextCreateArgs {
+                    context_name: "work".to_owned(),
+                    claude: Some("work".to_owned()),
+                    codex: None,
+                    gemini: None,
+                    antigravity: None,
+                    json: true,
+                }),
+            },
+            &home,
+        )
+        .unwrap();
+        releaser.join().unwrap();
+
+        assert!(ConfigStore::new(&home)
+            .load()
+            .unwrap()
+            .context("work")
+            .is_some());
+    }
 }
