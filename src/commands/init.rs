@@ -653,10 +653,10 @@ fn detect_live_claude(
         {
             (
                 "local_state_without_importable_auth",
-                Some(
-                    "Claude local state exists, but aisw could not find importable auth in ~/.claude/.credentials.json or the system keyring."
-                        .to_owned(),
-                ),
+                Some(format!(
+                    "Claude local state exists, but aisw could not find importable auth in {} or the system keyring.",
+                    auth::claude::live_credentials_path(user_home).display()
+                )),
             )
         } else {
             ("no_live_auth", None)
@@ -748,11 +748,11 @@ fn detect_live_codex(
             let storage = auth::codex::live_auth_storage(user_home)?
                 .unwrap_or(auth::codex::LiveAuthStorage::Auto);
             Some(match storage {
-                auth::codex::LiveAuthStorage::Keyring => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json or the system keyring.".to_owned(),
-                auth::codex::LiveAuthStorage::Auto => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json. Codex may be using the system keyring instead of a file backend.".to_owned(),
-                auth::codex::LiveAuthStorage::File => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json even though the configured backend is file.".to_owned(),
+                auth::codex::LiveAuthStorage::Keyring => format!("Codex local state exists, but aisw could not find importable auth in {} or the system keyring.", auth::codex::live_auth_path(user_home).display()),
+                auth::codex::LiveAuthStorage::Auto => format!("Codex local state exists, but aisw could not find importable auth in {}. Codex may be using the system keyring instead of a file backend.", auth::codex::live_auth_path(user_home).display()),
+                auth::codex::LiveAuthStorage::File => format!("Codex local state exists, but aisw could not find importable auth in {} even though the configured backend is file.", auth::codex::live_auth_path(user_home).display()),
                 auth::codex::LiveAuthStorage::Ephemeral => "Codex is configured for ephemeral credentials, which are process-local and cannot be imported by aisw. Use a durable file or keyring auth mode before running init.".to_owned(),
-                auth::codex::LiveAuthStorage::Unknown => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json. The configured auth backend is not recognized.".to_owned(),
+                auth::codex::LiveAuthStorage::Unknown => format!("Codex local state exists, but aisw could not find importable auth in {}. The configured auth backend is not recognized.", auth::codex::live_auth_path(user_home).display()),
             })
         } else {
             None
@@ -986,10 +986,10 @@ fn import_claude(
     let Some(snapshot) = auth::claude::live_credentials_snapshot_for_import(user_home)? else {
         if auth::claude::keychain_import_supported() && local_state.is_some() {
             output::print_kv("Credentials", "not found in file or Keychain");
-            output::print_info(
-                "Claude local state exists, but aisw could not find importable auth in \
-                 ~/.claude/.credentials.json or the system keyring.",
-            );
+            output::print_info(format!(
+                "Claude local state exists, but aisw could not find importable auth in {} or the system keyring.",
+                auth::claude::live_credentials_path(user_home).display()
+            ));
         } else {
             output::print_kv("Credentials", "not found");
         }
@@ -1206,29 +1206,25 @@ fn import_codex(
                 .unwrap_or(auth::codex::LiveAuthStorage::Auto);
             output::print_kv("Credentials", "not found in auth.json");
             match storage {
-                auth::codex::LiveAuthStorage::Keyring => output::print_info(
-                    "Codex local state exists, but aisw could not find importable auth in \
-                     ~/.codex/auth.json or the system keyring. This install appears to use \
-                     keyring-backed auth, but aisw could not locate a readable credential there.",
-                ),
-                auth::codex::LiveAuthStorage::Auto => output::print_info(
-                    "Codex local state exists, but aisw could not find importable auth in \
-                     ~/.codex/auth.json. Codex defaults to its auto auth-storage mode here, \
-                     which may be using the system keyring instead of a file backend.",
-                ),
-                auth::codex::LiveAuthStorage::File => output::print_info(
-                    "Codex local state exists, but aisw could not find importable auth in \
-                     ~/.codex/auth.json even though the configured backend is file.",
-                ),
+                auth::codex::LiveAuthStorage::Keyring => output::print_info(format!(
+                    "Codex local state exists, but aisw could not find importable auth in {} or the system keyring. This install appears to use keyring-backed auth, but aisw could not locate a readable credential there.",
+                    auth::codex::live_auth_path(user_home).display()
+                )),
+                auth::codex::LiveAuthStorage::Auto => output::print_info(format!(
+                    "Codex local state exists, but aisw could not find importable auth in {}. Codex defaults to its auto auth-storage mode here, which may be using the system keyring instead of a file backend.",
+                    auth::codex::live_auth_path(user_home).display()
+                )),
+                auth::codex::LiveAuthStorage::File => output::print_info(format!(
+                    "Codex local state exists, but aisw could not find importable auth in {} even though the configured backend is file.",
+                    auth::codex::live_auth_path(user_home).display()
+                )),
                 auth::codex::LiveAuthStorage::Ephemeral => output::print_info(
-                    "Codex is configured for ephemeral credentials, which are process-local and \
-                     cannot be imported by aisw. Use a durable file or keyring auth mode before \
-                     running init.",
+                    "Codex is configured for ephemeral credentials, which are process-local and cannot be imported by aisw. Use a durable file or keyring auth mode before running init.",
                 ),
-                auth::codex::LiveAuthStorage::Unknown => output::print_info(
-                    "Codex local state exists, but aisw could not find importable auth in \
-                     ~/.codex/auth.json. The configured auth backend is not recognized.",
-                ),
+                auth::codex::LiveAuthStorage::Unknown => output::print_info(format!(
+                    "Codex local state exists, but aisw could not find importable auth in {}. The configured auth backend is not recognized.",
+                    auth::codex::live_auth_path(user_home).display()
+                )),
             }
             output::print_kv("Auth storage", storage.description());
         } else {

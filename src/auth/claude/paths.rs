@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// Returns the path to the active `.credentials.json` file. An explicit
 /// `CLAUDE_CONFIG_DIR` takes precedence; otherwise the XDG secondary location
 /// is preferred only when it exists and the primary does not.
-pub(super) fn live_credentials_path(user_home: &Path) -> PathBuf {
+pub fn live_credentials_path(user_home: &Path) -> PathBuf {
     if let Some(config_dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
         return PathBuf::from(config_dir).join(super::CREDENTIALS_FILE);
     }
@@ -29,6 +29,16 @@ pub(super) fn live_credentials_path(user_home: &Path) -> PathBuf {
 
 /// Returns both possible live credentials paths in priority order.
 pub(super) fn live_credentials_paths(user_home: &Path) -> [PathBuf; 2] {
+    if let Some(config_dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
+        return [
+            PathBuf::from(config_dir).join(super::CREDENTIALS_FILE),
+            user_home
+                .join(".config")
+                .join("claude")
+                .join(super::CREDENTIALS_FILE),
+        ];
+    }
+
     [
         user_home.join(".claude").join(super::CREDENTIALS_FILE),
         user_home
