@@ -26,6 +26,8 @@ pub fn run(args: RenameArgs, home: &Path) -> Result<()> {
 }
 
 pub(crate) fn run_inner(args: RenameArgs, home: &Path) -> Result<()> {
+    // Profile directory and secure-store changes must not race a live switch.
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
     let old_name = args
         .old_name
         .as_deref()
@@ -225,6 +227,8 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::thread;
+    use std::time::Duration;
 
     use tempfile::tempdir;
 
@@ -355,6 +359,32 @@ mod tests {
         assert!(ps.exists(Tool::Claude, "work"));
         assert!(config.profiles_for(Tool::Claude).contains_key("work"));
         assert!(!config.profiles_for(Tool::Claude).contains_key("default"));
+    }
+
+    #[test]
+    fn rename_waits_for_an_in_progress_switch() {
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let cs = ConfigStore::new(tmp.path());
+        auth::claude::add_api_key(
+            &ps,
+            &cs,
+            "default",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            None,
+        )
+        .unwrap();
+
+        let switch_lock = cs.acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run_inner(rename_args(Tool::Claude, "default", "work"), tmp.path()).unwrap();
+        releaser.join().unwrap();
+
+        assert!(ps.exists(Tool::Claude, "work"));
     }
 
     #[test]
