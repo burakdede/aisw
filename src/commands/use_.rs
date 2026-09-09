@@ -52,6 +52,7 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
             home,
             &user_home,
         )
+        .map(|_| ())
     }
 }
 
@@ -67,6 +68,7 @@ pub(crate) fn run_all_in(
     let config = config_store.load()?;
     let mut switched = 0usize;
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     let before_backup_ids = backup_ids_for(home, None)?;
     let mut affected_tools = Vec::new();
 
@@ -93,9 +95,10 @@ pub(crate) fn run_all_in(
             home,
             user_home,
         ) {
-            Ok(()) => {
+            Ok(tool_warnings) => {
                 switched += 1;
                 affected_tools.push(tool);
+                warnings.extend(tool_warnings);
             }
             Err(e) => errors.push(format!("{}: {}", tool, e)),
         }
@@ -133,7 +136,7 @@ pub(crate) fn run_all_in(
                 "state_mode": state_mode_map(home, &affected_tools)?,
                 "live_match": live_match_map(home, user_home, &affected_tools)?,
                 "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
-                "warnings": Vec::<String>::new(),
+                "warnings": warnings,
             }),
         )?;
     }
@@ -155,6 +158,7 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         home,
         user_home,
     )
+    .map(|_| ())
 }
 
 fn run_for_tool(
@@ -165,7 +169,7 @@ fn run_for_tool(
     json: bool,
     home: &Path,
     user_home: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let before_backup_ids = backup_ids_for(home, Some(tool))?;
     let resolved = resolve_profile_switch_request(
         tool,
@@ -175,7 +179,7 @@ fn run_for_tool(
         home,
         user_home,
     )?;
-    apply_resolved_profile_switch(&resolved, emit_env, home, user_home)?;
+    let warnings = apply_resolved_profile_switch(&resolved, emit_env, home, user_home)?;
 
     ConfigStore::new(home).activate_profile(
         tool,
@@ -193,14 +197,14 @@ fn run_for_tool(
                 "state_mode": state_mode_map(home, &[tool])?,
                 "live_match": live_match_map(home, user_home, &[tool])?,
                 "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
-                "warnings": Vec::<String>::new(),
+                "warnings": warnings.clone(),
             }),
         )?;
     } else if !emit_env {
         print_switch_summary(&resolved, home, user_home);
     }
 
-    Ok(())
+    Ok(warnings)
 }
 
 pub(crate) fn resolve_profile_switch_request(
@@ -331,8 +335,9 @@ pub(crate) fn apply_resolved_profile_switch(
     emit_env: bool,
     home: &Path,
     user_home: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let profile_store = ProfileStore::new(home);
+    let mut warnings = Vec::new();
     if resolved.backup_on_switch {
         let backup_manager = BackupManager::new(home);
         let profile_dir = profile_store.profile_dir(resolved.tool, &resolved.profile_name);
@@ -351,9 +356,9 @@ pub(crate) fn apply_resolved_profile_switch(
             resolved.tool,
             user_home,
         ) {
-            output::print_warning_stderr(format!(
-                "Warning: could not sync active profile before switching: {e:#}"
-            ));
+            let warning = format!("could not sync active profile before switching: {e:#}");
+            output::print_warning_stderr(format!("Warning: {warning}"));
+            warnings.push(warning);
         }
     }
 
@@ -490,7 +495,7 @@ pub(crate) fn apply_resolved_profile_switch(
         }
     }
 
-    Ok(())
+    Ok(warnings)
 }
 
 fn maybe_sync_active_profile_before_switch(
