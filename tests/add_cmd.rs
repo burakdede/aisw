@@ -142,6 +142,46 @@ fn add_claude_tool_not_installed_fails() {
 }
 
 #[test]
+fn add_claude_tool_not_installed_machine_error_is_stable() {
+    let env = TestEnv::new();
+
+    let output = env.output(&[
+        "add",
+        "claude",
+        "work",
+        "--api-key",
+        VALID_CLAUDE_KEY,
+        "--json",
+    ]);
+
+    assert!(!output.status.success(), "missing tool should fail");
+    assert!(
+        output.stderr.is_empty(),
+        "machine-mode failures should be written to stdout only; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["command"], "add");
+    assert_eq!(json["error"]["kind"], "tool_not_installed");
+    assert!(json["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("not on PATH"));
+    assert_eq!(
+        json["error"]["remediation"]["command"],
+        "aisw doctor --json"
+    );
+    assert_eq!(json["error"]["remediation"]["safe"], true);
+    assert!(
+        !env.home_file("config.json").exists(),
+        "add should fail before creating profile state when the tool binary is missing"
+    );
+}
+
+#[test]
 fn add_claude_api_key_with_set_active() {
     let env = TestEnv::new();
     env.add_fake_tool("claude", "claude 2.3.0");
