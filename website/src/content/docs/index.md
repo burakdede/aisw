@@ -36,22 +36,23 @@ head:
       {"@context":"https://schema.org","@graph":[{"@type":"WebPage","name":"aisw documentation","headline":"aisw documentation","description":"aisw manages named profiles and contexts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.","url":"https://burakdede.github.io/aisw/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, aisw documentation, overview","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.8","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"}]},{"@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What does aisw actually change when I switch accounts?","acceptedAnswer":{"@type":"Answer","text":"aisw use applies the selected profile into the live config location that Claude Code, Codex CLI, or Gemini CLI already reads. It does not patch the tool binary, install a proxy, or change anything outside the relevant local credential and config files."}},{"@type":"Question","name":"Does aisw send credentials or prompts over the network?","acceptedAnswer":{"@type":"Answer","text":"No. aisw itself does not proxy requests, inspect prompts, or send your credentials to a remote service. It is a local credential and profile switcher."}},{"@type":"Question","name":"Where are profiles stored, and how are they protected?","acceptedAnswer":{"@type":"Answer","text":"Stored profiles live under ~/.aisw/profiles/<tool>/<name>/. Credential files are written with 0600 permissions so only your user can read or write them, and aisw status reports files that are broader than that."}}]}]}
 ---
 
-Named profile and context manager for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Store per-tool accounts, save mixed-name work modes, and switch between them in one command across all four AI coding agents  -  on macOS, Linux, and Windows.
+Switch coding-agent accounts without copying credential files or logging in again every time.
 
-If you maintain separate work and personal accounts for Claude Code, Codex, Gemini, or Antigravity  -  or manage credentials for multiple clients  -  `aisw` gives you one command to switch instead of manually editing `~/.claude/.credentials.json`, juggling `CLAUDE_CONFIG_DIR` overrides, or copying `auth.json` files between directories. For Codex ChatGPT-managed auth, the durable model is one isolated `CODEX_HOME` per profile, not copied shared session state.
+`aisw` is a local profile and context manager for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Save the accounts you already use, activate one tool or an entire work mode with a single command, and add repo-aware guardrails when the wrong account would be costly.
 
-It is built for the questions people actually ask:
+It is useful when you:
 
-- How do I switch between two Claude Code accounts?
-- How do I keep separate Codex CLI accounts for different clients?
-- How do I store work and personal Gemini CLI profiles on one machine?
-- How do I make sure the right coding agent account is active in the right repo?
+- keep separate work, personal, or client accounts;
+- use several coding agents whose profile names do not line up; or
+- want each repository to declare which account context it expects.
 
-`aisw` answers those with three primitives:
+The core model is deliberately small:
 
-- Profiles: named saved accounts for one tool
-- Contexts: one saved work mode across multiple tools
-- Workspace guardrails: repo-aware warnings or blocks before launching the wrong account
+- **Profiles** save one tool's account state.
+- **Contexts** map one work mode to profiles across tools.
+- **Workspace guardrails** warn or block launches when the active context is wrong.
+
+aisw applies native credential state locally, takes a rollback snapshot before a switch, and reports whether live state still matches the profile you selected. It does not proxy model traffic, run a daemon, or send credentials to a service.
 
 ## Install
 
@@ -76,6 +77,8 @@ aisw init
 ```
 
 `init` creates `~/.aisw/`, configures the optional shell hook, and offers to import any currently logged-in tool accounts so you start with zero manual re-authentication.
+
+If you want the guided path, continue with [Quickstart](/aisw/quickstart/). If you are evaluating whether aisw fits a more complex setup, start with [Common switching situations](/aisw/common-situations/).
 
 ## Core workflow
 
@@ -102,6 +105,30 @@ aisw status --context
 aisw list
 ```
 
+For the mechanics behind profiles, contexts, and rollback, see [How aisw works](/aisw/how-it-works/). For provider-specific auth behavior and platform limits, see [Supported tools](/aisw/supported-tools/).
+
+## See the workflow
+
+These recordings walk through actual commands in isolated demo environments. They are useful for seeing the shape of the workflow before you install; the linked guides explain every decision and edge case.
+
+**Switch, inspect, and recover a profile**
+
+![Profile lifecycle demo](https://burakdede.github.io/aisw/demos/aisw-important-workflows.gif)
+
+[Follow the Quickstart](/aisw/quickstart/) for the shortest path, or read [Adding profiles](/aisw/adding-profiles/) when you need to choose between OAuth, API keys, environment variables, and live imports.
+
+**Group differently named accounts into one client context**
+
+![Context workflow demo](https://burakdede.github.io/aisw/demos/aisw-context-workflow.gif)
+
+[Learn about contexts](/aisw/common-situations/) when one work mode spans multiple providers.
+
+**Prevent a wrong-account launch in a repository**
+
+![Workspace guardrails demo](https://burakdede.github.io/aisw/demos/aisw-workspace-workflow.gif)
+
+[Set up workspace guardrails](/aisw/workspace/) when the account associated with a repository matters as much as the code itself.
+
 ## Common situations
 
 ### Work and personal accounts for the same tool
@@ -113,6 +140,8 @@ aisw add claude work --api-key "$ANTHROPIC_API_KEY"
 aisw add claude personal
 aisw use claude work
 ```
+
+See [Adding profiles](/aisw/adding-profiles/) for API keys, OAuth, live imports, and duplicate-account behavior.
 
 ### Mixed client setup across Claude, Codex, Gemini, and Antigravity
 
@@ -130,6 +159,8 @@ aisw context use client-acme
 
 A context only needs the tools you actually use  -  map one, or all four.
 
+See [Common switching situations](/aisw/common-situations/) for the profile-versus-context decision and [Configuration](/aisw/configuration/) for the files and schemas involved.
+
 ### Wrong-account protection per repo
 
 Use workspace guardrails when the repo itself should enforce the right work mode:
@@ -139,15 +170,20 @@ aisw workspace bind . --context client-acme
 aisw workspace guard --mode strict
 ```
 
+See [Workspace guardrails](/aisw/workspace/) for resolution order, remote patterns, path rules, and shell-hook behavior.
+
 ## Start here
 
-1. [Quickstart](/aisw/quickstart/)  -  install, first profile, first switch
-2. [Common switching situations](/aisw/common-situations/)  -  work/personal, client, repo guardrails
-3. [Commands](/aisw/commands/)  -  complete syntax and flag reference
-4. [How it works](/aisw/how-it-works/)  -  design decisions, credential storage, platform behavior
-5. [Security](/aisw/security/)  -  local-only storage, keyring integration, file permissions
-6. [Automation and scripting](/aisw/automation/)  -  CI patterns, JSON output, non-interactive mode
-7. [Troubleshooting](/aisw/troubleshooting/)  -  common failures and diagnostics
+| If you want to... | Start here | Then go deeper |
+| --- | --- | --- |
+| Install and switch your first account | [Quickstart](/aisw/quickstart/) | [Adding profiles](/aisw/adding-profiles/) |
+| Choose between profiles, contexts, and guardrails | [Common switching situations](/aisw/common-situations/) | [Workspace guardrails](/aisw/workspace/) |
+| Integrate aisw with a GUI, script, or CI job | [Automation and scripting](/aisw/automation/) | [Commands](/aisw/commands/) |
+| Understand storage, rollback, and platform behavior | [How aisw works](/aisw/how-it-works/) | [Security](/aisw/security/) |
+| Check support before installing | [Supported tools](/aisw/supported-tools/) | [Acceptance matrix](/aisw/acceptance-matrix/) |
+| Diagnose a mismatch or failed switch | [Troubleshooting](/aisw/troubleshooting/) | [Configuration](/aisw/configuration/) |
+
+For direct answers to common searches such as “how do I switch between two Claude Code accounts?” or “can I manage multiple Codex CLI accounts?”, see [Frequently Asked Questions](/aisw/faq/).
 
 ## Additional reference
 

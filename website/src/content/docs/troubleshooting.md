@@ -43,7 +43,7 @@ fixes for missing aisw state or broad permissions.
 If `status --json` reports `credential_state: "unknown"`, the profile contains
 files but not a credential layout recognized for its tool and auth method. Do
 not overwrite it with `aisw use` until the upstream layout is reviewed; check
-the installed agent version against the [compatibility baseline](acceptance-matrix.md).
+the installed agent version against the [compatibility baseline](/aisw/acceptance-matrix/).
 
 If `doctor` reports an unsupported config schema, upgrade `aisw` before editing
 profiles. Older binaries deliberately refuse to rewrite newer config files so

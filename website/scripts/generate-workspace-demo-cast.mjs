@@ -4,8 +4,9 @@ import path from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 
+const projectRoot = path.resolve(process.cwd(), '..');
 const outputPath = path.join(
-  process.cwd(),
+  projectRoot,
   'website',
   'public',
   'demos',
@@ -88,6 +89,7 @@ function printCapturedOutput(output) {
 
 function sanitizeOutput(text, tempRoot, repoRoot) {
   return text
+    .replaceAll(`/private${repoRoot}`, '~/clients/acme-api')
     .replaceAll(repoRoot, '~/clients/acme-api')
     .replaceAll(`${tempRoot}/home`, '~')
     .replaceAll(tempRoot, '/tmp/aisw-demo')
@@ -118,7 +120,7 @@ function transitionToNextFeature() {
 
 function captureCommandOutput(command, env, cwd) {
   return execFileSync('bash', ['-lc', command], {
-    cwd: cwd || process.cwd(),
+    cwd: cwd || projectRoot,
     env,
     encoding: 'utf8',
   });
@@ -129,7 +131,7 @@ async function setupDemoEnv() {
   const fakeHome = path.join(tempRoot, 'home');
   const aiswHome = path.join(fakeHome, '.aisw');
   const binDir = path.join(tempRoot, 'bin');
-  const aiswBinDir = path.join(process.cwd(), 'target', 'debug');
+  const aiswBinDir = path.join(projectRoot, 'target', 'debug');
 
   // Fake client repo with a git remote
   const repoRoot = path.join(fakeHome, 'clients', 'acme-api');
@@ -189,9 +191,6 @@ async function main() {
   const { tempRoot, repoRoot, env } = await setupDemoEnv();
 
   const sanitize = (text) => sanitizeOutput(text, tempRoot, repoRoot);
-
-  clearScreen();
-  pause(0.3);
 
   // Step 1: personal context active, cd into client repo
   markers.push([Number(t.toFixed(1)), 'Wrong context']);

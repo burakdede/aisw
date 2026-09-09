@@ -33,7 +33,7 @@ head:
 
 `aisw status` reports whether the detected release matches the audited
 compatibility baseline. A non-verified release is a warning, not an automatic
-block; review [the versioned acceptance baseline](./acceptance-matrix.md)
+block; review [the versioned acceptance baseline](/aisw/acceptance-matrix/)
 before relying on changed upstream auth/storage behavior.
 
 ## Binary detection

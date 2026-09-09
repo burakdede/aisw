@@ -12,6 +12,20 @@ aisw add <tool> <profile> [--api-key KEY] [--from-env] [--from-live] [--label TE
 `<tool>` is one of: `claude`, `codex`, `gemini`, `antigravity`.
 `<profile>` is any identifier you choose: `work`, `personal`, `client-acme`, `ci`.
 
+## Choose an input path
+
+Use the path that matches where the account currently exists:
+
+| Situation | Command shape | Result |
+| --- | --- | --- |
+| You want aisw to run a new interactive login | `aisw add <tool> <name>` | Captures a new OAuth session using the tool's native flow |
+| The account is already logged in upstream | `aisw add <tool> <name> --from-live` | Imports the current live state without opening a login flow |
+| A secret is available to the shell or CI | `aisw add <tool> <name> --from-env` | Reads the tool's standard environment variable |
+| A caller has a secret but should not expose it in argv | `... --api-key-stdin` | Reads the key from stdin and supports structured JSON output |
+| You are entering a key in a terminal | `aisw add <tool> <name> --api-key "$KEY"` | Stores the key as a managed API-key profile |
+
+Adding a profile does not normally change the live account. The exception is `--from-live`, because the imported state is already live and is recorded as active. Pass `--set-active` when a directly supplied API key or OAuth profile should become active immediately.
+
 ## API key
 
 ```sh
@@ -121,6 +135,8 @@ All credential files are written with `0600` permissions. The profile name is re
 When OAuth identity can be resolved from the captured credentials (via JWT claim or OAuth metadata), `aisw` checks whether the same underlying account is already stored under a different profile name. If it is, the `add` command is rejected with an error identifying the existing profile.
 
 This prevents accidentally storing duplicate entries for the same account and having to track which name is the "real" one.
+
+If identity cannot be resolved, aisw does not claim that two profiles are different. Review the profile's auth source and use `aisw status` before replacing or deleting either profile. For provider-specific identity and storage behavior, see [Supported tools](supported-tools.md) and [How aisw works](how-it-works.md).
 
 ## Related
 

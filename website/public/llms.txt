@@ -8,6 +8,7 @@ Current version: 0.3.8
 
 - [aisw documentation](https://burakdede.github.io/aisw/): aisw manages named profiles and contexts for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI. Switch work, personal, and client accounts, then keep the right coding agent profile active per repo.
 - [Common Switching Situations](https://burakdede.github.io/aisw/common-situations/): Real aisw workflows for work vs personal accounts, client-specific profiles, repo guardrails, GUI-safe secret entry, and verifying that a coding agent switch actually worked.
+- [Frequently Asked Questions](https://burakdede.github.io/aisw/faq/): Direct answers to common questions about switching Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts with aisw.
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/): Install aisw, store your first profiles, and switch between Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI accounts in under five minutes.
 - [Commands](https://burakdede.github.io/aisw/commands/): Complete syntax and flag reference for all aisw commands  -  add, use, context, workspace, list, status, remove, rename, backup, init, uninstall, shell-hook, and doctor.
 - [Automation and Scripting](https://burakdede.github.io/aisw/automation/): Using aisw in CI pipelines, shell scripts, and non-interactive environments  -  flags, JSON output, exit codes, and common patterns.
@@ -15,6 +16,7 @@ Current version: 0.3.8
 - [Workspace Guardrails](https://burakdede.github.io/aisw/workspace/): Bind repos, directories, and git remotes to expected aisw contexts. Warn or block agent launches when the wrong account is active.
 - [Adding Profiles](https://burakdede.github.io/aisw/adding-profiles/): How to add and capture named profiles in aisw using API keys, OAuth, environment variables, and live credential import.
 - [Supported Tools](https://burakdede.github.io/aisw/supported-tools/): Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support matrix  -  auth methods, credential locations, OS keyring support, and state mode behavior per platform.
+- [Acceptance Matrix](https://burakdede.github.io/aisw/acceptance-matrix/): Versioned compatibility and acceptance baseline for aisw-supported Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI auth paths.
 - [Configuration](https://burakdede.github.io/aisw/configuration/): aisw configuration file location, schema, field reference, directory layout, and AISW_HOME override.
 - [How It Works](https://burakdede.github.io/aisw/how-it-works/): Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.
 - [Security](https://burakdede.github.io/aisw/security/): How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.

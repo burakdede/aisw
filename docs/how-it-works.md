@@ -7,6 +7,23 @@ description: Architecture, design decisions, credential storage model, OS keyrin
 
 This page explains the design decisions behind `aisw`, how credentials are stored and applied, and the per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.
 
+## The runtime model
+
+There are three distinct kinds of state. Keeping them separate explains most of aisw's behavior:
+
+| State | Where it lives | What it means |
+| --- | --- | --- |
+| Managed profile | `~/.aisw/profiles/<tool>/<name>/` or the OS keyring | A saved credential snapshot that aisw can apply later |
+| Live tool state | The upstream tool's normal files, environment, or keyring entries | What a newly started upstream CLI will read now |
+| Registry state | `~/.aisw/config.json` | Which profiles exist, which profile is recorded active, and how contexts map tools to profiles |
+
+`aisw use` synchronizes managed profile state into live tool state and then records the active profile in the registry. A context is only a mapping in the registry; it does not contain another copy of the credentials. The shell hook adds environment exports and workspace checks around that model, but it does not replace it.
+
+This distinction also explains two common surprises:
+
+- Restoring a backup repairs managed profile data; it does not activate that profile. Run `aisw use` explicitly afterward.
+- A manual login or an upstream token refresh can change live state without changing aisw's registry. Run `aisw status` or `aisw verify` to detect that drift.
+
 ## Profile and context model
 
 `aisw` stores named profiles under `~/.aisw/profiles/<tool>/<name>/`. A profile is a captured snapshot of a tool's credential and auth state. The profile directory contains the credential files specific to that tool  -  nothing else.
@@ -37,6 +54,17 @@ Profile activation is transactional. Before writing any live credential file, `a
 This matters most when a tool stores state across multiple files (e.g. Claude Code's credentials file plus OAuth account metadata), where a partial write would leave the tool in an inconsistent state.
 
 The same guarantee now applies to context activation across multiple tools. A failed Codex or Gemini apply rolls back any Claude writes that already happened during the same `context use`.
+
+The activation sequence is:
+
+1. Resolve the requested profile or context and validate every referenced profile.
+2. Acquire the operation lock so another mutating command cannot interleave its writes.
+3. Snapshot the affected live files, keyring entries, and active-profile metadata.
+4. Apply the target credential and configuration state in a deterministic order.
+5. Commit the registry's active-profile metadata only after all live writes succeed.
+6. On failure, restore the snapshot, preserve the original failure, and report any rollback or cleanup failure alongside it.
+
+The transaction covers the locations aisw knows how to manage. It cannot roll back an independent process that changes the same upstream files after the snapshot, which is why concurrent mutation is serialized where possible and a fresh agent process is recommended after activation.
 
 ## Credential storage backends
 

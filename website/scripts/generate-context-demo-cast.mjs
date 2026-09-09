@@ -4,8 +4,9 @@ import path from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 
+const projectRoot = path.resolve(process.cwd(), '..');
 const outputPath = path.join(
-  process.cwd(),
+  projectRoot,
   'website',
   'public',
   'demos',
@@ -154,7 +155,7 @@ function transitionToNextFeature() {
 
 function captureCommandOutput(command, env) {
   return execFileSync('bash', ['-lc', command], {
-    cwd: process.cwd(),
+    cwd: projectRoot,
     env,
     encoding: 'utf8',
   });
@@ -165,7 +166,7 @@ async function setupDemoEnv() {
   const fakeHome = path.join(tempRoot, 'home');
   const aiswHome = path.join(fakeHome, '.aisw');
   const binDir = path.join(tempRoot, 'bin');
-  const aiswBinDir = path.join(process.cwd(), 'target', 'debug');
+  const aiswBinDir = path.join(projectRoot, 'target', 'debug');
 
   await fs.mkdir(binDir, { recursive: true });
 
@@ -215,9 +216,6 @@ async function setupDemoEnv() {
 async function main() {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const demoEnv = await setupDemoEnv();
-
-  clearScreen();
-  pause(0.3);
 
   for (let index = 0; index < steps.length; index += 1) {
     const step = steps[index];

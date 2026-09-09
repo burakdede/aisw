@@ -39,6 +39,10 @@ head:
 
 Credentials are stored under `~/.aisw/profiles/<tool>/<name>/`. The central config file `~/.aisw/config.json` contains only profile metadata (name, auth method, timestamps, labels). It does not contain credential material.
 
+The shell installer refuses to write through a symlinked install directory or
+binary destination. This prevents a stale `aisw` link from redirecting an
+upgrade outside the directory selected by `AISW_INSTALL_DIR`.
+
 For keyring-backed profiles, the sensitive credential bytes are stored in the OS keyring. The profile directory on disk contains a minimal reference or empty file; the actual secret lives in the keyring.
 
 ### File permissions
@@ -63,8 +67,8 @@ The repository also runs a real credential-store canary across the supported
 macOS, Linux, and Windows runners. It creates uniquely named temporary entries,
 exercises profile switching and removal, and restores any pre-existing entry it
 touches. The canary runs weekly or can be started manually from GitHub Actions;
-it is intentionally fail-closed when a runner cannot initialize its native
-credential store.
+it has a ten-minute per-platform timeout, and it is intentionally fail-closed
+when a runner cannot initialize its native credential store.
 
 On macOS, when writing Claude Code credentials to the Keychain, `aisw` sets a trusted-application ACL so the entry is bound to the `claude` binary path. This prevents other applications from reading the credential without a Keychain access prompt.
 
@@ -102,13 +106,35 @@ aisw backup list
 aisw backup restore <backup_id> --yes
 ```
 
+Restore snapshots the affected profile files, secure credentials, and config
+metadata before applying a backup. If a later entry fails, it restores every
+affected entry and reports any recovery failure instead of leaving file,
+keyring, and config state silently divergent.
+
 Backups are also created before profile switching when `backup_on_switch` is enabled in config (the default).
 
 ### Config locking
 
 All commands that modify `~/.aisw/config.json` take an exclusive lock on the file before writing. If two `aisw` commands run concurrently, the second will wait briefly and then fail with a clear error rather than producing a partial write. This prevents config corruption in parallel CI environments.
 
-Live profile switches take a separate operation lock for their full multi-file transaction. This prevents concurrent `use` and `context use` commands from interleaving credential-file writes with active-profile metadata updates.
+Initialization, repair apply, context mutations, workspace policy mutations,
+live profile switches,
+backup restores, and profile lifecycle mutations take the same operation lock
+for their storage changes. This prevents concurrent `init`, `context create`,
+`context set`, `context unset`, `context remove`, `context rename`,
+`workspace bind`, `workspace unbind`, `workspace guard`, `use`, `context use`,
+`backup restore`, `rename`, `remove`, and `repair --apply`
+commands from interleaving credential-file, keyring, shell-hook, permission,
+workspace-policy, and active-profile metadata updates.
+Machine-readable initialization holds the lock while creating or loading AISW
+state, then performs read-only detection outside it. Repair dry runs remain
+read-only and do not acquire the operation lock; workspace status, doctor, and
+check are likewise read-only.
+
+Profile additions and live imports use the same lock because OAuth capture and
+credential writes can also change the live credential owner. An interactive
+login may therefore make a concurrent switch wait or fail with the normal lock
+timeout rather than allowing two commands to compete for live state.
 
 ### Input validation
 
@@ -118,7 +144,7 @@ API keys must be a single line. Keys containing control characters are rejected,
 
 ### Deletion
 
-`aisw uninstall --remove-data` deletes `~/.aisw/` **and** the OS keyring entries `aisw` created for profiles and backups, so no managed secret outlives the data directory. It refuses to run when `AISW_HOME` points at your home directory.
+`aisw uninstall --remove-data` deletes `~/.aisw/` **and** the OS keyring entries `aisw` created for profiles and backups, so no managed secret outlives the data directory. It refuses to run when `AISW_HOME` points at your home directory. Applying uninstall takes the shared operation lock for hook removal, secret purge, and data deletion, so it cannot interleave with a profile operation. If managed metadata cannot be read or a keyring entry cannot be removed, uninstall fails before deleting `AISW_HOME`, leaving the data available for retry.
 
 ## OAuth flows
 
