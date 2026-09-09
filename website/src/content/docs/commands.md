@@ -146,14 +146,14 @@ Notes:
 - `add` refuses to store the same account twice. For OAuth it compares the resolved account identity; for API keys it compares the key itself. The error names the existing profile, so re-running `add` with a key you already stored fails rather than creating a second name for it.
 - `--credential-backend` affects the managed `aisw` profile only. It does not force the upstream CLI's live auth backend.
 - Gemini supports only `file`. Claude, Codex, and Antigravity support `file` and `system-keyring`. Stored config and status output use `system_keyring`.
-- Antigravity is OAuth-only: `--api-key`, `--api-key-stdin`, and `--from-env` are rejected for it, because upstream documents keyring-backed sign-in rather than API-key profile auth. Use `aisw add antigravity <name>` or `--from-live`.
+- Antigravity supports shared OAuth keyring profiles and Gemini API-key profiles. API-key profiles use `GEMINI_API_KEY`; use `aisw use antigravity <name> --emit-env` (or the shell hook), and aisw selects `modelProvider: gemini` in Antigravity's settings.
 - API keys must be a single line. A key containing a newline or other control character is rejected  -  usually a stray newline from copy/paste or from piping a file into `--api-key`.
 
 Live credential locations by tool:
 - Claude: `~/.claude/.credentials.json` or the macOS Keychain
 - Codex: `~/.codex/auth.json` or the OS keyring
 - Gemini: `~/.gemini/.env` (API key) or OAuth files in `~/.gemini/`
-- Antigravity: live OS keyring auth plus config/state under `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
+- Antigravity: OAuth uses the live OS keyring plus config/state under `~/.gemini/antigravity-cli/` and `~/.gemini/config/`; API-key profiles use `GEMINI_API_KEY` plus `modelProvider: gemini` in `~/.gemini/antigravity-cli/settings.json`.
 
 ```sh
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"

@@ -138,11 +138,19 @@ fn tool_verification(tool: &status::ToolStatus) -> ToolVerification {
         VerifyStatus::Fail
     } else if tool.active_profile_applied == Some(false) {
         issues.push("live tool credentials do not match the recorded active profile".to_owned());
-        remediation.push(format!(
-            "Run 'aisw use {} {}' to reapply the active profile",
-            tool.tool.binary_name(),
-            tool.active_profile.as_deref().unwrap_or("<profile>")
-        ));
+        if tool.antigravity_auth_classification.as_deref() == Some("api_key_environment") {
+            remediation.push(format!(
+                "Run 'aisw use {} {} --emit-env' through the aisw shell hook so GEMINI_API_KEY reaches agy",
+                tool.tool.binary_name(),
+                tool.active_profile.as_deref().unwrap_or("<profile>")
+            ));
+        } else {
+            remediation.push(format!(
+                "Run 'aisw use {} {}' to reapply the active profile",
+                tool.tool.binary_name(),
+                tool.active_profile.as_deref().unwrap_or("<profile>")
+            ));
+        }
         VerifyStatus::Fail
     } else if tool.tool == Tool::Claude
         && tool.credential_backend.as_deref() == Some("file")

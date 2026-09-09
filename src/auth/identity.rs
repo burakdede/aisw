@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-use super::{claude, codex, gemini, secure_store};
+use super::{antigravity, claude, codex, gemini, secure_store};
 use crate::config::{AuthMethod, Config, ConfigStore, CredentialBackend};
 use crate::profile::ProfileStore;
 use crate::types::Tool;
@@ -190,7 +190,7 @@ fn read_api_key_for_profile(
         Tool::Claude => claude::read_api_key_with_backend(profile_store, profile_name, backend),
         Tool::Codex => codex::read_api_key_with_backend(profile_store, profile_name, backend),
         Tool::Gemini => gemini::read_api_key(profile_store, profile_name),
-        Tool::Antigravity => bail!("Antigravity CLI does not support API key profiles"),
+        Tool::Antigravity => antigravity::read_api_key(profile_store, profile_name, backend),
     }
 }
 

@@ -17,6 +17,7 @@ use crate::types::Tool;
 
 pub(crate) const KEYRING_METADATA_FILE: &str = "keyring.json";
 const SECRET_FILE: &str = "keyring-secret.json";
+const API_KEY_FILE: &str = "api-key.json";
 const APP_PREFIX: &str = "app";
 const SHARED_PREFIX: &str = "shared";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(180);
@@ -26,18 +27,21 @@ const KEYRING_ACCOUNT: &str = "antigravity";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AntigravityAuthClassification {
     OauthSharedLiveKeyring,
+    ApiKeyEnvironment,
 }
 
 impl AntigravityAuthClassification {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OauthSharedLiveKeyring => "oauth_shared_live_keyring",
+            Self::ApiKeyEnvironment => "api_key_environment",
         }
     }
 
     pub fn human_label(self) -> &'static str {
         match self {
             Self::OauthSharedLiveKeyring => "OAuth shared live keyring",
+            Self::ApiKeyEnvironment => "API key via GEMINI_API_KEY",
         }
     }
 }
@@ -77,10 +81,96 @@ pub fn classify_profile(
     auth_method: AuthMethod,
     _credential_backend: CredentialBackend,
 ) -> Result<AntigravityAuthClassification> {
-    if auth_method != AuthMethod::OAuth {
-        bail!("Antigravity currently supports OAuth profiles only");
+    if auth_method == AuthMethod::OAuth {
+        return Ok(AntigravityAuthClassification::OauthSharedLiveKeyring);
     }
-    Ok(AntigravityAuthClassification::OauthSharedLiveKeyring)
+    Ok(AntigravityAuthClassification::ApiKeyEnvironment)
+}
+
+pub fn add_api_key_with_backend(
+    profile_store: &ProfileStore,
+    config_store: &ConfigStore,
+    profile_name: &str,
+    key: &str,
+    label: Option<String>,
+    backend: CredentialBackend,
+) -> Result<()> {
+    crate::auth::validate_api_key_charset(
+        key,
+        "Antigravity",
+        "Get your Gemini API key at aistudio.google.com → Get API Key.",
+    )?;
+
+    if let Some(existing_name) = identity::existing_api_key_profile_for_secret(
+        profile_store,
+        config_store,
+        Tool::Antigravity,
+        key,
+    )? {
+        bail!(
+            "Antigravity API key already exists as profile '{}'.\n  \
+             Use that profile or provide a different API key.",
+            existing_name
+        );
+    }
+
+    profile_store.create(Tool::Antigravity, profile_name)?;
+    let result = (|| {
+        let credentials = serde_json::to_vec(&serde_json::json!({ "apiKey": key }))
+            .context("could not serialize Antigravity API key credentials")?;
+        match backend {
+            CredentialBackend::File => profile_store.write_file(
+                Tool::Antigravity,
+                profile_name,
+                API_KEY_FILE,
+                &credentials,
+            )?,
+            CredentialBackend::SystemKeyring => {
+                secure_store::write_profile_secret(Tool::Antigravity, profile_name, &credentials)?;
+            }
+        }
+        config_store.add_profile(
+            Tool::Antigravity,
+            profile_name,
+            ProfileMeta {
+                added_at: Utc::now(),
+                auth_method: AuthMethod::ApiKey,
+                credential_backend: backend,
+                label,
+            },
+        )?;
+        Ok::<(), anyhow::Error>(())
+    })();
+    if result.is_err() {
+        let _ = profile_store.delete(Tool::Antigravity, profile_name);
+        if backend == CredentialBackend::SystemKeyring {
+            let _ = secure_store::delete_profile_secret(Tool::Antigravity, profile_name);
+        }
+    }
+    result
+}
+
+pub fn read_api_key(
+    profile_store: &ProfileStore,
+    profile_name: &str,
+    backend: CredentialBackend,
+) -> Result<String> {
+    let bytes = match backend {
+        CredentialBackend::File => {
+            profile_store.read_file(Tool::Antigravity, profile_name, API_KEY_FILE)?
+        }
+        CredentialBackend::SystemKeyring => {
+            secure_store::read_profile_secret(Tool::Antigravity, profile_name)?
+                .context("managed Antigravity API key is missing")?
+        }
+    };
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).context("could not parse managed Antigravity API key")?;
+    value
+        .get("apiKey")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .context("managed Antigravity API key is missing apiKey field")
 }
 
 pub fn read_managed_secret(
@@ -311,6 +401,25 @@ pub fn apply_live_credentials(
     )
 }
 
+pub fn apply_api_key_settings(user_home: &Path) -> Result<()> {
+    let path = live_app_dir(user_home).join("settings.json");
+    let mut settings = if path.exists() {
+        let bytes =
+            fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .with_context(|| format!("could not parse {}", path.display()))?
+    } else {
+        serde_json::json!({})
+    };
+    let object = settings
+        .as_object_mut()
+        .context("Antigravity settings must be a JSON object")?;
+    object.insert("modelProvider".to_owned(), serde_json::json!("gemini"));
+    let bytes =
+        serde_json::to_vec_pretty(&settings).context("could not serialize Antigravity settings")?;
+    crate::live_apply::apply_transaction(vec![LiveFileChange::write(path, bytes)])
+}
+
 fn build_apply_transaction(
     profile_store: &ProfileStore,
     profile_name: &str,
@@ -379,9 +488,22 @@ fn profile_tree_map(
 pub fn live_state_matches(
     profile_store: &ProfileStore,
     profile_name: &str,
+    auth_method: AuthMethod,
     backend: CredentialBackend,
     user_home: &Path,
 ) -> Result<bool> {
+    if auth_method == AuthMethod::ApiKey {
+        let managed = read_api_key(profile_store, profile_name, backend)?;
+        let live = std::env::var("GEMINI_API_KEY").unwrap_or_default();
+        let settings_path = live_app_dir(user_home).join("settings.json");
+        let provider_is_gemini = settings_path.exists()
+            && serde_json::from_slice::<serde_json::Value>(&fs::read(&settings_path)?)
+                .ok()
+                .and_then(|value| value.get("modelProvider").cloned())
+                .and_then(|value| value.as_str().map(|value| value == "gemini"))
+                .unwrap_or(false);
+        return Ok(!live.is_empty() && managed == live && provider_is_gemini);
+    }
     let keyring_ref = read_profile_keyring_ref(profile_store, profile_name)?;
     let managed_secret = read_managed_secret(profile_store, profile_name, backend)?;
     let live_secret = super::system_keyring::read_generic_password(
@@ -526,7 +648,18 @@ pub fn restore_snapshot_to_live(snapshot: &LiveSnapshot, user_home: &Path) -> Re
     }
 }
 
-pub fn emit_shell_env() {}
+pub fn emit_shell_env(
+    profile_store: &ProfileStore,
+    profile_name: &str,
+    auth_method: AuthMethod,
+    backend: CredentialBackend,
+) -> Result<()> {
+    if auth_method == AuthMethod::ApiKey {
+        let key = read_api_key(profile_store, profile_name, backend)?;
+        files::emit_export("GEMINI_API_KEY", &key);
+    }
+    Ok(())
+}
 
 fn persist_profile_keyring_ref(
     profile_store: &ProfileStore,
@@ -626,6 +759,12 @@ mod tests {
             unsafe { std::env::set_var(key, value) };
             Self { key, previous }
         }
+
+        fn set_value(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, previous }
+        }
     }
 
     impl Drop for EnvVarGuard {
@@ -710,10 +849,14 @@ mod tests {
 
         apply_live_credentials(&profile_store, "work", CredentialBackend::File, &user_home)
             .unwrap();
-        assert!(
-            live_state_matches(&profile_store, "work", CredentialBackend::File, &user_home)
-                .unwrap()
-        );
+        assert!(live_state_matches(
+            &profile_store,
+            "work",
+            AuthMethod::OAuth,
+            CredentialBackend::File,
+            &user_home,
+        )
+        .unwrap());
     }
 
     #[test]
@@ -731,6 +874,48 @@ mod tests {
             classification,
             AntigravityAuthClassification::OauthSharedLiveKeyring
         );
+        assert_eq!(
+            classify_profile(
+                &profile_store,
+                "work",
+                AuthMethod::ApiKey,
+                CredentialBackend::File,
+            )
+            .unwrap(),
+            AntigravityAuthClassification::ApiKeyEnvironment
+        );
+    }
+
+    #[test]
+    fn api_key_profile_matches_provider_and_environment() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let home = temp.path().join("home");
+        let user_home = temp.path().join("user");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        let profile_store = ProfileStore::new(&home);
+        let config_store = ConfigStore::new(&home);
+        add_api_key_with_backend(
+            &profile_store,
+            &config_store,
+            "work",
+            "AIza-antigravity-test",
+            None,
+            CredentialBackend::File,
+        )
+        .unwrap();
+        let _key = EnvVarGuard::set_value("GEMINI_API_KEY", "AIza-antigravity-test");
+        apply_api_key_settings(&user_home).unwrap();
+
+        assert!(live_state_matches(
+            &profile_store,
+            "work",
+            AuthMethod::ApiKey,
+            CredentialBackend::File,
+            &user_home,
+        )
+        .unwrap());
     }
 
     #[test]
@@ -915,10 +1100,14 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            !live_state_matches(&profile_store, "work", CredentialBackend::File, &user_home)
-                .unwrap()
-        );
+        assert!(!live_state_matches(
+            &profile_store,
+            "work",
+            AuthMethod::OAuth,
+            CredentialBackend::File,
+            &user_home,
+        )
+        .unwrap());
     }
 
     #[test]

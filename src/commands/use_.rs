@@ -487,7 +487,14 @@ pub(crate) fn apply_resolved_profile_switch(
         }
         Tool::Antigravity => {
             if emit_env {
-                auth::antigravity::emit_shell_env();
+                auth::antigravity::emit_shell_env(
+                    &profile_store,
+                    &resolved.profile_name,
+                    resolved.profile_meta.auth_method,
+                    resolved.profile_meta.credential_backend,
+                )?;
+            } else if resolved.profile_meta.auth_method == AuthMethod::ApiKey {
+                auth::antigravity::apply_api_key_settings(user_home)?;
             } else {
                 auth::antigravity::apply_live_credentials(
                     &profile_store,
@@ -680,12 +687,18 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
             }
         }
     } else if resolved.tool == Tool::Antigravity {
-        output::print_effect(
-            "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
-        );
-        output::print_effect(
-            "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
-        );
+        if resolved.profile_meta.auth_method == AuthMethod::ApiKey {
+            output::print_effect(
+                "Antigravity selected modelProvider=gemini; use the shell hook or --emit-env so GEMINI_API_KEY is available to agy.",
+            );
+        } else {
+            output::print_effect(
+                "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
+            );
+            output::print_effect(
+                "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
+            );
+        }
     }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_use());

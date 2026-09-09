@@ -91,7 +91,7 @@ aisw add gemini personal
 aisw add antigravity work
 ```
 
-Antigravity is OAuth-only  -  it has no API-key path, so `--api-key` and `--from-env` are rejected for it.
+Antigravity supports shared OAuth and Gemini API-key profiles. API-key profiles use `GEMINI_API_KEY`; run `aisw use antigravity <profile> --emit-env` or use the shell hook so the key reaches `agy`.
 
 **Capture whatever is logged in right now** (no login flow is launched):
 
