@@ -46,7 +46,7 @@ aisw add codex personal
 aisw add gemini personal
 ```
 
-- Claude: spawns `claude auth login`. When the installed Claude build supports profile-scoped auth, `aisw` runs login inside the profile-owned `CLAUDE_CONFIG_DIR`; otherwise it monitors the live credential file and Keychain for changes and captures the result there.
+- Claude: spawns `claude auth login`. When the installed Claude build supports profile-scoped auth, `aisw` runs login inside the profile-owned `CLAUDE_CONFIG_DIR`, waits for a non-empty credential payload, and captures account metadata from that directory; otherwise it monitors the live credential file and Keychain for changes and captures the result there.
 - Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into that profile-owned isolated state. This is the durable ChatGPT-managed Codex path.
 - Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting auth/state files into the profile. The scratch directory is removed after the flow regardless of outcome.
 - Antigravity: spawns `agy`, captures the resulting live keyring-backed OAuth session plus the documented `~/.gemini/antigravity-cli/` and `~/.gemini/config/` state, then restores the prior live state unless `--set-active` is requested.
