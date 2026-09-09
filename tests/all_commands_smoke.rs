@@ -281,6 +281,7 @@ fn doctor_verify_repair() {
     // After a repair --apply, the installation is healthy.
     let doctor_after = env.output(&["doctor", "--json"]);
     let json: serde_json::Value = serde_json::from_slice(&doctor_after.stdout).unwrap();
+    assert_eq!(json["ok"], true, "healthy doctor report should be ok");
     let failures: Vec<_> = json["checks"]
         .as_array()
         .unwrap()

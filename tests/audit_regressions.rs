@@ -419,6 +419,7 @@ fn doctor_reports_future_config_schema_in_json() {
         .expect("config check");
 
     assert_eq!(config_check["status"], "fail");
+    assert_eq!(json["ok"], false, "failed doctor report should not be ok");
     assert!(config_check["detail"]
         .as_str()
         .expect("config detail")
