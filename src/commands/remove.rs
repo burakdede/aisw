@@ -135,8 +135,13 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
     })();
 
     if let Err(err) = removal_result {
-        let rollback_result =
-            BackupManager::new(home).restore(&backup_id, &profile_store, &config_store);
+        let rollback_result = BackupManager::new(home).restore_profile_data(
+            &backup_id,
+            args.tool,
+            profile_name,
+            &profile_store,
+            &config_store,
+        );
         return Err(match rollback_result {
             Ok(()) => err.context("profile removal failed; restored the profile from its backup"),
             Err(rollback_err) => err

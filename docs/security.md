@@ -89,6 +89,11 @@ aisw backup list
 aisw backup restore <backup_id> --yes
 ```
 
+Restore snapshots the affected profile files, secure credentials, and config
+metadata before applying a backup. If a later entry fails, it restores every
+affected entry and reports any recovery failure instead of leaving file,
+keyring, and config state silently divergent.
+
 Backups are also created before profile switching when `backup_on_switch` is enabled in config (the default).
 
 ### Config locking
