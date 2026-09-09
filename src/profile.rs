@@ -178,9 +178,21 @@ impl ProfileStore {
             fs::create_dir_all(parent)
                 .with_context(|| format!("could not create {}", parent.display()))?;
         }
-        fs::copy(src, &dest)
-            .with_context(|| format!("could not copy {} to {}", src.display(), dest.display()))?;
-        set_permissions_600(&dest)
+        let tmp = staging_path_for(&dest);
+        if let Err(error) = fs::copy(src, &tmp)
+            .with_context(|| format!("could not copy {} to {}", src.display(), tmp.display()))
+        {
+            return Err(cleanup_staged_file_after_error(&tmp, error));
+        }
+        if let Err(error) = set_permissions_600(&tmp) {
+            return Err(cleanup_staged_file_after_error(&tmp, error));
+        }
+        if let Err(error) = fs::rename(&tmp, &dest)
+            .with_context(|| format!("could not move file into place at {}", dest.display()))
+        {
+            return Err(cleanup_staged_file_after_error(&tmp, error));
+        }
+        Ok(())
     }
 
     pub fn read_file(&self, tool: Tool, name: &str, filename: &str) -> Result<Vec<u8>> {
@@ -489,6 +501,31 @@ mod tests {
         assert!(
             entries.iter().all(|name| !name.contains(".aisw-tmp-")),
             "staged files should be removed after rename failure: {entries:?}"
+        );
+    }
+
+    #[test]
+    fn copy_file_into_cleans_staged_secret_when_rename_fails() {
+        let dir = tempdir().unwrap();
+        let s = store(dir.path());
+        s.create(Tool::Gemini, "work").unwrap();
+        let profile_dir = s.profile_dir(Tool::Gemini, "work");
+        std::fs::create_dir(profile_dir.join("oauth_creds.json")).unwrap();
+        let source = dir.path().join("oauth_creds.json");
+        std::fs::write(&source, b"secret").unwrap();
+
+        let err = s
+            .copy_file_into(Tool::Gemini, "work", &source, "oauth_creds.json")
+            .unwrap_err();
+
+        assert!(err.to_string().contains("could not move file into place"));
+        let entries: Vec<_> = std::fs::read_dir(profile_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            entries.iter().all(|name| !name.contains(".aisw-tmp-")),
+            "staged files should be removed after copy failure: {entries:?}"
         );
     }
 
