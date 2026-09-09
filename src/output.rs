@@ -258,7 +258,7 @@ pub fn print_error_chain(error: &Error) {
     }
 }
 
-fn redact_sensitive_text(text: &str) -> String {
+pub(crate) fn redact_sensitive_text(text: &str) -> String {
     let mut redacted = text.to_owned();
 
     for (prefix, terminator) in [

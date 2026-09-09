@@ -4,6 +4,7 @@ use serde::Serialize;
 use crate::runtime;
 
 use crate::error::AiswError;
+use crate::output::redact_sensitive_text;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MachineRemediation {
@@ -197,7 +198,7 @@ fn machine_error(err: &Error, exit_code: i32) -> MachineError {
     if let Some(typed) = err.downcast_ref::<AiswError>() {
         return MachineError {
             kind: typed.code().to_owned(),
-            message: typed.to_string(),
+            message: redact_sensitive_text(&typed.to_string()),
             exit_code,
             remediation: typed.remediation(),
         };
@@ -205,8 +206,39 @@ fn machine_error(err: &Error, exit_code: i32) -> MachineError {
 
     MachineError {
         kind: "validation_error".to_owned(),
-        message: err.to_string(),
+        message: redact_sensitive_text(&err.to_string()),
         exit_code,
         remediation: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Tool;
+
+    #[test]
+    fn typed_machine_errors_redact_secrets() {
+        let error = anyhow::Error::new(AiswError::AuthFailed {
+            tool: Tool::Claude,
+            reason: "provider rejected sk-ant-secret-value".to_owned(),
+        });
+
+        let machine = machine_error(&error, 1);
+
+        assert_eq!(machine.kind, "auth_failed");
+        assert!(!machine.message.contains("sk-ant-secret-value"));
+        assert!(machine.message.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn generic_machine_errors_redact_secrets() {
+        let error = anyhow::anyhow!("command failed with token=AIza-secret-value");
+
+        let machine = machine_error(&error, 1);
+
+        assert_eq!(machine.kind, "validation_error");
+        assert!(!machine.message.contains("AIza-secret-value"));
+        assert!(machine.message.contains("[REDACTED]"));
     }
 }
