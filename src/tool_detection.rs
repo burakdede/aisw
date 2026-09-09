@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 
 use crate::error::AiswError;
+use crate::output::redact_sensitive_text;
 use crate::types::Tool;
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
@@ -143,7 +144,7 @@ fn parse_version_output(stdout: Vec<u8>, stderr: Vec<u8>) -> Option<String> {
     if s.is_empty() {
         None
     } else {
-        Some(s.to_owned())
+        Some(redact_sensitive_text(s))
     }
 }
 
@@ -363,6 +364,23 @@ mod tests {
         // Binary exits non-zero but still prints to stdout — version should be captured.
         make_dummy_binary(dir.path(), "claude", "some output", false);
         assert!(capture_version(&dir.path().join("claude")).is_some());
+    }
+
+    #[test]
+    fn capture_version_redacts_credential_shaped_output() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        make_dummy_binary(
+            dir.path(),
+            "claude",
+            "claude 2.3.1 token=sk-ant-version-secret",
+            true,
+        );
+
+        assert_eq!(
+            capture_version(&dir.path().join("claude")).as_deref(),
+            Some("claude 2.3.1 token=[REDACTED]")
+        );
     }
 
     #[test]
