@@ -4,7 +4,7 @@ use std::io::IsTerminal;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use dialoguer::{theme::ColorfulTheme, Confirm, Input};
 use serde::Serialize;
@@ -536,13 +536,28 @@ fn cleanup_imported_profile_on_error<T>(
     profile_name: &str,
     backend: CredentialBackend,
 ) -> Result<T> {
-    if result.is_err() {
-        if backend == CredentialBackend::SystemKeyring {
-            let _ = auth::secure_store::delete_profile_secret(tool, profile_name);
+    match result {
+        Ok(value) => Ok(value),
+        Err(import_error) => {
+            let mut cleanup_errors = Vec::new();
+            if backend == CredentialBackend::SystemKeyring {
+                if let Err(error) = auth::secure_store::delete_profile_secret(tool, profile_name) {
+                    cleanup_errors.push(format!("secure credential cleanup: {error}"));
+                }
+            }
+            if let Err(error) = profile_store.delete(tool, profile_name) {
+                cleanup_errors.push(format!("profile file cleanup: {error}"));
+            }
+            if cleanup_errors.is_empty() {
+                Err(import_error)
+            } else {
+                Err(anyhow!(
+                    "{import_error:#}\nImport cleanup was incomplete: {}",
+                    cleanup_errors.join("; ")
+                ))
+            }
         }
-        auth::files::cleanup_profile(profile_store, tool, profile_name);
     }
-    result
 }
 
 fn print_already_managed_live_match(
@@ -1598,6 +1613,26 @@ mod tests {
             .unwrap()
             .profiles_for(Tool::Claude)
             .contains_key("default"));
+    }
+
+    #[test]
+    fn failed_import_reports_cleanup_failure() {
+        let tmp = tempdir().unwrap();
+        let profile_store = ProfileStore::new(tmp.path());
+
+        let result = cleanup_imported_profile_on_error::<()>(
+            Err(anyhow!("profile registration failed")),
+            &profile_store,
+            Tool::Claude,
+            "default",
+            CredentialBackend::File,
+        );
+
+        let error = result.unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("profile registration failed"));
+        assert!(message.contains("Import cleanup was incomplete"));
+        assert!(message.contains("profile file cleanup"));
     }
 
     #[test]
