@@ -417,7 +417,7 @@ pub fn apply_api_key_settings(user_home: &Path) -> Result<()> {
     object.insert("modelProvider".to_owned(), serde_json::json!("gemini"));
     let bytes =
         serde_json::to_vec_pretty(&settings).context("could not serialize Antigravity settings")?;
-    crate::live_apply::apply_transaction(vec![LiveFileChange::write(path, bytes)])
+    crate::live_apply::apply_transaction(user_home, vec![LiveFileChange::write(path, bytes)])
 }
 
 fn build_apply_transaction(
