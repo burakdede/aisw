@@ -312,37 +312,38 @@ mod tests {
     }
 
     #[test]
-    fn detect_all_has_all_three_keys() {
+    fn detect_all_has_all_tool_keys() {
         let dir = tempdir().unwrap();
         let path = path_of(dir.path());
-        let all: HashMap<Tool, Option<DetectedTool>> = [Tool::Claude, Tool::Codex, Tool::Gemini]
+        let all: HashMap<Tool, Option<DetectedTool>> = Tool::ALL
             .into_iter()
             .map(|t| (t, detect_in(t, path.clone())))
             .collect();
-        assert!(all.contains_key(&Tool::Claude));
-        assert!(all.contains_key(&Tool::Codex));
-        assert!(all.contains_key(&Tool::Gemini));
+        for tool in Tool::ALL {
+            assert!(all.contains_key(&tool));
+        }
     }
 
     #[test]
     fn detect_all_finds_installed_tools() {
         let dir = tempdir().unwrap();
         make_dummy_binary(dir.path(), "gemini", "irrelevant", true);
+        make_dummy_binary(dir.path(), "agy", "irrelevant", true);
 
         // detect_all uses env PATH; drive detect_at directly for isolation.
         let path = path_of(dir.path());
-        let results: HashMap<Tool, Option<DetectedTool>> =
-            [Tool::Claude, Tool::Codex, Tool::Gemini]
-                .into_iter()
-                .map(|t| {
-                    (
-                        t,
-                        detect_at(t, path.clone(), VersionSource::Custom(no_version)),
-                    )
-                })
-                .collect();
+        let results: HashMap<Tool, Option<DetectedTool>> = Tool::ALL
+            .into_iter()
+            .map(|t| {
+                (
+                    t,
+                    detect_at(t, path.clone(), VersionSource::Custom(no_version)),
+                )
+            })
+            .collect();
 
         assert!(results[&Tool::Gemini].is_some());
+        assert!(results[&Tool::Antigravity].is_some());
         assert!(results[&Tool::Claude].is_none());
         assert!(results[&Tool::Codex].is_none());
     }
