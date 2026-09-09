@@ -50,22 +50,42 @@ impl CanaryCleanup {
         Ok(previous)
     }
 
-    fn restore(&self) {
+    fn restore(&self) -> Result<(), String> {
+        let mut failures = Vec::new();
+
         for tracked in &self.entries {
-            if let Ok(entry) = keyring::Entry::new(&tracked.service, &tracked.account) {
-                if let Some(previous) = &tracked.previous {
-                    let _ = entry.set_password(previous);
-                } else {
-                    let _ = entry.delete_credential();
+            let result = match keyring::Entry::new(&tracked.service, &tracked.account) {
+                Ok(entry) => {
+                    if let Some(previous) = &tracked.previous {
+                        entry.set_password(previous)
+                    } else {
+                        match entry.delete_credential() {
+                            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                            Err(error) => Err(error),
+                        }
+                    }
                 }
+                Err(error) => Err(error),
+            };
+
+            if let Err(error) = result {
+                failures.push(format!("{}/{}: {error}", tracked.service, tracked.account));
             }
+        }
+
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
         }
     }
 }
 
 impl Drop for CanaryCleanup {
     fn drop(&mut self) {
-        self.restore();
+        if let Err(error) = self.restore() {
+            eprintln!("credential-store canary cleanup failed during unwind: {error}");
+        }
     }
 }
 
@@ -499,10 +519,16 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         assert_entry_absent(&tracked.service, &tracked.account);
     }
 
-    cleanup.restore();
-    let restored_live_secret = keyring::Entry::new("gemini", "antigravity")
+    cleanup
+        .restore()
+        .unwrap_or_else(|error| panic!("credential-store canary cleanup failed: {error}"));
+    let restored_live_secret = match keyring::Entry::new("gemini", "antigravity")
         .unwrap()
         .get_password()
-        .ok();
+    {
+        Ok(secret) => Some(secret),
+        Err(keyring::Error::NoEntry) => None,
+        Err(error) => panic!("could not verify restored canary entry: {error}"),
+    };
     assert_eq!(restored_live_secret, previous_antigravity_live_secret);
 }
