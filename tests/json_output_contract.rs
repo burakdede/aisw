@@ -113,6 +113,7 @@ fn status_json_contract_snapshot() {
             "antigravity_auth_classification": null,
             "state_mode": "isolated",
             "active_profile_applied": expected_claude_active_applied,
+            "live_state_diagnostic": null,
             "credential_state": "present",
             "credentials_present": true,
             "permissions_ok": true,
@@ -133,6 +134,7 @@ fn status_json_contract_snapshot() {
             "antigravity_auth_classification": null,
             "state_mode": "isolated",
             "active_profile_applied": true,
+            "live_state_diagnostic": null,
             "credential_state": "present",
             "credentials_present": true,
             "permissions_ok": true,
@@ -153,6 +155,7 @@ fn status_json_contract_snapshot() {
             "antigravity_auth_classification": null,
             "state_mode": null,
             "active_profile_applied": true,
+            "live_state_diagnostic": null,
             "credential_state": "present",
             "credentials_present": true,
             "permissions_ok": true,
@@ -173,6 +176,7 @@ fn status_json_contract_snapshot() {
             "antigravity_auth_classification": null,
             "state_mode": null,
             "active_profile_applied": null,
+            "live_state_diagnostic": null,
             "credential_state": "missing",
             "credentials_present": false,
             "permissions_ok": true,
@@ -314,6 +318,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
         "antigravity_auth_classification",
         "state_mode",
         "active_profile_applied",
+        "live_state_diagnostic",
         "credential_state",
         "credentials_present",
         "permissions_ok",
@@ -324,7 +329,7 @@ fn status_json_contract_preserved_with_filter_and_sort_flags() {
             "missing key `{key}` in status entry"
         );
     }
-    assert_eq!(entry.len(), 18);
+    assert_eq!(entry.len(), 19);
 }
 
 #[test]
