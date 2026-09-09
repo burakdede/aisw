@@ -235,9 +235,15 @@ main() {
 
     # Create a temp directory for the download.
     TMP_DIR=$(mktemp -d)
+    STAGED_INSTALL_PATH=
     # Clean up the temp directory on exit regardless of success/failure.
-    # shellcheck disable=SC2064
-    trap "rm -rf '$TMP_DIR'" EXIT
+    cleanup() {
+        rm -rf "$TMP_DIR"
+        if [ -n "${STAGED_INSTALL_PATH:-}" ]; then
+            rm -f "$STAGED_INSTALL_PATH"
+        fi
+    }
+    trap cleanup EXIT
 
     TMP_BINARY="$TMP_DIR/$BINARY_NAME"
     TMP_CHECKSUM="$TMP_DIR/${BINARY_NAME}.sha256"
@@ -270,8 +276,17 @@ main() {
   Set AISW_INSTALL_DIR to a user-writable path and re-run the installer."
     fi
 
-    cp "$TMP_BINARY" "$INSTALL_PATH"
-    chmod +x "$INSTALL_PATH"
+    # Stage beside the destination so the final rename cannot cross filesystems
+    # and a failed update leaves the currently installed binary intact.
+    STAGED_INSTALL_PATH=$(mktemp "$INSTALL_DIR/.aisw-install.XXXXXX") || \
+        die "Could not create a staging file in $INSTALL_DIR"
+    cp "$TMP_BINARY" "$STAGED_INSTALL_PATH" || \
+        die "Could not stage binary in $INSTALL_DIR"
+    chmod +x "$STAGED_INSTALL_PATH" || \
+        die "Could not make staged binary executable"
+    mv -f "$STAGED_INSTALL_PATH" "$INSTALL_PATH" || \
+        die "Could not replace installed binary at $INSTALL_PATH"
+    STAGED_INSTALL_PATH=
 
     echo ""
     echo "aisw ${VERSION_LABEL} installed to $INSTALL_PATH"
