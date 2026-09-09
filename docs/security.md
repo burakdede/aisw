@@ -80,6 +80,8 @@ Backups are also created before profile switching when `backup_on_switch` is ena
 
 All commands that modify `~/.aisw/config.json` take an exclusive lock on the file before writing. If two `aisw` commands run concurrently, the second will wait briefly and then fail with a clear error rather than producing a partial write. This prevents config corruption in parallel CI environments.
 
+Live profile switches take a separate operation lock for their full multi-file transaction. This prevents concurrent `use` and `context use` commands from interleaving credential-file writes with active-profile metadata updates.
+
 ### Input validation
 
 Profile names are restricted to `a-z`, `A-Z`, `0-9`, `-`, and `_`, and every read and write resolves inside the profile directory, so a name can never reach a path outside `~/.aisw/profiles/`. `aisw` refuses to read or write through a symlink at a credential path.
