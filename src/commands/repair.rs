@@ -82,10 +82,14 @@ pub fn run(args: RepairArgs, home: &Path) -> Result<()> {
         RepairMode::DryRun
     };
 
-    let actions = plan_actions(home, &requested_fixes)?;
     let result = if mode == RepairMode::Apply {
+        // Repair apply changes shared state, so refresh and apply the plan
+        // while excluding concurrent switches, restores, and cleanup.
+        let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+        let actions = plan_actions(home, &requested_fixes)?;
         apply_actions(home, &requested_fixes, actions)?
     } else {
+        let actions = plan_actions(home, &requested_fixes)?;
         dry_run_result(&requested_fixes, actions)
     };
 
@@ -395,6 +399,9 @@ fn print_text(result: &RepairResult) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(windows))]
+    use std::{thread, time::Duration};
+
     use super::*;
     use tempfile::tempdir;
 
@@ -463,5 +470,31 @@ mod tests {
                 & 0o777,
             0o644
         );
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn repair_apply_waits_for_an_in_progress_switch() {
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("aisw");
+        let switch_lock = ConfigStore::new(&home).acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run(
+            RepairArgs {
+                json: false,
+                dry_run: false,
+                apply: true,
+                fix: vec![RepairFix::Home],
+            },
+            &home,
+        )
+        .unwrap();
+        releaser.join().unwrap();
+
+        assert!(home.join("config.json").exists());
     }
 }
