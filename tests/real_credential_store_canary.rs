@@ -26,22 +26,28 @@ impl CanaryCleanup {
         }
     }
 
-    fn track(&mut self, account: String) {
-        self.track_entry(KEYRING_SERVICE, account);
+    fn track(&mut self, account: String) -> Result<(), keyring::Error> {
+        self.track_entry(KEYRING_SERVICE, account).map(|_| ())
     }
 
-    fn track_entry(&mut self, service: &str, account: impl Into<String>) -> Option<String> {
+    fn track_entry(
+        &mut self,
+        service: &str,
+        account: impl Into<String>,
+    ) -> Result<Option<String>, keyring::Error> {
         let account = account.into();
-        let previous = keyring::Entry::new(service, &account)
-            .ok()
-            .and_then(|entry| entry.get_password().ok());
-        let result = previous.clone();
+        let entry = keyring::Entry::new(service, &account)?;
+        let previous = match entry.get_password() {
+            Ok(password) => Some(password),
+            Err(keyring::Error::NoEntry) => None,
+            Err(error) => return Err(error),
+        };
         self.entries.push(CanaryEntry {
             service: service.to_owned(),
             account,
-            previous,
+            previous: previous.clone(),
         });
-        result
+        Ok(previous)
     }
 
     fn restore(&self) {
@@ -256,6 +262,21 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         br#"{"service":"gemini","account":"antigravity"}"#,
     )
     .unwrap();
+    fs::create_dir_all(antigravity_dir.join("app")).unwrap();
+    fs::write(
+        antigravity_dir.join("app").join("settings.json"),
+        br#"{"modelProvider":"gemini"}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(antigravity_dir.join("shared").join("projects")).unwrap();
+    fs::write(
+        antigravity_dir
+            .join("shared")
+            .join("projects")
+            .join("repo.json"),
+        br#"{"mode":"plan"}"#,
+    )
+    .unwrap();
     fs::write(
         codex_api_dir.join("config.toml"),
         b"cli_auth_credentials_store = \"file\"\n",
@@ -275,12 +296,12 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     let codex_oauth_account = format!("profile:codex:{codex_oauth}");
     let codex_api_account = format!("profile:codex:{codex_api}");
     let antigravity_account = format!("profile:agy:{antigravity}");
-    cleanup.track(claude_oauth_account.clone());
-    cleanup.track(claude_api_account.clone());
-    cleanup.track(codex_oauth_account.clone());
-    cleanup.track(codex_api_account.clone());
-    cleanup.track(antigravity_account.clone());
-    let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity");
+    cleanup.track(claude_oauth_account.clone()).unwrap();
+    cleanup.track(claude_api_account.clone()).unwrap();
+    cleanup.track(codex_oauth_account.clone()).unwrap();
+    cleanup.track(codex_api_account.clone()).unwrap();
+    cleanup.track(antigravity_account.clone()).unwrap();
+    let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity").unwrap();
 
     keyring::Entry::new(KEYRING_SERVICE, &claude_oauth_account)
         .unwrap()
@@ -350,6 +371,14 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     assert_eq!(antigravity_row["active_profile"], antigravity);
     assert_eq!(antigravity_row["credential_backend"], "system_keyring");
     assert_eq!(antigravity_row["credentials_present"], true);
+    assert_eq!(
+        fs::read(env.fake_home.join(".gemini/antigravity-cli/settings.json")).unwrap(),
+        br#"{"modelProvider":"gemini"}"#
+    );
+    assert_eq!(
+        fs::read(env.fake_home.join(".gemini/config/projects/repo.json")).unwrap(),
+        br#"{"mode":"plan"}"#
+    );
 
     let list = json_output(&env, &bin_dir, &["list", "--json"]);
     assert_eq!(list["claude"]["active"], claude_api);
