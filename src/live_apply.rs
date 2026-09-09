@@ -64,12 +64,25 @@ pub fn apply_transaction(root: &Path, changes: Vec<LiveFileChange>) -> Result<()
     let snapshots = snapshot_original_state(&changes)?;
     let prepared = stage_changes(changes)?;
 
-    let result = commit_changes(&prepared).inspect_err(|_| {
-        let _ = rollback_changes(&prepared, &snapshots);
-    });
+    let result = match commit_changes(&prepared) {
+        Ok(()) => Ok(()),
+        Err(commit_error) => match rollback_changes(&prepared, &snapshots) {
+            Ok(()) => Err(commit_error),
+            Err(rollback_error) => Err(anyhow!(
+                "{commit_error:#}\nAutomatic rollback also failed: {rollback_error:#}"
+            )),
+        },
+    };
 
-    cleanup_staged_files(&prepared)?;
-    result
+    match cleanup_staged_files(&prepared) {
+        Ok(()) => result,
+        Err(cleanup_error) => match result {
+            Ok(()) => Err(cleanup_error),
+            Err(operation_error) => Err(anyhow!(
+                "{operation_error:#}\nStaged-file cleanup also failed: {cleanup_error:#}"
+            )),
+        },
+    }
 }
 
 fn snapshot_original_state(
@@ -221,6 +234,7 @@ fn restore_original_state(path: &Path, snapshot: &OriginalFileState) -> Result<(
     match snapshot {
         OriginalFileState::Absent => {
             if path.exists() {
+                maybe_inject_fault("live_apply.rollback_delete")?;
                 std::fs::remove_file(path)
                     .with_context(|| format!("could not remove {}", path.display()))?;
             }
@@ -238,6 +252,7 @@ fn restore_original_state(path: &Path, snapshot: &OriginalFileState) -> Result<(
             })?;
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("could not create {}", parent.display()))?;
+            maybe_inject_fault("live_apply.rollback_write")?;
             std::fs::write(path, contents)
                 .with_context(|| format!("could not write {}", path.display()))?;
             #[cfg(unix)]
@@ -296,12 +311,11 @@ fn set_permissions_mode(path: &Path, mode: u32) -> Result<()> {
 }
 
 fn maybe_inject_fault(label: &str) -> Result<()> {
-    let Some(rule) = active_fault_rule() else {
+    let Some(rule) =
+        active_fault_rules().and_then(|rules| rules.into_iter().find(|rule| rule.label == label))
+    else {
         return Ok(());
     };
-    if rule.label != label {
-        return Ok(());
-    }
 
     let mut hits = fault_hits()
         .lock()
@@ -314,8 +328,13 @@ fn maybe_inject_fault(label: &str) -> Result<()> {
     Ok(())
 }
 
-fn active_fault_rule() -> Option<FaultRule> {
-    parse_fault_rule(std::env::var("AISW_FAULT_INJECTION").ok()?.as_str())
+fn active_fault_rules() -> Option<Vec<FaultRule>> {
+    let raw = std::env::var("AISW_FAULT_INJECTION").ok()?;
+    let rules = raw
+        .split(',')
+        .filter_map(parse_fault_rule)
+        .collect::<Vec<_>>();
+    (!rules.is_empty()).then_some(rules)
 }
 
 fn parse_fault_rule(raw: &str) -> Option<FaultRule> {
@@ -516,6 +535,43 @@ mod tests {
             entries.iter().all(|name| !name.contains(".aisw-stage-")),
             "staged files should be removed after failure: {entries:?}"
         );
+
+        reset_fault_state();
+    }
+
+    #[test]
+    fn reports_when_rollback_also_fails() {
+        let _guard = fault_env_lock().lock().unwrap();
+        reset_fault_state();
+
+        let dir = tempdir().unwrap();
+        let first = dir.path().join("first.json");
+        let second = dir.path().join("second.json");
+        std::fs::write(&first, "old-first").unwrap();
+        std::fs::write(&second, "old-second").unwrap();
+
+        // SAFETY: serialized by `fault_env_lock`.
+        unsafe {
+            std::env::set_var(
+                "AISW_FAULT_INJECTION",
+                "live_apply.commit_write:2,live_apply.rollback_write",
+            );
+        }
+
+        let err = apply_transaction(
+            dir.path(),
+            vec![
+                LiveFileChange::write(first.clone(), b"new-first".to_vec()),
+                LiveFileChange::write(second.clone(), b"new-second".to_vec()),
+            ],
+        )
+        .unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("injected live-apply failure at live_apply.commit_write"));
+        assert!(message.contains("Automatic rollback also failed"));
+        assert!(message.contains("injected live-apply failure at live_apply.rollback_write"));
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "new-first");
 
         reset_fault_state();
     }
