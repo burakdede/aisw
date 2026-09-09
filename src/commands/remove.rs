@@ -52,6 +52,8 @@ pub fn run(args: RemoveArgs, home: &Path) -> Result<()> {
 
 /// Entry point for non-interactive use (tests and `--yes` flag).
 pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Result<()> {
+    // Profile directory and secure-store changes must not race a live switch.
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
     let profile_name = args
         .profile_name
         .as_deref()
