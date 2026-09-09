@@ -157,3 +157,34 @@ fn credential_store_canary_is_bounded_and_fail_closed() {
         "credential-store canary failures must remain release-visible"
     );
 }
+
+#[test]
+fn linux_ci_dependency_install_ignores_unrelated_apt_sources() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let script_path = repo_root
+        .join(".github")
+        .join("scripts")
+        .join("install-linux-dependencies.sh");
+    let script = std::fs::read_to_string(&script_path)
+        .expect("Linux dependency installer should be readable");
+    let ci = std::fs::read_to_string(repo_root.join(".github/workflows/ci.yml"))
+        .expect("CI workflow should be readable");
+    let canary =
+        std::fs::read_to_string(repo_root.join(".github/workflows/credential-store-canary.yml"))
+            .expect("credential-store canary workflow should be readable");
+
+    assert!(
+        script.contains("Dir::Etc::sourceparts=-"),
+        "Linux dependency installation must ignore third-party APT source parts"
+    );
+    assert_eq!(
+        ci.matches("bash .github/scripts/install-linux-dependencies.sh")
+            .count(),
+        3,
+        "every Ubuntu CI job should use the scoped dependency installer"
+    );
+    assert!(
+        canary.contains("bash .github/scripts/install-linux-dependencies.sh"),
+        "the Linux credential-store canary should use the scoped dependency installer"
+    );
+}
