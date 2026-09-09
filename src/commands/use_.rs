@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::io::IsTerminal;
 use std::path::Path;
 
@@ -9,6 +11,7 @@ use crate::backup::BackupManager;
 use crate::cli::UseArgs;
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::error::AiswError;
+use crate::live_apply::LiveFileChange;
 use crate::machine;
 use crate::output;
 use crate::profile::ProfileStore;
@@ -22,6 +25,36 @@ pub(crate) struct ResolvedProfileSwitch {
     pub profile_meta: ProfileMeta,
     pub state_mode: StateMode,
     pub backup_on_switch: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum LiveStateSnapshot {
+    Claude {
+        credentials: Option<auth::claude::LiveCredentialSnapshot>,
+        oauth_account_metadata: Option<Vec<u8>>,
+    },
+    Codex {
+        files: Vec<FileSnapshot>,
+    },
+    Gemini {
+        dir: std::path::PathBuf,
+        files: Vec<NamedFileSnapshot>,
+    },
+    Antigravity {
+        snapshot: auth::antigravity::LiveSnapshot,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FileSnapshot {
+    path: std::path::PathBuf,
+    bytes: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct NamedFileSnapshot {
+    file_name: OsString,
+    bytes: Vec<u8>,
 }
 
 pub fn run(args: UseArgs, home: &Path) -> Result<()> {
@@ -65,10 +98,9 @@ pub(crate) fn run_all_in(
 ) -> Result<()> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
-    let mut switched = 0usize;
+    let mut switches = Vec::new();
     let mut errors = Vec::new();
     let before_backup_ids = backup_ids_for(home, None)?;
-    let mut affected_tools = Vec::new();
 
     for tool in Tool::ALL {
         let profiles = config.profiles_for(tool);
@@ -84,44 +116,76 @@ pub(crate) fn run_all_in(
         // `--state-mode` only applies to tools that support it; passing it to
         // the others would make the whole `--all` switch fail.
         let tool_state_mode = state_mode_override.filter(|_| tool.supports_state_mode());
-        match run_for_tool(
+        match resolve_profile_switch_request(
             tool,
             Some(profile_name),
             tool_state_mode,
             emit_env,
-            false,
             home,
             user_home,
         ) {
-            Ok(()) => {
-                switched += 1;
-                affected_tools.push(tool);
-            }
+            Ok(resolved) => switches.push(resolved),
             Err(e) => errors.push(format!("{}: {}", tool, e)),
         }
     }
 
-    if switched == 0 && errors.is_empty() {
+    if switches.is_empty() && errors.is_empty() {
         anyhow::bail!("no tool has a profile named '{}'", profile_name);
     }
 
-    // A tool without a matching profile is a *skip* and stays successful, but a
-    // tool that was attempted and failed must not exit 0 — scripts rely on the
-    // exit code to know whether the switch actually happened.
     if !errors.is_empty() {
         anyhow::bail!(
             "{} of {} attempted tool switches failed:\n  {}",
             errors.len(),
-            errors.len() + switched,
+            errors.len() + switches.len(),
             errors.join("\n  ")
         );
     }
 
-    // In --emit-env mode stdout is a shell script the caller evals; anything
-    // else written there would be executed as shell input.
+    let activations = switches
+        .iter()
+        .map(|switch| {
+            (
+                switch.tool,
+                switch.profile_name.clone(),
+                switch
+                    .tool
+                    .supports_state_mode()
+                    .then_some(switch.state_mode),
+            )
+        })
+        .collect::<Vec<_>>();
+
     if emit_env {
+        for switch in &switches {
+            apply_resolved_profile_switch(switch, true, home, user_home)?;
+        }
+        config_store.activate_profiles(&activations)?;
         return Ok(());
     }
+
+    let snapshots = snapshot_live_state_for_switches(&switches, user_home)?;
+    let apply_result = (|| -> Result<()> {
+        for switch in &switches {
+            apply_resolved_profile_switch(switch, false, home, user_home)?;
+        }
+        config_store.activate_profiles(&activations)?;
+        Ok(())
+    })();
+
+    if let Err(err) = apply_result {
+        return match restore_live_state_for_switches(&snapshots, user_home) {
+            Ok(()) => Err(err),
+            Err(rollback_err) => Err(err.context(format!(
+                "use --all failed and live-state rollback also failed: {rollback_err:#}"
+            ))),
+        };
+    }
+
+    let affected_tools = switches
+        .iter()
+        .map(|switch| switch.tool)
+        .collect::<Vec<_>>();
 
     if json {
         let after_backup_ids = backup_ids_for(home, None)?;
@@ -727,6 +791,129 @@ fn resolve_profile_name(
 
 fn stdin_stdout_are_tty() -> bool {
     std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+pub(crate) fn snapshot_live_state_for_switches(
+    switches: &[ResolvedProfileSwitch],
+    user_home: &Path,
+) -> Result<HashMap<Tool, LiveStateSnapshot>> {
+    let mut snapshots = HashMap::new();
+    for switch in switches {
+        let snapshot = match switch.tool {
+            Tool::Claude => LiveStateSnapshot::Claude {
+                credentials: auth::claude::live_credentials_snapshot_for_import(user_home)?,
+                oauth_account_metadata: auth::claude::read_live_oauth_account_metadata_for_import(
+                    user_home,
+                )?,
+            },
+            Tool::Codex => LiveStateSnapshot::Codex {
+                files: vec![
+                    snapshot_file(user_home.join(".codex").join("auth.json"))?,
+                    snapshot_file(user_home.join(".codex").join("config.toml"))?,
+                ],
+            },
+            Tool::Gemini => {
+                let dir = user_home.join(".gemini");
+                LiveStateSnapshot::Gemini {
+                    files: snapshot_regular_files(&dir)?,
+                    dir,
+                }
+            }
+            Tool::Antigravity => LiveStateSnapshot::Antigravity {
+                snapshot: auth::antigravity::capture_live_snapshot(user_home)?,
+            },
+        };
+        snapshots.insert(switch.tool, snapshot);
+    }
+    Ok(snapshots)
+}
+
+pub(crate) fn restore_live_state_for_switches(
+    snapshots: &HashMap<Tool, LiveStateSnapshot>,
+    user_home: &Path,
+) -> Result<()> {
+    for tool in Tool::ALL.iter().rev() {
+        let Some(snapshot) = snapshots.get(tool) else {
+            continue;
+        };
+        match snapshot {
+            LiveStateSnapshot::Claude {
+                credentials,
+                oauth_account_metadata,
+            } => auth::claude::restore_live_state_after_oauth_add(
+                credentials.clone(),
+                oauth_account_metadata.clone(),
+                user_home,
+            )?,
+            LiveStateSnapshot::Codex { files } => restore_file_snapshots(files)?,
+            LiveStateSnapshot::Gemini { dir, files } => restore_regular_files(dir, files)?,
+            LiveStateSnapshot::Antigravity { snapshot } => {
+                auth::antigravity::restore_snapshot_to_live(snapshot, user_home)?
+            }
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_file(path: std::path::PathBuf) -> Result<FileSnapshot> {
+    let bytes = if path.exists() {
+        Some(std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?)
+    } else {
+        None
+    };
+    Ok(FileSnapshot { path, bytes })
+}
+
+fn snapshot_regular_files(dir: &Path) -> Result<Vec<NamedFileSnapshot>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    for file in auth::files::list_regular_files(dir)? {
+        files.push(NamedFileSnapshot {
+            file_name: file.file_name,
+            bytes: std::fs::read(&file.path)
+                .with_context(|| format!("could not read {}", file.path.display()))?,
+        });
+    }
+    Ok(files)
+}
+
+fn restore_file_snapshots(files: &[FileSnapshot]) -> Result<()> {
+    let changes = files
+        .iter()
+        .map(|snapshot| match &snapshot.bytes {
+            Some(bytes) => LiveFileChange::write(snapshot.path.clone(), bytes.clone()),
+            None => LiveFileChange::delete(snapshot.path.clone()),
+        })
+        .collect::<Vec<_>>();
+    crate::live_apply::apply_transaction(changes)
+}
+
+fn restore_regular_files(dir: &Path, files: &[NamedFileSnapshot]) -> Result<()> {
+    let mut changes = Vec::new();
+    let expected = files
+        .iter()
+        .map(|file| file.file_name.clone())
+        .collect::<HashSet<_>>();
+
+    if dir.exists() {
+        for current in auth::files::list_regular_files(dir)? {
+            if !expected.contains(&current.file_name) {
+                changes.push(LiveFileChange::delete(current.path));
+            }
+        }
+    }
+
+    for file in files {
+        changes.push(LiveFileChange::write(
+            dir.join(&file.file_name),
+            file.bytes.clone(),
+        ));
+    }
+
+    crate::live_apply::apply_transaction(changes)
 }
 
 fn select_profile_interactively(

@@ -401,7 +401,7 @@ aisw version [--json]
 aisw capabilities [--json]
 ```
 
-`aisw use --all` switches every tool that has a profile with the given name. Tools without one are skipped; if a tool has that profile but fails to switch, the command reports the failure and exits non-zero.
+`aisw use --all` switches every tool that has a profile with the given name. Tools without one are skipped; matching profiles are resolved before live state changes, and a failure rolls back earlier switches before the command exits non-zero.
 
 ## Scripting and exit codes
 

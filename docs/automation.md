@@ -191,6 +191,9 @@ Branch on `error.kind`, not on the message text  -  `kind` is stable, the messag
 - A tool with no such profile is **skipped**, and the command still succeeds.
 - A tool that has the profile but fails to switch is **reported**, and the command exits non-zero with the standard failure envelope.
 
+Matching profiles are resolved before live state changes. If one switch fails,
+aisw restores the live state changed by earlier tools and exits non-zero.
+
 So a zero exit means every tool that could switch did switch. If you need to know which tools were affected, read `result.affected_tools` from `--json` on success.
 
 ## Applying profiles without the shell hook

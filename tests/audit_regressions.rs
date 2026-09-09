@@ -8,6 +8,8 @@ mod common;
 use common::TestEnv;
 
 const CLAUDE_KEY: &str = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const CLAUDE_KEY_ALT: &str = "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const CODEX_KEY_ALT: &str = "sk-codex-test-key-67890";
 
 /// Gemini stores API keys as `GEMINI_API_KEY=<key>` in a `.env` file the CLI
 /// sources. Validation only rejected empty keys, so a key containing a newline
@@ -566,6 +568,60 @@ fn use_all_exits_non_zero_when_a_tool_switch_fails() {
         "the failing tool should be named: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// `use --all` must restore every earlier live switch when a later tool fails,
+/// matching the transaction guarantee provided by `context use`.
+#[test]
+fn use_all_rolls_back_prior_live_switches_and_active_profiles() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    env.add_fake_tool("codex", "codex 1.0.0");
+
+    env.cmd()
+        .args(["add", "claude", "current", "--api-key", CLAUDE_KEY_ALT])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "codex", "current", "--api-key", CODEX_KEY_ALT])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", CLAUDE_KEY])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "codex", "work", "--api-key", CODEX_KEY])
+        .assert()
+        .success();
+
+    env.cmd()
+        .args(["use", "claude", "current"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "codex", "current"])
+        .assert()
+        .success();
+
+    let claude_live_path = env.fake_home.join(".claude").join(".credentials.json");
+    let codex_live_path = env.fake_home.join(".codex").join("auth.json");
+    let claude_before = std::fs::read(&claude_live_path).unwrap();
+    let codex_before = std::fs::read(&codex_live_path).unwrap();
+
+    std::fs::remove_dir_all(env.aisw_home.join("profiles").join("codex").join("work")).unwrap();
+
+    let output = env.output(&["use", "--all", "--profile", "work"]);
+    assert!(!output.status.success(), "the later codex switch must fail");
+
+    assert_eq!(std::fs::read(&claude_live_path).unwrap(), claude_before);
+    assert_eq!(std::fs::read(&codex_live_path).unwrap(), codex_before);
+
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(env.aisw_home.join("config.json")).unwrap())
+            .unwrap();
+    assert_eq!(config["active"]["claude"], "current");
+    assert_eq!(config["active"]["codex"], "current");
 }
 
 /// `init --json` looked up the rc file for whatever `$SHELL` reported and hit

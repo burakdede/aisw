@@ -1,5 +1,4 @@
-use std::collections::{HashMap, HashSet};
-use std::ffi::OsString;
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -12,11 +11,11 @@ use crate::cli::{
 };
 use crate::commands::use_::{
     active_map, apply_resolved_profile_switch, backup_ids_for, diff_backup_ids, live_match_map,
-    state_mode_map, ResolvedProfileSwitch,
+    restore_live_state_for_switches, snapshot_live_state_for_switches, state_mode_map,
+    ResolvedProfileSwitch,
 };
 use crate::config::{Config, ConfigStore, ContextEntry, ContextProfiles};
 use crate::error::AiswError;
-use crate::live_apply::LiveFileChange;
 use crate::machine;
 use crate::output;
 use crate::profile::validate_profile_name;
@@ -352,7 +351,7 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
     }
 
     let before_backup_ids = backup_ids_for(home, None)?;
-    let snapshots = snapshot_live_state_for_context(&switches, &user_home)?;
+    let snapshots = snapshot_live_state_for_switches(&switches, &user_home)?;
     let activations = switches
         .iter()
         .map(|switch| {
@@ -376,7 +375,7 @@ fn use_context(_args: ContextUseArgs, _home: &Path) -> Result<()> {
     })();
 
     if let Err(err) = apply_result {
-        restore_live_state_for_context(&snapshots, &user_home)?;
+        restore_live_state_for_switches(&snapshots, &user_home)?;
         return Err(err);
     }
 
@@ -525,159 +524,6 @@ fn resolve_context_switches(
         });
     }
     Ok(switches)
-}
-
-#[derive(Debug, Clone)]
-enum LiveStateSnapshot {
-    Claude {
-        credentials: Option<auth::claude::LiveCredentialSnapshot>,
-        oauth_account_metadata: Option<Vec<u8>>,
-    },
-    Codex {
-        files: Vec<FileSnapshot>,
-    },
-    Gemini {
-        dir: std::path::PathBuf,
-        files: Vec<NamedFileSnapshot>,
-    },
-    Antigravity {
-        snapshot: auth::antigravity::LiveSnapshot,
-    },
-}
-
-#[derive(Debug, Clone)]
-struct FileSnapshot {
-    path: std::path::PathBuf,
-    bytes: Option<Vec<u8>>,
-}
-
-#[derive(Debug, Clone)]
-struct NamedFileSnapshot {
-    file_name: OsString,
-    bytes: Vec<u8>,
-}
-
-fn snapshot_live_state_for_context(
-    switches: &[ResolvedProfileSwitch],
-    user_home: &Path,
-) -> Result<HashMap<Tool, LiveStateSnapshot>> {
-    let mut snapshots = HashMap::new();
-    for switch in switches {
-        let snapshot = match switch.tool {
-            Tool::Claude => LiveStateSnapshot::Claude {
-                credentials: auth::claude::live_credentials_snapshot_for_import(user_home)?,
-                oauth_account_metadata: auth::claude::read_live_oauth_account_metadata_for_import(
-                    user_home,
-                )?,
-            },
-            Tool::Codex => LiveStateSnapshot::Codex {
-                files: vec![
-                    snapshot_file(user_home.join(".codex").join("auth.json"))?,
-                    snapshot_file(user_home.join(".codex").join("config.toml"))?,
-                ],
-            },
-            Tool::Gemini => {
-                let dir = user_home.join(".gemini");
-                LiveStateSnapshot::Gemini {
-                    files: snapshot_regular_files(&dir)?,
-                    dir,
-                }
-            }
-            Tool::Antigravity => LiveStateSnapshot::Antigravity {
-                snapshot: auth::antigravity::capture_live_snapshot(user_home)?,
-            },
-        };
-        snapshots.insert(switch.tool, snapshot);
-    }
-    Ok(snapshots)
-}
-
-fn restore_live_state_for_context(
-    snapshots: &HashMap<Tool, LiveStateSnapshot>,
-    user_home: &Path,
-) -> Result<()> {
-    for tool in Tool::ALL.iter().rev() {
-        let Some(snapshot) = snapshots.get(tool) else {
-            continue;
-        };
-        match snapshot {
-            LiveStateSnapshot::Claude {
-                credentials,
-                oauth_account_metadata,
-            } => auth::claude::restore_live_state_after_oauth_add(
-                credentials.clone(),
-                oauth_account_metadata.clone(),
-                user_home,
-            )?,
-            LiveStateSnapshot::Codex { files } => restore_file_snapshots(files)?,
-            LiveStateSnapshot::Gemini { dir, files } => restore_regular_files(dir, files)?,
-            LiveStateSnapshot::Antigravity { snapshot } => {
-                auth::antigravity::restore_snapshot_to_live(snapshot, user_home)?
-            }
-        }
-    }
-    Ok(())
-}
-
-fn snapshot_file(path: std::path::PathBuf) -> Result<FileSnapshot> {
-    let bytes = if path.exists() {
-        Some(std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?)
-    } else {
-        None
-    };
-    Ok(FileSnapshot { path, bytes })
-}
-
-fn snapshot_regular_files(dir: &Path) -> Result<Vec<NamedFileSnapshot>> {
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut files = Vec::new();
-    for file in auth::files::list_regular_files(dir)? {
-        files.push(NamedFileSnapshot {
-            file_name: file.file_name,
-            bytes: std::fs::read(&file.path)
-                .with_context(|| format!("could not read {}", file.path.display()))?,
-        });
-    }
-    Ok(files)
-}
-
-fn restore_file_snapshots(files: &[FileSnapshot]) -> Result<()> {
-    let changes = files
-        .iter()
-        .map(|snapshot| match &snapshot.bytes {
-            Some(bytes) => LiveFileChange::write(snapshot.path.clone(), bytes.clone()),
-            None => LiveFileChange::delete(snapshot.path.clone()),
-        })
-        .collect::<Vec<_>>();
-    crate::live_apply::apply_transaction(changes)
-}
-
-fn restore_regular_files(dir: &Path, files: &[NamedFileSnapshot]) -> Result<()> {
-    let mut changes = Vec::new();
-    let expected = files
-        .iter()
-        .map(|file| file.file_name.clone())
-        .collect::<HashSet<_>>();
-
-    if dir.exists() {
-        for current in auth::files::list_regular_files(dir)? {
-            if !expected.contains(&current.file_name) {
-                changes.push(LiveFileChange::delete(current.path));
-            }
-        }
-    }
-
-    for file in files {
-        changes.push(LiveFileChange::write(
-            dir.join(&file.file_name),
-            file.bytes.clone(),
-        ));
-    }
-
-    crate::live_apply::apply_transaction(changes)
 }
 
 fn normalized_profiles_json(profiles: &ContextProfiles) -> serde_json::Value {

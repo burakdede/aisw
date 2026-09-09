@@ -61,7 +61,7 @@ All operations are local filesystem and OS keyring operations. You can audit thi
 
 ### Transactional writes
 
-Profile activation uses a snapshot-and-apply model. Before writing any live credential file, the current live state is captured. If any file write fails partway through, the snapshot is restored atomically. You never end up with a partially applied profile.
+Profile activation uses a snapshot-and-apply model. Before writing any live credential file, the current live state is captured. If any file write fails partway through, the snapshot is restored atomically. Individual switches and cross-tool `use --all` operations never leave a partially applied live profile set.
 
 This is particularly important for Claude Code, which stores credentials across multiple locations (the credentials file and OAuth account metadata in `~/.claude.json`). A failed write to either location triggers a full rollback.
 
