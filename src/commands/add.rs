@@ -27,6 +27,9 @@ pub fn run(args: AddArgs, home: &Path) -> Result<()> {
 }
 
 pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<()> {
+    // Profile creation/import can mutate the live credential owner; serialize
+    // it with switches and other profile lifecycle operations.
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
     let mut progress = machine::ProgressReporter::new(
         "add",
         Some(args.tool.binary_name()),
@@ -1572,6 +1575,8 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
+    use std::thread;
+    use std::time::Duration;
 
     use tempfile::tempdir;
 
@@ -1726,6 +1731,33 @@ mod tests {
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert!(config.profiles_for(Tool::Claude).contains_key("work"));
+    }
+
+    #[test]
+    fn add_waits_for_an_in_progress_switch() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        make_fake_binary(&bin_dir, "claude");
+
+        let switch_lock = ConfigStore::new(&home).acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run_in(
+            add_args_api_key(Tool::Claude, "work", claude_key()),
+            &home,
+            path_of(&bin_dir),
+        )
+        .unwrap();
+        releaser.join().unwrap();
+
+        assert!(ProfileStore::new(&home).exists(Tool::Claude, "work"));
     }
 
     #[test]
