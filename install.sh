@@ -102,6 +102,16 @@ resolve_install_dir() {
     NEEDS_PATH_NOTE=1
 }
 
+reject_symlink() {
+    path="$1"
+    description="$2"
+
+    if [ -L "$path" ]; then
+        die "Refusing to write through symlinked ${description}: $path
+  Remove the symlink or set AISW_INSTALL_DIR to a real directory and re-run the installer."
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Checksum verification
 # ---------------------------------------------------------------------------
@@ -244,12 +254,16 @@ main() {
     info "Verifying checksum..."
     verify_checksum "$TMP_BINARY" "$TMP_CHECKSUM"
 
+    reject_symlink "$INSTALL_DIR" "install directory"
+
     # Create the install directory if it doesn't exist (e.g. ~/.local/bin).
     if [ ! -d "$INSTALL_DIR" ]; then
         mkdir -p "$INSTALL_DIR" || die "Could not create install directory: $INSTALL_DIR"
     fi
 
     INSTALL_PATH="$INSTALL_DIR/$BINARY"
+
+    reject_symlink "$INSTALL_PATH" "binary destination"
 
     if [ ! -w "$INSTALL_DIR" ] && [ "$(id -u)" -ne 0 ]; then
         die "Install directory is not writable: $INSTALL_DIR

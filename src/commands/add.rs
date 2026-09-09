@@ -90,7 +90,7 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
             Tool::Claude => CLAUDE_ENV_VAR,
             Tool::Codex => CODEX_ENV_VAR,
             Tool::Gemini => GEMINI_ENV_VAR,
-            Tool::Antigravity => unreachable!("validated above"),
+            Tool::Antigravity => GEMINI_ENV_VAR,
         };
         let key = std::env::var(env_var).unwrap_or_default();
         if key.is_empty() {
@@ -121,7 +121,14 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                 args.label.clone(),
                 backend,
             )?,
-            Tool::Antigravity => unreachable!("validated above"),
+            Tool::Antigravity => auth::antigravity::add_api_key_with_backend(
+                &profile_store,
+                &config_store,
+                &args.profile_name,
+                &key,
+                args.label.clone(),
+                backend,
+            )?,
         }
         if args.set_active {
             config_store.set_active(args.tool, &args.profile_name)?;
@@ -162,7 +169,14 @@ pub(crate) fn run_in(args: AddArgs, home: &Path, tool_path: OsString) -> Result<
                 args.label.clone(),
                 backend,
             )?,
-            Tool::Antigravity => unreachable!("validated above"),
+            Tool::Antigravity => auth::antigravity::add_api_key_with_backend(
+                &profile_store,
+                &config_store,
+                &args.profile_name,
+                api_key,
+                args.label.clone(),
+                backend,
+            )?,
         }
         (backend, AuthMethod::ApiKey, None)
     } else {
@@ -371,15 +385,15 @@ impl FromLiveOverwriteSnapshot {
         name: &str,
     ) -> Result<Self> {
         let config = config_store.load()?;
-        let files =
-            auth::files::list_regular_files_recursive(&profile_store.profile_dir(tool, name))?
-                .into_iter()
-                .map(|file| {
-                    let bytes = fs::read(&file.path)
-                        .with_context(|| format!("could not read {}", file.path.display()))?;
-                    Ok((file.file_name.to_string_lossy().into_owned(), bytes))
-                })
-                .collect::<Result<Vec<_>>>()?;
+        let profile_dir = profile_store.validated_profile_dir(tool, name)?;
+        let files = auth::files::list_regular_files_recursive(&profile_dir)?
+            .into_iter()
+            .map(|file| {
+                let bytes = fs::read(&file.path)
+                    .with_context(|| format!("could not read {}", file.path.display()))?;
+                Ok((file.file_name.to_string_lossy().into_owned(), bytes))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let old_backend = config
             .profiles_for(tool)
             .get(name)
@@ -1275,18 +1289,6 @@ fn validate_auth_source_support(args: &AddArgs) -> Result<()> {
     if args.tool != Tool::Antigravity {
         return Ok(());
     }
-    if args.from_env {
-        bail!(
-            "Antigravity CLI does not document API-key or environment-variable authentication.\n  \
-             Use interactive OAuth or --from-live instead."
-        );
-    }
-    if args.api_key.is_some() || args.api_key_stdin {
-        bail!(
-            "Antigravity CLI support in aisw is OAuth-only because upstream documents system-keyring-backed sign-in, not API-key profile auth.\n  \
-             Use 'aisw add antigravity <name>' or 'aisw add antigravity <name> --from-live'."
-        );
-    }
     Ok(())
 }
 
@@ -1343,12 +1345,18 @@ fn print_add_summary(
         output::print_effect("This is the durable ChatGPT-managed Codex path.");
     }
     if args.tool == Tool::Antigravity {
-        output::print_effect(
-            "Antigravity OAuth is restored through the shared live OS keyring entry and the documented ~/.gemini config roots.",
-        );
-        output::print_effect(
-            "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
-        );
+        if auth_method == AuthMethod::ApiKey {
+            output::print_effect(
+                "Antigravity API-key auth uses GEMINI_API_KEY; use the shell hook or --emit-env when running agy.",
+            );
+        } else {
+            output::print_effect(
+                "Antigravity OAuth is restored through the shared live OS keyring entry and the documented ~/.gemini config roots.",
+            );
+            output::print_effect(
+                "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
+            );
+        }
     }
     for warning in add_warnings(args.tool, auth_method, user_home) {
         output::print_effect(warning);
@@ -1438,8 +1446,13 @@ fn codex_add_classification(
 }
 
 fn antigravity_add_classification(tool: Tool, auth_method: AuthMethod) -> Option<&'static str> {
-    (tool == Tool::Antigravity && auth_method == AuthMethod::OAuth)
-        .then_some("oauth_shared_live_keyring")
+    if tool != Tool::Antigravity {
+        return None;
+    }
+    Some(match auth_method {
+        AuthMethod::OAuth => "oauth_shared_live_keyring",
+        AuthMethod::ApiKey => "api_key_environment",
+    })
 }
 
 fn claude_add_classification(
@@ -1475,6 +1488,11 @@ fn add_warnings(tool: Tool, auth_method: AuthMethod, user_home: Option<&Path>) -
     if tool == Tool::Antigravity && auth_method == AuthMethod::OAuth {
         return vec![
             "Antigravity currently documents shared live OS-keyring auth, not an isolated per-profile auth root. aisw switches the live keyring-backed session and Antigravity config roots transactionally.".to_owned(),
+        ];
+    }
+    if tool == Tool::Antigravity && auth_method == AuthMethod::ApiKey {
+        return vec![
+            "Antigravity API-key profiles use GEMINI_API_KEY and require --emit-env (or the shell hook); aisw also selects modelProvider=gemini in Antigravity settings.".to_owned(),
         ];
     }
     if tool == Tool::Gemini && auth_method == AuthMethod::OAuth {
@@ -1912,36 +1930,47 @@ mod tests {
     }
 
     #[test]
-    fn antigravity_from_env_is_rejected_before_tool_detection() {
+    fn antigravity_from_env_creates_api_key_profile() {
         with_env_lock(|| {
+            let _key = EnvVarGuard::set("GEMINI_API_KEY", "AIza-antigravity-test");
             let tmp = tempdir().unwrap();
             let home = tmp.path().join("home");
+            let bin_dir = tmp.path().join("bin");
             fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_fake_binary(&bin_dir, "agy");
 
-            let err = run_in(
+            run_in(
                 from_env_args(Tool::Antigravity, "work"),
                 &home,
-                OsString::new(),
+                path_of(&bin_dir),
             )
-            .unwrap_err();
-            assert!(
-                err.to_string()
-                    .contains("does not document API-key or environment-variable authentication"),
-                "unexpected: {err}"
+            .unwrap();
+            let config = ConfigStore::new(&home).load().unwrap();
+            assert_eq!(config.active_for(Tool::Antigravity), None);
+            assert_eq!(
+                config.profiles_for(Tool::Antigravity)["work"].auth_method,
+                AuthMethod::ApiKey
             );
         });
     }
 
     #[test]
-    fn antigravity_api_key_auth_is_rejected_before_tool_detection() {
+    fn antigravity_api_key_auth_creates_profile() {
         with_env_lock(|| {
             let tmp = tempdir().unwrap();
             let home = tmp.path().join("home");
+            let bin_dir = tmp.path().join("bin");
             fs::create_dir_all(&home).unwrap();
+            fs::create_dir_all(&bin_dir).unwrap();
+            make_fake_binary(&bin_dir, "agy");
 
-            let args = add_args_api_key(Tool::Antigravity, "work", "AIza-not-supported");
-            let err = run_in(args, &home, OsString::new()).unwrap_err();
-            assert!(err.to_string().contains("OAuth-only"), "unexpected: {err}");
+            let args = add_args_api_key(Tool::Antigravity, "work", "AIza-antigravity-test");
+            run_in(args, &home, path_of(&bin_dir)).unwrap();
+            let profile = ProfileStore::new(&home);
+            assert!(profile
+                .read_file(Tool::Antigravity, "work", "api-key.json")
+                .is_ok());
         });
     }
 

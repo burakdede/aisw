@@ -239,6 +239,12 @@ fn apply_one(home: &Path, action: &PlannedAction) -> Result<()> {
 fn collect_permission_repairs(home: &Path, actions: &mut Vec<PlannedAction>) -> Result<()> {
     let root_meta =
         fs::symlink_metadata(home).with_context(|| format!("could not stat {}", home.display()))?;
+    if root_meta.file_type().is_symlink() {
+        anyhow::bail!(
+            "refusing to repair permissions through symlinked AISW_HOME '{}'",
+            home.display()
+        );
+    }
     if root_meta.is_dir() {
         maybe_collect_dir_permissions(home, actions);
     }
@@ -430,5 +436,32 @@ mod tests {
         assert!(actions
             .iter()
             .any(|action| matches!(action.kind, ActionKind::SetFilePermissions)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plan_actions_rejects_symlinked_home_for_permissions() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("target");
+        let home = dir.path().join("aisw");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("secret"), b"credential").unwrap();
+        symlink(&target, &home).unwrap();
+
+        let error = plan_actions(&home, &[RepairFix::Permissions]).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("refusing to repair permissions through symlinked AISW_HOME"));
+        assert_eq!(
+            fs::metadata(target.join("secret"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o644
+        );
     }
 }

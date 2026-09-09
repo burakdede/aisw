@@ -39,6 +39,14 @@ fn add_codex_profile(env: &TestEnv, name: &str) {
         .success();
 }
 
+fn add_antigravity_api_key_profile(env: &TestEnv, name: &str) {
+    env.add_fake_tool("agy", "agy 1.1.25");
+    env.cmd()
+        .args(["add", "antigravity", name, "--api-key", VALID_GEMINI_KEY])
+        .assert()
+        .success();
+}
+
 fn antigravity_live_keyring_secret_path(env: &TestEnv) -> std::path::PathBuf {
     env.fake_home
         .join("keychain")
@@ -258,6 +266,102 @@ fn use_claude_api_key_emit_env_prints_claude_config_dir() {
 }
 
 #[test]
+#[cfg(unix)]
+fn use_json_reports_non_fatal_profile_sync_warnings() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 2.3.0");
+
+    let work_dir = env.aisw_home.join("profiles").join("claude").join("work");
+    let personal_dir = env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("personal");
+    std::fs::create_dir_all(&work_dir).unwrap();
+    std::fs::create_dir_all(&personal_dir).unwrap();
+
+    let work_credentials = br#"{"oauthToken":"old","account":{"email":"work@example.com"}}"#;
+    std::fs::write(work_dir.join(".credentials.json"), work_credentials).unwrap();
+    std::fs::write(
+        work_dir.join("oauth-account.json"),
+        br#"{"emailAddress":"work@example.com"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        personal_dir.join(".credentials.json"),
+        format!(r#"{{"apiKey":"{VALID_CLAUDE_KEY}"}}"#),
+    )
+    .unwrap();
+
+    write_config_json(
+        &env,
+        serde_json::json!({
+            "version": 2,
+            "active": {"claude": "work", "codex": null, "gemini": null, "antigravity": null},
+            "profiles": {
+                "claude": {
+                    "work": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "o_auth",
+                        "credential_backend": "file",
+                        "label": null
+                    },
+                    "personal": {
+                        "added_at": "2026-03-25T00:00:00Z",
+                        "auth_method": "api_key",
+                        "credential_backend": "file",
+                        "label": null
+                    }
+                },
+                "codex": {}, "gemini": {}, "antigravity": {}
+            },
+            "contexts": {},
+            "settings": {
+                "backup_on_switch": false,
+                "max_backups": 10,
+                "claude": {"state_mode": "shared"}
+            }
+        }),
+    );
+    std::fs::create_dir_all(env.fake_home.join(".claude")).unwrap();
+    std::fs::write(
+        env.fake_home.join(".claude").join(".credentials.json"),
+        work_credentials,
+    )
+    .unwrap();
+    std::fs::write(env.fake_home.join(".claude.json"), b"not-json").unwrap();
+
+    let output = env
+        .cmd()
+        .env("AISW_CLAUDE_AUTH_STORAGE", "file")
+        .args(["use", "claude", "personal", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["ok"], true);
+    assert!(result["result"]["warnings"].is_array(), "result: {result}");
+    assert_eq!(
+        result["result"]["warnings"].as_array().unwrap().len(),
+        1,
+        "result: {result}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(result["result"]["warnings"][0]
+        .as_str()
+        .unwrap()
+        .contains("could not sync active profile"));
+    let warning = result["result"]["warnings"][0].as_str().unwrap();
+    assert!(!warning.contains("oauthToken"));
+    assert!(!warning.contains("old-refresh"));
+}
+
+#[test]
 fn use_claude_shared_emit_env_unsets_claude_config_dir() {
     let env = TestEnv::new();
     add_claude_profile(&env, "work");
@@ -278,6 +382,48 @@ fn use_claude_shared_emit_env_unsets_claude_config_dir() {
     let config: serde_json::Value =
         serde_json::from_str(&env.read_home_file("config.json")).unwrap();
     assert_eq!(config["settings"]["claude"]["state_mode"], "shared");
+}
+
+#[test]
+fn use_claude_applies_credentials_to_active_config_dir() {
+    let env = TestEnv::new();
+    add_claude_profile(&env, "work");
+    let active_config_dir = env.fake_home.join("claude-isolated");
+    std::fs::create_dir_all(&active_config_dir).unwrap();
+    std::fs::write(
+        active_config_dir.join(".credentials.json"),
+        br#"{"apiKey":"stale"}"#,
+    )
+    .unwrap();
+
+    env.cmd()
+        .env("CLAUDE_CONFIG_DIR", &active_config_dir)
+        .args(["use", "claude", "work"])
+        .assert()
+        .success();
+
+    let credentials = std::fs::read_to_string(active_config_dir.join(".credentials.json"))
+        .expect("active Claude config directory should contain credentials");
+    assert!(credentials.contains(VALID_CLAUDE_KEY));
+}
+
+#[test]
+fn use_codex_applies_credentials_to_active_codex_home() {
+    let env = TestEnv::new();
+    add_codex_profile(&env, "work");
+    let active_codex_home = env.fake_home.join("codex-isolated");
+    std::fs::create_dir_all(&active_codex_home).unwrap();
+    std::fs::write(active_codex_home.join("auth.json"), br#"{"token":"stale"}"#).unwrap();
+
+    env.cmd()
+        .env("CODEX_HOME", &active_codex_home)
+        .args(["use", "codex", "work"])
+        .assert()
+        .success();
+
+    let credentials = std::fs::read_to_string(active_codex_home.join("auth.json"))
+        .expect("active Codex home should contain credentials");
+    assert!(credentials.contains(VALID_CODEX_KEY));
 }
 
 #[test]
@@ -494,6 +640,33 @@ fn use_gemini_api_key_emit_env_prints_gemini_key() {
         .assert()
         .success()
         .stdout(contains("export GEMINI_API_KEY='"));
+}
+
+#[test]
+fn use_antigravity_api_key_selects_provider_and_emits_key() {
+    let env = TestEnv::new();
+    add_antigravity_api_key_profile(&env, "work");
+
+    env.cmd()
+        .args(["use", "antigravity", "work", "--emit-env"])
+        .assert()
+        .success()
+        .stdout(contains("export GEMINI_API_KEY='"));
+
+    env.cmd()
+        .env("GEMINI_API_KEY", VALID_GEMINI_KEY)
+        .args(["use", "antigravity", "work"])
+        .assert()
+        .success();
+    let settings = std::fs::read_to_string(
+        env.fake_home
+            .join(".gemini")
+            .join("antigravity-cli")
+            .join("settings.json"),
+    )
+    .unwrap();
+    let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
+    assert_eq!(settings["modelProvider"], "gemini");
 }
 
 #[test]

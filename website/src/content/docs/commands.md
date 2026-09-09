@@ -102,6 +102,7 @@ Notes:
 - For Gemini, when both `~/.gemini/.env` and OAuth cache files are present, import uses the `.env` file first.
 - For Claude Code on macOS, `init` checks the Keychain before checking the credentials file.
 - `init` will not import a duplicate if the OAuth identity matches an already-stored profile.
+- Claude live payloads with an unknown credential shape are reported as unavailable and are not imported; this fail-closed behavior avoids creating profiles that cannot be applied after an upstream format change.
 
 ```sh
 aisw init
@@ -137,6 +138,7 @@ Notes:
 - In `--non-interactive` mode, interactive OAuth is not available and the command fails.
 - `--api-key-stdin` is intended for GUI and automation integrations that should not expose secrets in process arguments.
 - `--from-live` captures what the tool is currently using; it does not launch a browser or auth flow.
+- `--from-live` imports only credential shapes recognized for the selected tool. Unknown Claude payloads fail closed and must be re-authenticated or reviewed against the current upstream format.
 - `--from-live` always activates the profile because those credentials are already live.
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
 - For Codex ChatGPT-managed auth, `--from-live` is a bootstrap import, not a durable interchangeable account bundle.
@@ -144,14 +146,14 @@ Notes:
 - `add` refuses to store the same account twice. For OAuth it compares the resolved account identity; for API keys it compares the key itself. The error names the existing profile, so re-running `add` with a key you already stored fails rather than creating a second name for it.
 - `--credential-backend` affects the managed `aisw` profile only. It does not force the upstream CLI's live auth backend.
 - Gemini supports only `file`. Claude, Codex, and Antigravity support `file` and `system-keyring`. Stored config and status output use `system_keyring`.
-- Antigravity is OAuth-only: `--api-key`, `--api-key-stdin`, and `--from-env` are rejected for it, because upstream documents keyring-backed sign-in rather than API-key profile auth. Use `aisw add antigravity <name>` or `--from-live`.
+- Antigravity supports shared OAuth keyring profiles and Gemini API-key profiles. API-key profiles use `GEMINI_API_KEY`; use `aisw use antigravity <name> --emit-env` (or the shell hook), and aisw selects `modelProvider: gemini` in Antigravity's settings.
 - API keys must be a single line. A key containing a newline or other control character is rejected  -  usually a stray newline from copy/paste or from piping a file into `--api-key`.
 
 Live credential locations by tool:
 - Claude: `~/.claude/.credentials.json` or the macOS Keychain
 - Codex: `~/.codex/auth.json` or the OS keyring
 - Gemini: `~/.gemini/.env` (API key) or OAuth files in `~/.gemini/`
-- Antigravity: live OS keyring auth plus config/state under `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
+- Antigravity: OAuth uses the live OS keyring plus config/state under `~/.gemini/antigravity-cli/` and `~/.gemini/config/`; API-key profiles use `GEMINI_API_KEY` plus `modelProvider: gemini` in `~/.gemini/antigravity-cli/settings.json`.
 
 ```sh
 aisw add claude work --api-key "$ANTHROPIC_API_KEY"
@@ -486,6 +488,7 @@ the binary fields in JSON output.
 
 Notes:
 - "Live match" indicates whether the tool's current live credentials match the `aisw`-recorded active profile.
+- `live_state_diagnostic` is `inspection_failed` when live-state comparison could not be completed. In that case `active_profile_applied` is `null`; status still returns all tool rows without exposing the underlying error or credential contents.
 - `credential_state` is `present` when the known primary credential is stored,
   `missing` when no profile files or secure credential exist, and `unknown` when
   files exist but do not match a known credential layout. Unknown layouts are
@@ -658,6 +661,10 @@ remediation; agent version drift remains advisory.
 aisw doctor
 aisw doctor --json
 ```
+
+`doctor --json` preserves the `checks` array and adds an additive top-level
+`ok` boolean. It is `true` when no check has status `fail`; the process still
+uses a non-zero exit code when `ok` is `false`.
 
 ---
 
