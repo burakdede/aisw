@@ -192,6 +192,17 @@ fn verify_json_reports_failures_and_remediation() {
 }
 
 #[test]
+fn quiet_mode_does_not_suppress_diagnostic_json() {
+    let env = TestEnv::new();
+
+    for command in ["doctor", "verify"] {
+        let output = env.output(&["--quiet", command, "--json"]);
+        assert!(!output.stdout.is_empty(), "{command} should emit JSON");
+        assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).is_ok());
+    }
+}
+
+#[test]
 fn repair_json_dry_run_reports_planned_safe_fixes() {
     let env = TestEnv::new();
     let missing_home = env.dir.path().join("missing-aisw-home");

@@ -63,12 +63,10 @@ pub(crate) fn run_in(
     let report = collect(home, user_home, path_var)?;
     let passed = report.summary.status != VerifyStatus::Fail;
 
-    if !runtime::is_quiet() {
-        if args.json {
-            println!("{}", serde_json::to_string_pretty(&report)?);
-        } else {
-            print_text(&report);
-        }
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else if !runtime::is_quiet() {
+        print_text(&report);
     }
 
     Ok(passed)
