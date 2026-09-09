@@ -152,6 +152,8 @@ See [Workspace guardrails](workspace.md) for resolution order, remote patterns, 
 | Check support before installing | [Supported tools](supported-tools.md) | [Acceptance matrix](acceptance-matrix.md) |
 | Diagnose a mismatch or failed switch | [Troubleshooting](troubleshooting.md) | [Configuration](config.md) |
 
+For direct answers to common searches such as “how do I switch between two Claude Code accounts?” or “can I manage multiple Codex CLI accounts?”, see [Frequently Asked Questions](faq.md).
+
 ## Additional reference
 
 - [Adding profiles](adding-profiles.md)
