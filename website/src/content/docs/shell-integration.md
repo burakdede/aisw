@@ -115,9 +115,13 @@ The hook installs two sets of wrappers in your shell.
 
 The `aisw` shell function intercepts `aisw use ...` and `aisw context use ...`:
 
-1. Runs the command with `--emit-env` to write live credential files and print shell exports to stdout.
+1. Runs the command with `--emit-env` to calculate the selected state and print shell exports to stdout.
 2. Evals those exports so `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `GEMINI_API_KEY` are set immediately in the current session.
-3. Passes all other subcommands through to the binary unchanged.
+3. Runs the command again so credentials are applied to the root the agent will read, then passes all other subcommands through to the binary unchanged.
+
+For isolated Claude and Codex profiles, the second invocation honors the
+active `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. Without shell integration, it
+continues to apply credentials to each tool's standard home directory.
 
 Without the hook, you can do this manually:
 

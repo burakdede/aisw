@@ -33,6 +33,7 @@ use super::paths::{
     live_account_metadata_path, live_credentials_path, live_credentials_paths, live_local_state_dir,
 };
 use super::{read_stored_credentials, LiveCredentialSnapshot, LiveCredentialSource};
+use crate::live_apply::{apply_transaction, LiveFileChange};
 
 fn persist_oauth_storage(
     profile_store: &ProfileStore,
@@ -57,10 +58,12 @@ pub fn live_credentials_snapshot_for_import(
     match super::keychain::auth_storage(user_home) {
         ClaudeAuthStorage::Keychain => {
             if let Some(bytes) = read_live_keychain_credentials_for_import()? {
-                return Ok(Some(LiveCredentialSnapshot {
-                    bytes,
-                    source: LiveCredentialSource::Keychain,
-                }));
+                if super::classify_live_credentials(&bytes).is_some() {
+                    return Ok(Some(LiveCredentialSnapshot {
+                        bytes,
+                        source: LiveCredentialSource::Keychain,
+                    }));
+                }
             }
         }
         ClaudeAuthStorage::File => {}
@@ -69,10 +72,12 @@ pub fn live_credentials_snapshot_for_import(
     if live_path.exists() {
         let bytes = std::fs::read(&live_path)
             .with_context(|| format!("could not read {}", live_path.display()))?;
-        return Ok(Some(LiveCredentialSnapshot {
-            bytes,
-            source: LiveCredentialSource::File(live_path),
-        }));
+        if super::classify_live_credentials(&bytes).is_some() {
+            return Ok(Some(LiveCredentialSnapshot {
+                bytes,
+                source: LiveCredentialSource::File(live_path),
+            }));
+        }
     }
 
     if live_local_state_dir(user_home).is_none() {
@@ -83,6 +88,10 @@ pub fn live_credentials_snapshot_for_import(
         return Ok(None);
     };
 
+    if super::classify_live_credentials(&bytes).is_none() {
+        return Ok(None);
+    }
+
     Ok(Some(LiveCredentialSnapshot {
         bytes,
         source: LiveCredentialSource::Keychain,
@@ -91,13 +100,12 @@ pub fn live_credentials_snapshot_for_import(
 
 // ---- OAuth account metadata ----
 
-fn read_live_oauth_account_metadata(user_home: &Path) -> Result<Option<Vec<u8>>> {
-    let path = live_account_metadata_path(user_home);
+fn read_oauth_account_metadata(path: &Path) -> Result<Option<Vec<u8>>> {
     if !path.exists() {
         return Ok(None);
     }
 
-    let contents = fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
+    let contents = fs::read(path).with_context(|| format!("could not read {}", path.display()))?;
     let value: serde_json::Value = serde_json::from_slice(&contents)
         .with_context(|| format!("could not parse {}", path.display()))?;
     let Some(oauth_account) = value.get("oauthAccount") else {
@@ -107,6 +115,10 @@ fn read_live_oauth_account_metadata(user_home: &Path) -> Result<Option<Vec<u8>>>
     serde_json::to_vec(oauth_account)
         .map(Some)
         .context("could not serialize Claude oauthAccount metadata")
+}
+
+fn read_live_oauth_account_metadata(user_home: &Path) -> Result<Option<Vec<u8>>> {
+    read_oauth_account_metadata(&live_account_metadata_path(user_home))
 }
 
 /// Reads the live OAuth account metadata for profile import.
@@ -121,25 +133,19 @@ fn restore_live_credentials_snapshot(
     match snapshot {
         Some(snapshot) => match snapshot.source {
             LiveCredentialSource::File(path) => {
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("could not create {}", parent.display()))?;
-                }
-                fs::write(&path, snapshot.bytes)
-                    .with_context(|| format!("could not write {}", path.display()))?;
-                files::set_permissions_600(&path)?;
+                apply_transaction(user_home, vec![LiveFileChange::write(path, snapshot.bytes)])?;
             }
             LiveCredentialSource::Keychain => {
                 super::keychain::write_keychain_credentials(&snapshot.bytes)?;
             }
         },
         None => {
-            for path in live_credentials_paths(user_home) {
-                if path.exists() {
-                    fs::remove_file(&path)
-                        .with_context(|| format!("could not remove {}", path.display()))?;
-                }
-            }
+            let changes = live_credentials_paths(user_home)
+                .into_iter()
+                .filter(|path| path.exists())
+                .map(LiveFileChange::delete)
+                .collect();
+            apply_transaction(user_home, changes)?;
             // Best effort cleanup for environments where Claude stores auth in keychain.
             let _ = super::keychain::delete_keychain_credentials();
         }
@@ -156,11 +162,13 @@ fn restore_live_oauth_account_metadata_snapshot(
         return Ok(());
     }
     let mut live_json = if live_path.exists() {
-        serde_json::from_slice::<serde_json::Value>(
+        match serde_json::from_slice::<serde_json::Value>(
             &fs::read(&live_path)
                 .with_context(|| format!("could not read {}", live_path.display()))?,
-        )
-        .with_context(|| format!("could not parse {}", live_path.display()))?
+        ) {
+            Ok(value) => value,
+            Err(_) => return Ok(()),
+        }
     } else {
         serde_json::json!({})
     };
@@ -181,9 +189,7 @@ fn restore_live_oauth_account_metadata_snapshot(
 
     let bytes = serde_json::to_vec_pretty(&live_json)
         .context("could not serialize Claude metadata for live-state restore")?;
-    fs::write(&live_path, bytes)
-        .with_context(|| format!("could not write {}", live_path.display()))?;
-    files::set_permissions_600(&live_path)
+    apply_transaction(user_home, vec![LiveFileChange::write(live_path, bytes)])
 }
 
 /// Restores Claude live credentials/metadata after an OAuth add that should not
@@ -197,15 +203,23 @@ pub fn restore_live_state_after_oauth_add(
     restore_live_oauth_account_metadata_snapshot(oauth_account_metadata, user_home)
 }
 
+fn persist_oauth_account_metadata(
+    profile_store: &ProfileStore,
+    name: &str,
+    metadata_path: &Path,
+) -> Result<()> {
+    let Some(metadata) = read_oauth_account_metadata(metadata_path)? else {
+        return Ok(());
+    };
+    profile_store.write_file(Tool::Claude, name, super::OAUTH_ACCOUNT_FILE, &metadata)
+}
+
 fn persist_live_oauth_account_metadata(
     profile_store: &ProfileStore,
     name: &str,
     user_home: &Path,
 ) -> Result<()> {
-    let Some(metadata) = read_live_oauth_account_metadata(user_home)? else {
-        return Ok(());
-    };
-    profile_store.write_file(Tool::Claude, name, super::OAUTH_ACCOUNT_FILE, &metadata)
+    persist_oauth_account_metadata(profile_store, name, &live_account_metadata_path(user_home))
 }
 
 /// Captures the current live OAuth account metadata into the named profile.
@@ -223,7 +237,7 @@ pub(super) fn apply_live_oauth_account_metadata(
     user_home: &Path,
 ) -> Result<()> {
     let profile_path = profile_store
-        .profile_dir(Tool::Claude, name)
+        .validated_profile_dir(Tool::Claude, name)?
         .join(super::OAUTH_ACCOUNT_FILE);
     if !profile_path.exists() {
         return Ok(());
@@ -254,9 +268,7 @@ pub(super) fn apply_live_oauth_account_metadata(
 
     let bytes = serde_json::to_vec_pretty(&live_json)
         .context("could not serialize Claude metadata for live state")?;
-    fs::write(&live_path, bytes)
-        .with_context(|| format!("could not write {}", live_path.display()))?;
-    files::set_permissions_600(&live_path)
+    apply_transaction(user_home, vec![LiveFileChange::write(live_path, bytes)])
 }
 
 // ---- OAuth add flow ----
@@ -315,10 +327,11 @@ pub(super) fn add_oauth_with(
 ) -> Result<()> {
     profile_store.create(Tool::Claude, name)?;
 
-    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let user_home = crate::runtime::user_home().context("could not determine home directory")?;
     let login_targets_profile_state = super::login_targets_profile_state(&user_home);
-    let target_config_dir =
-        login_targets_profile_state.then(|| profile_store.profile_dir(Tool::Claude, name));
+    let target_config_dir = login_targets_profile_state
+        .then(|| profile_store.validated_profile_dir(Tool::Claude, name))
+        .transpose()?;
 
     let auth_bytes = files::cleanup_profile_on_error(
         run_oauth_flow(
@@ -340,14 +353,16 @@ pub(super) fn add_oauth_with(
         name,
     )?;
 
-    if let Some(user_home) = dirs::home_dir() {
-        files::cleanup_profile_on_error(
-            persist_live_oauth_account_metadata(profile_store, name, &user_home),
-            profile_store,
-            Tool::Claude,
-            name,
-        )?;
-    }
+    let metadata_path = target_config_dir
+        .as_deref()
+        .map(|config_dir| config_dir.join(super::ACCOUNT_METADATA_FILE))
+        .unwrap_or_else(|| live_account_metadata_path(&user_home));
+    files::cleanup_profile_on_error(
+        persist_oauth_account_metadata(profile_store, name, &metadata_path),
+        profile_store,
+        Tool::Claude,
+        name,
+    )?;
 
     files::cleanup_profile_on_error(
         identity::ensure_unique_oauth_identity(
@@ -478,7 +493,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
                 .unwrap_or_else(read_keychain_credentials)?;
             if let Some(current) = current {
                 let changed = keychain_before.as_deref() != Some(current.as_slice());
-                if changed {
+                if changed && has_nonempty_credential_payload(&current) {
                     child.terminate();
                     return Ok(current);
                 }
@@ -489,7 +504,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
             let current = fs::read(&credential_path)
                 .with_context(|| format!("could not read {}", credential_path.display()))?;
             let changed = file_before.as_deref() != Some(current.as_slice());
-            if changed {
+            if changed && has_nonempty_credential_payload(&current) {
                 child.terminate();
                 return Ok(current);
             }
@@ -500,7 +515,7 @@ If you need a different Claude account, fully sign out of claude.com first, then
                 let current = fs::read(fallback_path)
                     .with_context(|| format!("could not read {}", fallback_path.display()))?;
                 let changed = fallback_before.as_deref() != Some(current.as_slice());
-                if changed {
+                if changed && has_nonempty_credential_payload(&current) {
                     child.terminate();
                     return Ok(current);
                 }
@@ -518,21 +533,29 @@ If you need a different Claude account, fully sign out of claude.com first, then
                     .map(read_keychain_credentials_for_service)
                     .unwrap_or_else(read_keychain_credentials)?;
                 if let Some(current) = current {
-                    if status.success() || keychain_before.is_none() {
+                    if (status.success() || keychain_before.is_none())
+                        && has_nonempty_credential_payload(&current)
+                    {
                         return Ok(current);
                     }
                 }
             }
 
             if credential_path.exists() && status.success() {
-                return fs::read(&credential_path)
-                    .with_context(|| format!("could not read {}", credential_path.display()));
+                let current = fs::read(&credential_path)
+                    .with_context(|| format!("could not read {}", credential_path.display()))?;
+                if has_nonempty_credential_payload(&current) {
+                    return Ok(current);
+                }
             }
 
             if let Some(fallback_path) = fallback_live_path.as_ref() {
                 if fallback_path.exists() && status.success() {
-                    return fs::read(fallback_path)
-                        .with_context(|| format!("could not read {}", fallback_path.display()));
+                    let current = fs::read(fallback_path)
+                        .with_context(|| format!("could not read {}", fallback_path.display()))?;
+                    if has_nonempty_credential_payload(&current) {
+                        return Ok(current);
+                    }
                 }
             }
 
@@ -559,6 +582,13 @@ If you need a different Claude account, fully sign out of claude.com first, then
 
         std::thread::sleep(poll_interval);
     }
+}
+
+fn has_nonempty_credential_payload(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|value| value.as_object().map(|object| !object.is_empty()))
+        .unwrap_or(false)
 }
 
 // ---- Automatic synchronization ----
@@ -625,7 +655,7 @@ fn active_credentials_snapshot_for_sync(
                 return Ok(None);
             }
             let service = keychain_service_for_config_dir(
-                &profile_store.profile_dir(Tool::Claude, name),
+                &profile_store.validated_profile_dir(Tool::Claude, name)?,
                 user_home,
                 scheme,
             );
@@ -676,4 +706,21 @@ fn resolve_live_oauth_identity(
         return Ok(None);
     };
     identity::resolve_identity_from_json_bytes(&metadata)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_nonempty_credential_payload;
+
+    #[test]
+    fn empty_object_is_not_a_captured_credential() {
+        assert!(!has_nonempty_credential_payload(br#"{}"#));
+    }
+
+    #[test]
+    fn populated_object_is_a_captured_credential() {
+        assert!(has_nonempty_credential_payload(
+            br#"{"claudeAiOauth":{"accessToken":"token"}}"#
+        ));
+    }
 }

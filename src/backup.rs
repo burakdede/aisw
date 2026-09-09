@@ -31,6 +31,13 @@ struct BackupProfileMetadata {
     profile_meta: ProfileMeta,
 }
 
+struct RestorePlan {
+    tool: Tool,
+    profile_name: String,
+    profile_meta: ProfileMeta,
+    changes: Vec<crate::live_apply::LiveFileChange>,
+}
+
 impl BackupManager {
     pub fn new(home: &Path) -> Self {
         Self {
@@ -52,6 +59,15 @@ impl BackupManager {
         profile_meta: &ProfileMeta,
     ) -> Result<PathBuf> {
         profile_meta.credential_backend.validate_for_tool(tool)?;
+        let expected_profile_dir = ProfileStore::new(&self.home)
+            .validated_profile_dir(tool, name)
+            .with_context(|| format!("could not validate profile '{}' for backup", name))?;
+        if profile_dir != expected_profile_dir {
+            bail!(
+                "refusing to snapshot unexpected profile path '{}'",
+                profile_dir.display()
+            );
+        }
         let backup_id = backup_id_now();
         let dest = self
             .backups_dir()
@@ -161,7 +177,7 @@ impl BackupManager {
             bail!("no backup found with id '{}'", backup_id);
         }
 
-        let mut restored = 0usize;
+        let mut plans = Vec::new();
 
         for tool in Tool::ALL {
             let tool_path = backup_root.join(tool.dir_name());
@@ -185,30 +201,43 @@ impl BackupManager {
                     continue;
                 }
 
-                let dest_dir = profile_store.profile_dir(tool, &profile_name);
+                let dest_dir = profile_store.validated_profile_dir(tool, &profile_name)?;
                 let profile_meta =
                     restore_profile_meta(config_store, tool, &profile_name, &profile_path)?;
                 profile_meta.credential_backend.validate_for_tool(tool)?;
 
-                let restored_files = restore_profile_tree(&profile_path, &dest_dir)?;
-                restored += restored_files;
-
-                if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
-                    secure_store::restore_profile_secret(tool, &profile_name, backup_id)?;
-                    if restored_files == 0 {
-                        fs::create_dir_all(&dest_dir).with_context(|| {
-                            format!("could not create profile dir {}", dest_dir.display())
-                        })?;
-                    }
-                    restored += 1;
-                } else if restored_files == 0 {
-                    continue;
-                }
-
-                // Register the profile only after all credential and file
-                // restoration for this entry has succeeded.
-                config_store.upsert_profile(tool, &profile_name, profile_meta)?;
+                let changes = prepare_profile_restore(&profile_path, &dest_dir)?;
+                plans.push(RestorePlan {
+                    tool,
+                    profile_name,
+                    profile_meta,
+                    changes,
+                });
             }
+        }
+
+        let mut restored = 0usize;
+        for plan in plans {
+            let restored_files = plan.changes.len();
+            crate::live_apply::apply_transaction(&self.home, plan.changes)?;
+            restored += restored_files;
+
+            if plan.profile_meta.credential_backend == CredentialBackend::SystemKeyring {
+                secure_store::restore_profile_secret(plan.tool, &plan.profile_name, backup_id)?;
+                if restored_files == 0 {
+                    let dest_dir = profile_store.profile_dir(plan.tool, &plan.profile_name);
+                    fs::create_dir_all(&dest_dir).with_context(|| {
+                        format!("could not create profile dir {}", dest_dir.display())
+                    })?;
+                }
+                restored += 1;
+            } else if restored_files == 0 {
+                continue;
+            }
+
+            // Register the profile only after all credential and file
+            // restoration for this entry has succeeded.
+            config_store.upsert_profile(plan.tool, &plan.profile_name, plan.profile_meta)?;
         }
 
         if restored == 0 {
@@ -285,21 +314,22 @@ fn copy_profile_tree(src_root: &Path, dest_root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn restore_profile_tree(src_root: &Path, dest_root: &Path) -> Result<usize> {
+fn prepare_profile_restore(
+    src_root: &Path,
+    dest_dir: &Path,
+) -> Result<Vec<crate::live_apply::LiveFileChange>> {
     let mut changes = Vec::new();
     for file in crate::auth::files::list_regular_files_recursive(src_root)? {
         if file.file_name == METADATA_FILE {
             continue;
         }
         let relative = file.file_name.to_string_lossy().into_owned();
-        let dst = dest_root.join(&relative);
+        let dst = dest_dir.join(&relative);
         let contents = fs::read(&file.path)
             .with_context(|| format!("could not read backup file {}", file.path.display()))?;
         changes.push(crate::live_apply::LiveFileChange::write(dst, contents));
     }
-    let restored = changes.len();
-    crate::live_apply::apply_transaction(changes)?;
-    Ok(restored)
+    Ok(changes)
 }
 
 fn backup_id_now() -> String {
@@ -600,7 +630,11 @@ mod tests {
     #[test]
     fn failed_snapshot_removes_partial_backup() {
         let dir = tempdir().unwrap();
-        let missing_profile_dir = dir.path().join("missing-profile");
+        let missing_profile_dir = dir
+            .path()
+            .join("profiles")
+            .join(Tool::Claude.dir_name())
+            .join("work");
         let m = manager(dir.path());
 
         let err = m
@@ -609,6 +643,32 @@ mod tests {
 
         assert!(err.to_string().contains("could not read"));
         assert!(m.list().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_refuses_a_symlinked_profile_directory() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let profiles = dir.path().join("profiles").join("codex");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&profiles).unwrap();
+        fs::create_dir(&outside).unwrap();
+        symlink(&outside, profiles.join("work")).unwrap();
+
+        let store = profile_store(dir.path());
+        let err = manager(dir.path())
+            .snapshot(
+                Tool::Codex,
+                "work",
+                &store.profile_dir(Tool::Codex, "work"),
+                &profile_meta(),
+            )
+            .unwrap_err();
+
+        assert!(format!("{err:#}").contains("symlink"));
+        assert!(!dir.path().join(BACKUPS_DIR).exists());
     }
 
     #[test]
@@ -737,6 +797,62 @@ mod tests {
         assert!(err.to_string().contains("contains no files to restore"));
         assert!(cs.load().unwrap().profiles_for(Tool::Claude).is_empty());
         assert!(!ps.exists(Tool::Claude, "work"));
+    }
+
+    #[test]
+    fn restore_preflights_all_entries_before_mutating_any_profile() {
+        let dir = tempdir().unwrap();
+        let backup_id = "multi-entry-backup";
+        let claude_backup = write_legacy_backup(
+            dir.path(),
+            backup_id,
+            Tool::Claude,
+            "work",
+            &[("state.json", b"restored")],
+        );
+        write_metadata(
+            &claude_backup.join(METADATA_FILE),
+            &BackupProfileMetadata {
+                profile_meta: profile_meta(),
+            },
+        )
+        .unwrap();
+        let gemini_backup = dir
+            .path()
+            .join(BACKUPS_DIR)
+            .join(backup_id)
+            .join(Tool::Gemini.dir_name())
+            .join("broken");
+        fs::create_dir_all(&gemini_backup).unwrap();
+        write_metadata(
+            &gemini_backup.join(METADATA_FILE),
+            &BackupProfileMetadata {
+                profile_meta: ProfileMeta {
+                    credential_backend: CredentialBackend::SystemKeyring,
+                    ..profile_meta()
+                },
+            },
+        )
+        .unwrap();
+        fs::write(gemini_backup.join("state.json"), b"invalid backend").unwrap();
+
+        let m = manager(dir.path());
+        let ps = profile_store(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(Tool::Claude, "work", "state.json", b"original")
+            .unwrap();
+        let cs = ConfigStore::new(dir.path());
+
+        let err = m.restore(backup_id, &ps, &cs).unwrap_err();
+
+        assert!(err.to_string().contains("system_keyring"), "{err:#}");
+        assert_eq!(
+            ps.read_file(Tool::Claude, "work", "state.json").unwrap(),
+            b"original"
+        );
+        assert!(cs.load().unwrap().profiles_for(Tool::Claude).is_empty());
+        assert!(!ps.exists(Tool::Gemini, "broken"));
+        assert!(claude_backup.join("state.json").exists());
     }
 
     #[test]

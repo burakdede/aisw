@@ -49,7 +49,7 @@ struct VerifyReport {
 }
 
 pub fn run(args: VerifyArgs, home: &Path) -> Result<bool> {
-    let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
+    let user_home = crate::runtime::user_home().unwrap_or_else(|| Path::new(".").to_path_buf());
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     run_in(args, home, &user_home, path_var.as_os_str())
 }
@@ -138,11 +138,19 @@ fn tool_verification(tool: &status::ToolStatus) -> ToolVerification {
         VerifyStatus::Fail
     } else if tool.active_profile_applied == Some(false) {
         issues.push("live tool credentials do not match the recorded active profile".to_owned());
-        remediation.push(format!(
-            "Run 'aisw use {} {}' to reapply the active profile",
-            tool.tool.binary_name(),
-            tool.active_profile.as_deref().unwrap_or("<profile>")
-        ));
+        if tool.antigravity_auth_classification.as_deref() == Some("api_key_environment") {
+            remediation.push(format!(
+                "Run 'aisw use {} {} --emit-env' through the aisw shell hook so GEMINI_API_KEY reaches agy",
+                tool.tool.binary_name(),
+                tool.active_profile.as_deref().unwrap_or("<profile>")
+            ));
+        } else {
+            remediation.push(format!(
+                "Run 'aisw use {} {}' to reapply the active profile",
+                tool.tool.binary_name(),
+                tool.active_profile.as_deref().unwrap_or("<profile>")
+            ));
+        }
         VerifyStatus::Fail
     } else if tool.tool == Tool::Claude
         && tool.credential_backend.as_deref() == Some("file")
@@ -266,6 +274,7 @@ mod tests {
             state_mode: Some("isolated".to_owned()),
             active_profile_added_at: None,
             active_profile_applied: Some(true),
+            live_state_diagnostic: None,
             credential_state: status::CredentialState::Present,
             credentials_present: true,
             permissions_ok: true,

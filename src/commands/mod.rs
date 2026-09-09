@@ -35,7 +35,8 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Rename(args) => rename::run(args, &home)?,
         Command::Status(args) => status::run(args, &home)?,
         Command::Init(args) => {
-            let user_home = dirs::home_dir().context("could not determine home directory")?;
+            let user_home =
+                crate::runtime::user_home().context("could not determine home directory")?;
             let shell_env = std::env::var("SHELL").ok().or_else(|| {
                 std::env::var("PSModulePath")
                     .ok()
@@ -54,7 +55,8 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             init::run_inner(&home, &user_home, shell_env.as_deref(), args.yes)?;
         }
         Command::Uninstall(args) => {
-            let user_home = dirs::home_dir().context("could not determine home directory")?;
+            let user_home =
+                crate::runtime::user_home().context("could not determine home directory")?;
             uninstall::run(args, &home, &user_home)?;
         }
         Command::ShellHook(args) => shell_hook::run(args)?,

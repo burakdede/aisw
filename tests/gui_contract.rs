@@ -264,6 +264,13 @@ fn init_json_detect_live_returns_machine_bootstrap_state() {
     assert_eq!(json["result"]["live_accounts"][0]["tool"], "claude");
     assert_eq!(json["result"]["live_accounts"][0]["outcome"], "detected");
     assert_eq!(json["result"]["live_accounts"][0]["auth_method"], "oauth");
+    let antigravity = json["result"]["live_accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|account| account["tool"] == "agy")
+        .expect("Antigravity should be included in live detection");
+    assert_eq!(antigravity["outcome"], "no_live_auth");
     assert!(!env.fake_home.join(".zshrc").exists());
 }
 

@@ -17,6 +17,7 @@ use crate::types::{StateMode, Tool};
 pub(crate) const CURRENT_VERSION: u32 = 2;
 const CONFIG_FILE: &str = "config.json";
 const CONFIG_LOCK_FILE: &str = "config.json.lock";
+const SWITCH_LOCK_FILE: &str = "switch.lock";
 const AISW_HOME_ENV: &str = "AISW_HOME";
 const CONFIG_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
 const CONFIG_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -183,6 +184,7 @@ impl Config {
 pub struct ConfigStore {
     path: PathBuf,
     lock_path: PathBuf,
+    switch_lock_path: PathBuf,
 }
 
 impl ConfigStore {
@@ -190,7 +192,16 @@ impl ConfigStore {
         Self {
             path: home.join(CONFIG_FILE),
             lock_path: home.join(CONFIG_LOCK_FILE),
+            switch_lock_path: home.join(SWITCH_LOCK_FILE),
         }
+    }
+
+    pub(crate) fn acquire_switch_lock(&self) -> Result<SwitchLockGuard> {
+        acquire_file_lock(
+            &self.switch_lock_path,
+            "switch lock",
+            "Another aisw command is switching profiles. Wait for it to finish, then retry.",
+        )
     }
 
     /// Resolve the aisw home directory from AISW_HOME env var or ~/.aisw/.
@@ -198,7 +209,7 @@ impl ConfigStore {
         if let Ok(val) = std::env::var(AISW_HOME_ENV) {
             return Ok(PathBuf::from(val));
         }
-        let home = dirs::home_dir().context("could not determine home directory")?;
+        let home = crate::runtime::user_home().context("could not determine home directory")?;
         Ok(home.join(".aisw"))
     }
 
@@ -538,40 +549,62 @@ impl ConfigStore {
     }
 
     fn acquire_lock_with_timeout(&self, timeout: Duration) -> Result<ConfigLockGuard> {
-        if let Some(parent) = self.lock_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("could not create directory {}", parent.display()))?;
-        }
+        let file = acquire_file_lock_with_timeout(
+            &self.lock_path,
+            "config lock",
+            "Another aisw command is updating configuration. Wait for it to finish, then retry.",
+            timeout,
+        )?;
+        Ok(ConfigLockGuard { file })
+    }
+}
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&self.lock_path)
-            .with_context(|| format!("could not open {}", self.lock_path.display()))?;
+fn acquire_file_lock(
+    path: &Path,
+    lock_name: &str,
+    timeout_message: &str,
+) -> Result<SwitchLockGuard> {
+    let file =
+        acquire_file_lock_with_timeout(path, lock_name, timeout_message, CONFIG_LOCK_WAIT_TIMEOUT)?;
+    Ok(SwitchLockGuard { file })
+}
 
-        set_file_permissions_600(&self.lock_path)?;
+fn acquire_file_lock_with_timeout(
+    path: &Path,
+    lock_name: &str,
+    timeout_message: &str,
+    timeout: Duration,
+) -> Result<fs::File> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("could not create directory {}", parent.display()))?;
+    }
 
-        let started_at = Instant::now();
-        loop {
-            match file.try_lock_exclusive() {
-                Ok(()) => return Ok(ConfigLockGuard { file }),
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    if started_at.elapsed() >= timeout {
-                        bail!(
-                            "timed out waiting for config lock at {}.\n  \
-                             Another aisw command is updating configuration. Wait for it to \
-                             finish, then retry.",
-                            self.lock_path.display()
-                        );
-                    }
-                    thread::sleep(CONFIG_LOCK_RETRY_INTERVAL);
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .with_context(|| format!("could not open {}", path.display()))?;
+
+    set_file_permissions_600(path)?;
+
+    let started_at = Instant::now();
+    loop {
+        match file.try_lock_exclusive() {
+            Ok(()) => return Ok(file),
+            Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                if started_at.elapsed() >= timeout {
+                    bail!(
+                        "timed out waiting for {lock_name} at {}.\n  {timeout_message}",
+                        path.display()
+                    );
                 }
-                Err(err) => {
-                    return Err(err)
-                        .with_context(|| format!("could not lock {}", self.lock_path.display()));
-                }
+                thread::sleep(CONFIG_LOCK_RETRY_INTERVAL);
+            }
+            Err(err) => {
+                return Err(err).with_context(|| format!("could not lock {}", path.display()));
             }
         }
     }
@@ -933,6 +966,16 @@ struct ConfigLockGuard {
 }
 
 impl Drop for ConfigLockGuard {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
+pub(crate) struct SwitchLockGuard {
+    file: fs::File,
+}
+
+impl Drop for SwitchLockGuard {
     fn drop(&mut self) {
         let _ = FileExt::unlock(&self.file);
     }
@@ -1568,6 +1611,32 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
+    fn switch_lock_contention_has_clear_error() {
+        let dir = tempdir().unwrap();
+        let signal_path = dir.path().join("switch-lock-timeout.signal");
+        let mut child = spawn_switch_lock_helper(dir.path(), &signal_path, 500);
+
+        wait_for_file(&signal_path);
+        let err = acquire_file_lock_with_timeout(
+            &dir.path().join(SWITCH_LOCK_FILE),
+            "switch lock",
+            "Another aisw command is switching profiles. Wait for it to finish, then retry.",
+            Duration::from_millis(100),
+        )
+        .unwrap_err();
+
+        let status = child.wait().unwrap();
+        assert!(status.success(), "lock helper exited with {status}");
+        assert!(err
+            .to_string()
+            .contains("timed out waiting for switch lock"));
+        assert!(err
+            .to_string()
+            .contains("Another aisw command is switching profiles"));
+    }
+
+    #[test]
     fn lock_helper_process() {
         let Some(home) = std::env::var_os("AISW_CONFIG_LOCK_HELPER_HOME") else {
             return;
@@ -1582,7 +1651,23 @@ mod tests {
         let profile_name = std::env::var("AISW_CONFIG_LOCK_HELPER_PROFILE").unwrap();
 
         let store = store(Path::new(&home));
-        let _lock = store.acquire_lock().unwrap();
+        let home = Path::new(&home);
+        let _lock = if std::env::var_os("AISW_SWITCH_LOCK_HELPER_KIND").is_some() {
+            acquire_file_lock_with_timeout(
+                &home.join(SWITCH_LOCK_FILE),
+                "switch lock",
+                "Another aisw command is switching profiles. Wait for it to finish, then retry.",
+                CONFIG_LOCK_WAIT_TIMEOUT,
+            )
+        } else {
+            acquire_file_lock_with_timeout(
+                &home.join(CONFIG_LOCK_FILE),
+                "config lock",
+                "Another aisw command is updating configuration. Wait for it to finish, then retry.",
+                CONFIG_LOCK_WAIT_TIMEOUT,
+            )
+        }
+        .unwrap();
         fs::write(&signal_path, b"locked").unwrap();
         thread::sleep(Duration::from_millis(hold_ms));
 
@@ -1605,6 +1690,24 @@ mod tests {
             .env("AISW_CONFIG_LOCK_HELPER_SIGNAL", signal_path)
             .env("AISW_CONFIG_LOCK_HELPER_HOLD_MS", hold_ms.to_string())
             .env("AISW_CONFIG_LOCK_HELPER_PROFILE", profile_name)
+            .spawn()
+            .unwrap()
+    }
+
+    fn spawn_switch_lock_helper(
+        home: &Path,
+        signal_path: &Path,
+        hold_ms: u64,
+    ) -> std::process::Child {
+        Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("config::tests::lock_helper_process")
+            .arg("--nocapture")
+            .env("AISW_CONFIG_LOCK_HELPER_HOME", home)
+            .env("AISW_CONFIG_LOCK_HELPER_SIGNAL", signal_path)
+            .env("AISW_CONFIG_LOCK_HELPER_HOLD_MS", hold_ms.to_string())
+            .env("AISW_CONFIG_LOCK_HELPER_PROFILE", "switch-helper")
+            .env("AISW_SWITCH_LOCK_HELPER_KIND", "switch")
             .spawn()
             .unwrap()
     }

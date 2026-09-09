@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -40,7 +40,11 @@ enum OriginalFileState {
     },
 }
 
-pub fn apply_transaction(changes: Vec<LiveFileChange>) -> Result<()> {
+/// Apply live-file changes without traversing symlinked components below `root`.
+///
+/// The caller supplies the live-state boundary so legitimate system path
+/// aliases above the agent's directory do not become false positives.
+pub fn apply_transaction(root: &Path, changes: Vec<LiveFileChange>) -> Result<()> {
     if changes.is_empty() {
         return Ok(());
     }
@@ -48,6 +52,7 @@ pub fn apply_transaction(changes: Vec<LiveFileChange>) -> Result<()> {
     let mut seen_paths = HashSet::new();
     for change in &changes {
         let path = change.path();
+        reject_symlinked_parent_components(root, path)?;
         if !seen_paths.insert(path.to_path_buf()) {
             bail!(
                 "live apply transaction includes duplicate target '{}'",
@@ -79,6 +84,38 @@ fn snapshot_original_state(
         );
     }
     Ok(snapshots)
+}
+
+fn reject_symlinked_parent_components(root: &Path, path: &Path) -> Result<()> {
+    reject_symlink(root)?;
+    let parent = path.parent().unwrap_or(path);
+    let relative = parent
+        .strip_prefix(root)
+        .with_context(|| format!("live path {} is outside {}", path.display(), root.display()))?;
+    let mut current = root.to_owned();
+    for component in relative.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                bail!("live path '{}' is not relative to root", path.display())
+            }
+            Component::CurDir => {}
+            Component::ParentDir => bail!("live path '{}' escapes its root", path.display()),
+            Component::Normal(part) => {
+                current.push(part);
+                reject_symlink(&current)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_symlink(path: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            bail!("refusing to operate through symlink: {}", path.display())
+        }
+        _ => Ok(()),
+    }
 }
 
 fn read_original_state(path: &Path) -> Result<OriginalFileState> {
@@ -335,10 +372,13 @@ mod tests {
         let dir = tempdir().unwrap();
         let target = dir.path().join("auth.json");
 
-        let err = apply_transaction(vec![
-            LiveFileChange::write(target.clone(), b"one".to_vec()),
-            LiveFileChange::write(target.clone(), b"two".to_vec()),
-        ])
+        let err = apply_transaction(
+            dir.path(),
+            vec![
+                LiveFileChange::write(target.clone(), b"one".to_vec()),
+                LiveFileChange::write(target.clone(), b"two".to_vec()),
+            ],
+        )
         .unwrap_err();
 
         assert!(err.to_string().contains("duplicate target"));
@@ -353,14 +393,38 @@ mod tests {
         std::fs::write(&target, "token").unwrap();
         std::os::unix::fs::symlink(&target, &symlink_path).unwrap();
 
-        let err = apply_transaction(vec![LiveFileChange::write(
-            symlink_path.clone(),
-            b"new-token".to_vec(),
-        )])
+        let err = apply_transaction(
+            dir.path(),
+            vec![LiveFileChange::write(
+                symlink_path.clone(),
+                b"new-token".to_vec(),
+            )],
+        )
         .unwrap_err();
 
         assert!(!err.to_string().is_empty());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "token");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn refuses_to_follow_symlinked_parent_directories() {
+        let dir = tempdir().unwrap();
+        let live_root = dir.path().join("live");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&live_root).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, live_root.join("state")).unwrap();
+
+        let target = live_root.join("state").join("auth.json");
+        let err = apply_transaction(
+            dir.path(),
+            vec![LiveFileChange::write(target, b"secret".to_vec())],
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("symlink"));
+        assert!(!outside.join("auth.json").exists());
     }
 
     #[test]
@@ -377,7 +441,8 @@ mod tests {
             std::env::set_var("AISW_FAULT_INJECTION", "live_apply.commit_delete");
         }
 
-        let err = apply_transaction(vec![LiveFileChange::delete(target.clone())]).unwrap_err();
+        let err = apply_transaction(dir.path(), vec![LiveFileChange::delete(target.clone())])
+            .unwrap_err();
         assert!(err.to_string().contains("injected live-apply failure"));
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "original");
 
@@ -404,10 +469,13 @@ mod tests {
             std::env::set_var("AISW_FAULT_INJECTION", "live_apply.commit_write:2");
         }
 
-        let err = apply_transaction(vec![
-            LiveFileChange::write(first.clone(), b"new-auth".to_vec()),
-            LiveFileChange::write(second.clone(), b"new-config".to_vec()),
-        ])
+        let err = apply_transaction(
+            dir.path(),
+            vec![
+                LiveFileChange::write(first.clone(), b"new-auth".to_vec()),
+                LiveFileChange::write(second.clone(), b"new-config".to_vec()),
+            ],
+        )
         .unwrap_err();
 
         assert!(err.to_string().contains("injected live-apply failure"));
@@ -432,10 +500,10 @@ mod tests {
             std::env::set_var("AISW_FAULT_INJECTION", "live_apply.commit_write");
         }
 
-        let err = apply_transaction(vec![LiveFileChange::write(
-            target.clone(),
-            b"new-auth".to_vec(),
-        )])
+        let err = apply_transaction(
+            dir.path(),
+            vec![LiveFileChange::write(target.clone(), b"new-auth".to_vec())],
+        )
         .unwrap_err();
         assert!(err.to_string().contains("injected live-apply failure"));
         assert!(!target.exists());

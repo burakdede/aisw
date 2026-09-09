@@ -419,6 +419,7 @@ fn doctor_reports_future_config_schema_in_json() {
         .expect("config check");
 
     assert_eq!(config_check["status"], "fail");
+    assert_eq!(json["ok"], false, "failed doctor report should not be ok");
     assert!(config_check["detail"]
         .as_str()
         .expect("config detail")
@@ -457,6 +458,36 @@ fn doctor_still_fails_on_broad_credential_permissions() {
         .expect("gemini permission check");
     assert_eq!(check["status"], "fail", "broad permissions must fail");
     assert!(!output.status.success(), "doctor should exit non-zero");
+}
+
+/// Permission repair must not follow an AISW_HOME symlink into another tree.
+#[test]
+#[cfg(unix)]
+fn repair_rejects_symlinked_aisw_home() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    let env = TestEnv::new();
+    let target = env.dir.path().join("outside");
+    std::fs::create_dir_all(&target).unwrap();
+    let secret = target.join("secret");
+    std::fs::write(&secret, b"credential").unwrap();
+    std::fs::remove_dir(&env.aisw_home).unwrap();
+    symlink(&target, &env.aisw_home).unwrap();
+
+    let output = env.output(&["repair", "--json", "--dry-run", "--fix", "permissions"]);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stderr.contains("refusing to repair permissions through symlinked AISW_HOME")
+            || stdout.contains("refusing to repair permissions through symlinked AISW_HOME"),
+        "error should explain the rejected root; stderr={stderr:?}, stdout={stdout:?}"
+    );
+    assert_eq!(
+        std::fs::metadata(secret).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
 }
 
 /// `use --all` dropped `--emit-env`, so the shell hook's
