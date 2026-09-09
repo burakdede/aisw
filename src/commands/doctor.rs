@@ -427,12 +427,10 @@ pub fn run_in(
     let report = collect(home, user_home, path_var);
     let failed = report.any_failed();
 
-    if !runtime::is_quiet() {
-        if args.json {
-            print_json(&report)?;
-        } else {
-            print_text(&report);
-        }
+    if args.json {
+        print_json(&report)?;
+    } else if !runtime::is_quiet() {
+        print_text(&report);
     }
 
     Ok(!failed)
