@@ -21,13 +21,21 @@ use crate::workspace::{
 
 pub fn run(args: WorkspaceArgs, home: &Path) -> Result<()> {
     match args.command {
-        WorkspaceCommand::Bind(args) => bind(args, home),
-        WorkspaceCommand::Unbind(args) => unbind(args, home),
+        WorkspaceCommand::Bind(args) => with_operation_lock(home, || bind(args, home)),
+        WorkspaceCommand::Unbind(args) => with_operation_lock(home, || unbind(args, home)),
         WorkspaceCommand::Status(args) => status(args, home),
         WorkspaceCommand::Doctor(args) => doctor(args, home),
-        WorkspaceCommand::Guard(args) => guard(args, home),
+        WorkspaceCommand::Guard(args) => with_operation_lock(home, || guard(args, home)),
         WorkspaceCommand::Check(args) => check(args, home),
     }
+}
+
+fn with_operation_lock<F>(home: &Path, operation: F) -> Result<()>
+where
+    F: FnOnce() -> Result<()>,
+{
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+    operation()
 }
 
 fn bind(args: WorkspaceBindArgs, home: &Path) -> Result<()> {
@@ -648,5 +656,49 @@ fn doctor_check(name: &str, status: &'static str, message: String) -> DoctorChec
         name: name.to_owned(),
         status,
         message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(not(windows))]
+    use std::{thread, time::Duration};
+
+    #[cfg(not(windows))]
+    use tempfile::tempdir;
+
+    #[cfg(not(windows))]
+    use super::*;
+    #[cfg(not(windows))]
+    use crate::cli::{WorkspaceCommand, WorkspaceGuardMode};
+
+    #[test]
+    #[cfg(not(windows))]
+    fn workspace_guard_waits_for_an_in_progress_switch() {
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("aisw");
+        let config_store = ConfigStore::new(&home);
+        let switch_lock = config_store.acquire_switch_lock().unwrap();
+        let releaser = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            drop(switch_lock);
+        });
+
+        run(
+            WorkspaceArgs {
+                command: WorkspaceCommand::Guard(WorkspaceGuardArgs {
+                    mode: WorkspaceGuardMode::Strict,
+                    json: true,
+                }),
+            },
+            &home,
+        )
+        .unwrap();
+        releaser.join().unwrap();
+
+        assert_eq!(
+            WorkspaceStore::new(&home).load().unwrap().guard_mode,
+            GuardMode::Strict
+        );
     }
 }
