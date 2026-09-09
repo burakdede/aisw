@@ -69,6 +69,15 @@ impl Drop for CanaryCleanup {
     }
 }
 
+fn assert_entry_absent(service: &str, account: &str) {
+    let entry = keyring::Entry::new(service, account).unwrap();
+    match entry.get_password() {
+        Err(keyring::Error::NoEntry) => {}
+        Ok(_) => panic!("canary entry was not removed: {service}/{account}"),
+        Err(error) => panic!("could not verify canary cleanup for {service}/{account}: {error}"),
+    }
+}
+
 fn canary_suffix() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -441,6 +450,10 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         ),
         "antigravity remove",
     );
+
+    for tracked in &cleanup.entries[..5] {
+        assert_entry_absent(&tracked.service, &tracked.account);
+    }
 
     cleanup.restore();
     let restored_live_secret = keyring::Entry::new("gemini", "antigravity")
