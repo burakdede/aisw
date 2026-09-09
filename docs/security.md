@@ -50,8 +50,8 @@ The repository also runs a real credential-store canary across the supported
 macOS, Linux, and Windows runners. It creates uniquely named temporary entries,
 exercises profile switching and removal, and restores any pre-existing entry it
 touches. The canary runs weekly or can be started manually from GitHub Actions;
-it is intentionally fail-closed when a runner cannot initialize its native
-credential store.
+it has a ten-minute per-platform timeout, and it is intentionally fail-closed
+when a runner cannot initialize its native credential store.
 
 On macOS, when writing Claude Code credentials to the Keychain, `aisw` sets a trusted-application ACL so the entry is bound to the `claude` binary path. This prevents other applications from reading the credential without a Keychain access prompt.
 

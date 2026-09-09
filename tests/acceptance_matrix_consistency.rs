@@ -133,3 +133,27 @@ fn acceptance_matrix_records_current_versioned_agent_baseline() {
         );
     }
 }
+
+#[test]
+fn credential_store_canary_is_bounded_and_fail_closed() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workflow_path = repo_root
+        .join(".github")
+        .join("workflows")
+        .join("credential-store-canary.yml");
+    let workflow = std::fs::read_to_string(&workflow_path)
+        .expect("credential-store-canary.yml should be readable");
+
+    assert!(
+        workflow.contains("timeout-minutes: 10"),
+        "credential-store canary must have a bounded per-platform runtime"
+    );
+    assert!(
+        workflow.contains("--ignored --nocapture"),
+        "credential-store canary must execute the ignored test instead of only listing it"
+    );
+    assert!(
+        !workflow.contains("continue-on-error"),
+        "credential-store canary failures must remain release-visible"
+    );
+}
