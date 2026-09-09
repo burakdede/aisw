@@ -69,11 +69,8 @@ pub(crate) fn run_all_in(
     let config_store = ConfigStore::new(home);
     let _switch_lock = config_store.acquire_switch_lock()?;
     let config = config_store.load()?;
-    let mut switched = 0usize;
-    let mut errors = Vec::new();
+    let mut switches = Vec::new();
     let mut warnings = Vec::new();
-    let before_backup_ids = backup_ids_for(home, None)?;
-    let mut affected_tools = Vec::new();
 
     for tool in Tool::ALL {
         let profiles = config.profiles_for(tool);
@@ -89,44 +86,60 @@ pub(crate) fn run_all_in(
         // `--state-mode` only applies to tools that support it; passing it to
         // the others would make the whole `--all` switch fail.
         let tool_state_mode = state_mode_override.filter(|_| tool.supports_state_mode());
-        match run_for_tool_unlocked(
+        switches.push(resolve_profile_switch_request(
             tool,
             Some(profile_name),
             tool_state_mode,
             emit_env,
-            false,
             home,
             user_home,
-        ) {
-            Ok(tool_warnings) => {
-                switched += 1;
-                affected_tools.push(tool);
-                warnings.extend(tool_warnings);
-            }
-            Err(e) => errors.push(format!("{}: {}", tool, e)),
-        }
+        )?);
     }
 
-    if switched == 0 && errors.is_empty() {
+    if switches.is_empty() {
         anyhow::bail!("no tool has a profile named '{}'", profile_name);
     }
 
-    // A tool without a matching profile is a *skip* and stays successful, but a
-    // tool that was attempted and failed must not exit 0 — scripts rely on the
-    // exit code to know whether the switch actually happened.
-    if !errors.is_empty() {
-        anyhow::bail!(
-            "{} of {} attempted tool switches failed:\n  {}",
-            errors.len(),
-            errors.len() + switched,
-            errors.join("\n  ")
-        );
+    let affected_tools = switches
+        .iter()
+        .map(|switch| switch.tool)
+        .collect::<Vec<_>>();
+    let before_backup_ids = backup_ids_for(home, None)?;
+
+    if emit_env {
+        let mut env_lines = Vec::new();
+        for switch in &switches {
+            let profile_store = prepare_profile_switch(switch, home, user_home)?;
+            env_lines.extend(shell_env_lines(switch, &profile_store, user_home)?);
+        }
+        config_store.activate_profiles(&activation_requests(&switches))?;
+        for line in env_lines {
+            println!("{line}");
+        }
+        return Ok(());
     }
 
-    // In --emit-env mode stdout is a shell script the caller evals; anything
-    // else written there would be executed as shell input.
-    if emit_env {
-        return Ok(());
+    let snapshots =
+        crate::commands::context::snapshot_live_state_for_context(&switches, user_home)?;
+    let apply_result = (|| -> Result<()> {
+        for switch in &switches {
+            warnings.extend(apply_resolved_profile_switch(
+                switch, false, home, user_home,
+            )?);
+        }
+        config_store.activate_profiles(&activation_requests(&switches))?;
+        Ok(())
+    })();
+
+    if let Err(err) = apply_result {
+        if let Err(rollback_err) =
+            crate::commands::context::restore_live_state_for_context(&snapshots, user_home)
+        {
+            return Err(err.context(format!(
+                "could not roll back the failed --all switch: {rollback_err:#}"
+            )));
+        }
+        return Err(err);
     }
 
     if json {
@@ -252,6 +265,24 @@ fn switch_failure_with_rollback_error(
     rollback_error: anyhow::Error,
 ) -> anyhow::Error {
     anyhow!("{switch_error:#}\nAutomatic rollback also failed: {rollback_error:#}")
+}
+
+fn activation_requests(
+    switches: &[ResolvedProfileSwitch],
+) -> Vec<(Tool, String, Option<StateMode>)> {
+    switches
+        .iter()
+        .map(|switch| {
+            (
+                switch.tool,
+                switch.profile_name.clone(),
+                switch
+                    .tool
+                    .supports_state_mode()
+                    .then_some(switch.state_mode),
+            )
+        })
+        .collect()
 }
 
 pub(crate) fn resolve_profile_switch_request(
@@ -551,6 +582,85 @@ pub(crate) fn apply_resolved_profile_switch(
     }
 
     Ok(warnings)
+}
+
+fn prepare_profile_switch(
+    resolved: &ResolvedProfileSwitch,
+    home: &Path,
+    user_home: &Path,
+) -> Result<ProfileStore> {
+    let profile_store = ProfileStore::new(home);
+    if resolved.backup_on_switch {
+        let backup_manager = BackupManager::new(home);
+        let profile_dir = profile_store.profile_dir(resolved.tool, &resolved.profile_name);
+        backup_manager.snapshot(
+            resolved.tool,
+            &resolved.profile_name,
+            &profile_dir,
+            &resolved.profile_meta,
+        )?;
+    }
+
+    if let Ok(config) = ConfigStore::new(home).load() {
+        if let Err(e) = maybe_sync_active_profile_before_switch(
+            &config,
+            &profile_store,
+            resolved.tool,
+            user_home,
+        ) {
+            output::print_warning_stderr(format!(
+                "Warning: could not sync active profile before switching: {e:#}"
+            ));
+        }
+    }
+    Ok(profile_store)
+}
+
+fn shell_env_lines(
+    resolved: &ResolvedProfileSwitch,
+    profile_store: &ProfileStore,
+    user_home: &Path,
+) -> Result<Vec<String>> {
+    let lines = match resolved.tool {
+        Tool::Claude => {
+            let line = match resolved.state_mode {
+                StateMode::Isolated => crate::auth::files::export_line(
+                    "CLAUDE_CONFIG_DIR",
+                    &profile_store
+                        .profile_dir(Tool::Claude, &resolved.profile_name)
+                        .display()
+                        .to_string(),
+                ),
+                StateMode::Shared => crate::auth::files::unset_line("CLAUDE_CONFIG_DIR"),
+            };
+            vec![line]
+        }
+        Tool::Codex => {
+            let line = match resolved.state_mode {
+                StateMode::Isolated => crate::auth::files::export_line(
+                    "CODEX_HOME",
+                    &profile_store
+                        .profile_dir(Tool::Codex, &resolved.profile_name)
+                        .display()
+                        .to_string(),
+                ),
+                StateMode::Shared => crate::auth::files::unset_line("CODEX_HOME"),
+            };
+            vec![line]
+        }
+        Tool::Gemini => {
+            std::fs::create_dir_all(user_home.join(".gemini"))?;
+            match resolved.profile_meta.auth_method {
+                AuthMethod::ApiKey => vec![crate::auth::files::export_line(
+                    "GEMINI_API_KEY",
+                    &auth::gemini::read_api_key(profile_store, &resolved.profile_name)?,
+                )],
+                AuthMethod::OAuth => vec![crate::auth::files::unset_line("GEMINI_API_KEY")],
+            }
+        }
+        Tool::Antigravity => Vec::new(),
+    };
+    Ok(lines)
 }
 
 fn maybe_sync_active_profile_before_switch(
@@ -1639,6 +1749,50 @@ mod tests {
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
         assert_eq!(config.active_for(Tool::Codex), Some("work"));
         assert_eq!(config.active_for(Tool::Gemini), Some("work"));
+    }
+
+    #[test]
+    fn all_flag_restores_live_state_when_a_later_tool_fails() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&user_home).unwrap();
+        auth::claude::add_api_key(
+            &ProfileStore::new(&home),
+            &ConfigStore::new(&home),
+            "old",
+            "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            None,
+        )
+        .unwrap();
+        setup_claude_api_key_profile(&home, "work");
+        auth::codex::add_api_key(
+            &ProfileStore::new(&home),
+            &ConfigStore::new(&home),
+            "old",
+            "sk-codex-old-key-12345",
+            None,
+        )
+        .unwrap();
+        setup_codex_api_key_profile(&home, "work");
+        let config_store = ConfigStore::new(&home);
+        config_store.set_active(Tool::Claude, "old").unwrap();
+        config_store.set_active(Tool::Codex, "old").unwrap();
+        fs::remove_dir_all(ProfileStore::new(&home).profile_dir(Tool::Codex, "work")).unwrap();
+
+        let err = run_all_in("work", None, false, false, &home, &user_home).unwrap_err();
+
+        assert!(
+            err.to_string().contains("codex"),
+            "unexpected error: {err:#}"
+        );
+        assert!(!user_home.join(".claude").join(".credentials.json").exists());
+        let config = config_store.load().unwrap();
+        assert_eq!(config.active_for(Tool::Claude), Some("old"));
+        assert_eq!(config.active_for(Tool::Codex), Some("old"));
     }
 
     #[test]
