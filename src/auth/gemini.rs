@@ -641,7 +641,7 @@ pub fn apply_token_cache(
     std::fs::create_dir_all(gemini_dir)
         .with_context(|| format!("could not create {}", gemini_dir.display()))?;
 
-    let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
+    let profile_dir = profile_store.validated_profile_dir(Tool::Gemini, name)?;
     let mut expected_files = std::collections::BTreeSet::new();
     let mut changes = Vec::new();
     for file in files::list_regular_files_recursive(&profile_dir)? {
@@ -676,7 +676,7 @@ pub fn live_token_cache_matches(
     name: &str,
     gemini_dir: &Path,
 ) -> Result<bool> {
-    let profile_dir = profile_store.profile_dir(Tool::Gemini, name);
+    let profile_dir = profile_store.validated_profile_dir(Tool::Gemini, name)?;
     if !gemini_dir.exists() {
         return Ok(false);
     }

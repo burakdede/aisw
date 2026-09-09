@@ -343,7 +343,8 @@ pub(crate) fn apply_resolved_profile_switch(
     let mut warnings = Vec::new();
     if resolved.backup_on_switch {
         let backup_manager = BackupManager::new(home);
-        let profile_dir = profile_store.profile_dir(resolved.tool, &resolved.profile_name);
+        let profile_dir =
+            profile_store.validated_profile_dir(resolved.tool, &resolved.profile_name)?;
         backup_manager.snapshot(
             resolved.tool,
             &resolved.profile_name,

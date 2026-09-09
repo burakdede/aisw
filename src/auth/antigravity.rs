@@ -91,7 +91,7 @@ pub fn read_managed_secret(
     match backend {
         CredentialBackend::File => {
             let path = profile_store
-                .profile_dir(Tool::Antigravity, profile_name)
+                .validated_profile_dir(Tool::Antigravity, profile_name)?
                 .join(SECRET_FILE);
             if !path.exists() {
                 return Ok(None);
@@ -267,7 +267,7 @@ fn clear_profile_subtree(
     prefix: &str,
 ) -> Result<()> {
     let dir = profile_store
-        .profile_dir(Tool::Antigravity, profile_name)
+        .validated_profile_dir(Tool::Antigravity, profile_name)?
         .join(prefix);
     if dir.exists() {
         fs::remove_dir_all(&dir).with_context(|| format!("could not delete {}", dir.display()))?;
@@ -361,7 +361,7 @@ fn profile_tree_map(
     prefix: &str,
 ) -> Result<BTreeMap<String, Vec<u8>>> {
     let root = profile_store
-        .profile_dir(Tool::Antigravity, profile_name)
+        .validated_profile_dir(Tool::Antigravity, profile_name)?
         .join(prefix);
     if !root.exists() {
         return Ok(BTreeMap::new());

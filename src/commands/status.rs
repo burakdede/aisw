@@ -271,14 +271,16 @@ fn collect_active_profile_status(
         });
     };
 
-    let profile_dir = profile_store.profile_dir(tool, name);
-    let (credential_state, permissions_ok) = check_profile_storage(
-        &profile_dir,
-        tool,
-        name,
-        meta.auth_method,
-        meta.credential_backend,
-    );
+    let (credential_state, permissions_ok) = match profile_store.validated_profile_dir(tool, name) {
+        Ok(profile_dir) => check_profile_storage(
+            &profile_dir,
+            tool,
+            name,
+            meta.auth_method,
+            meta.credential_backend,
+        ),
+        Err(_) => (CredentialState::Unknown, true),
+    };
     let credentials_present = credential_state == CredentialState::Present;
 
     // Only the owning tool's classifier runs; the others stay `None`.

@@ -264,7 +264,9 @@ fn resolve_identity_from_optional_profile_files(
     }
 
     for filename in filenames {
-        let path = profile_store.profile_dir(tool, profile_name).join(filename);
+        let path = profile_store
+            .validated_profile_dir(tool, profile_name)?
+            .join(filename);
         if !path.exists() {
             continue;
         }
@@ -284,7 +286,9 @@ fn read_optional_profile_file(
     profile_name: &str,
     filename: &str,
 ) -> Result<Option<Vec<u8>>> {
-    let path = profile_store.profile_dir(tool, profile_name).join(filename);
+    let path = profile_store
+        .validated_profile_dir(tool, profile_name)?
+        .join(filename);
     if !path.exists() {
         return Ok(None);
     }
