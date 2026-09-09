@@ -190,7 +190,7 @@ impl BackupManager {
                     restore_profile_meta(config_store, tool, &profile_name, &profile_path)?;
                 profile_meta.credential_backend.validate_for_tool(tool)?;
 
-                let restored_files = restore_profile_tree(&profile_path, &dest_dir)?;
+                let restored_files = restore_profile_tree(&self.home, &profile_path, &dest_dir)?;
                 restored += restored_files;
 
                 if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
@@ -285,7 +285,7 @@ fn copy_profile_tree(src_root: &Path, dest_root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn restore_profile_tree(src_root: &Path, dest_root: &Path) -> Result<usize> {
+fn restore_profile_tree(home: &Path, src_root: &Path, dest_root: &Path) -> Result<usize> {
     let mut changes = Vec::new();
     for file in crate::auth::files::list_regular_files_recursive(src_root)? {
         if file.file_name == METADATA_FILE {
@@ -298,7 +298,7 @@ fn restore_profile_tree(src_root: &Path, dest_root: &Path) -> Result<usize> {
         changes.push(crate::live_apply::LiveFileChange::write(dst, contents));
     }
     let restored = changes.len();
-    crate::live_apply::apply_transaction(changes)?;
+    crate::live_apply::apply_transaction(home, changes)?;
     Ok(restored)
 }
 

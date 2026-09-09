@@ -609,8 +609,10 @@ fn restore_live_state_for_context(
                 oauth_account_metadata.clone(),
                 user_home,
             )?,
-            LiveStateSnapshot::Codex { files } => restore_file_snapshots(files)?,
-            LiveStateSnapshot::Gemini { dir, files } => restore_regular_files(dir, files)?,
+            LiveStateSnapshot::Codex { files } => restore_file_snapshots(user_home, files)?,
+            LiveStateSnapshot::Gemini { dir, files } => {
+                restore_regular_files(user_home, dir, files)?
+            }
             LiveStateSnapshot::Antigravity { snapshot } => {
                 auth::antigravity::restore_snapshot_to_live(snapshot, user_home)?
             }
@@ -644,7 +646,7 @@ fn snapshot_regular_files(dir: &Path) -> Result<Vec<NamedFileSnapshot>> {
     Ok(files)
 }
 
-fn restore_file_snapshots(files: &[FileSnapshot]) -> Result<()> {
+fn restore_file_snapshots(root: &Path, files: &[FileSnapshot]) -> Result<()> {
     let changes = files
         .iter()
         .map(|snapshot| match &snapshot.bytes {
@@ -652,10 +654,10 @@ fn restore_file_snapshots(files: &[FileSnapshot]) -> Result<()> {
             None => LiveFileChange::delete(snapshot.path.clone()),
         })
         .collect::<Vec<_>>();
-    crate::live_apply::apply_transaction(changes)
+    crate::live_apply::apply_transaction(root, changes)
 }
 
-fn restore_regular_files(dir: &Path, files: &[NamedFileSnapshot]) -> Result<()> {
+fn restore_regular_files(root: &Path, dir: &Path, files: &[NamedFileSnapshot]) -> Result<()> {
     let mut changes = Vec::new();
     let expected = files
         .iter()
@@ -677,7 +679,7 @@ fn restore_regular_files(dir: &Path, files: &[NamedFileSnapshot]) -> Result<()> 
         ));
     }
 
-    crate::live_apply::apply_transaction(changes)
+    crate::live_apply::apply_transaction(root, changes)
 }
 
 fn normalized_profiles_json(profiles: &ContextProfiles) -> serde_json::Value {

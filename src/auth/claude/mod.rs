@@ -171,12 +171,13 @@ pub fn apply_live_credentials(
     let stored = read_stored_credentials(profile_store, name, backend)?;
 
     match auth_storage(user_home) {
-        ClaudeAuthStorage::File => {
-            crate::live_apply::apply_transaction(vec![crate::live_apply::LiveFileChange::write(
+        ClaudeAuthStorage::File => crate::live_apply::apply_transaction(
+            user_home,
+            vec![crate::live_apply::LiveFileChange::write(
                 live_credentials_path(user_home),
                 stored,
-            )])
-        }
+            )],
+        ),
         ClaudeAuthStorage::Keychain => {
             let service = match state_mode {
                 StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
