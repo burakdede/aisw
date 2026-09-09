@@ -9,6 +9,7 @@ const TEST_SHA256: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 struct InstallerEnv {
     _dir: TempDir,
+    stub_dir: PathBuf,
     home_dir: PathBuf,
     curl_log: PathBuf,
     path: String,
@@ -115,6 +116,7 @@ printf '%s\n' "$HOME/.zfunc"
 
         Self {
             _dir: dir,
+            stub_dir,
             home_dir,
             curl_log,
             path,
@@ -309,6 +311,26 @@ fn install_script_rejects_symlinked_binary_destination() {
     assert!(!output.status.success());
     assert_eq!(fs::read_to_string(&outside_target).unwrap(), "keep me\n");
     assert!(String::from_utf8_lossy(&output.stderr).contains("symlinked binary destination"));
+}
+
+#[test]
+fn install_script_retains_existing_binary_when_replacement_fails() {
+    let env = InstallerEnv::new("Linux", "x86_64");
+    let install_dir = env.home_dir.join("install");
+    fs::create_dir_all(&install_dir).unwrap();
+    let installed = install_dir.join("aisw");
+    fs::write(&installed, "existing binary\n").unwrap();
+    write_executable(&env.stub_dir.join("mv"), "#!/bin/sh\nexit 1\n");
+
+    let output = env.run(None, Some(&install_dir));
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read_to_string(&installed).unwrap(), "existing binary\n");
+    assert_eq!(
+        fs::read_dir(&install_dir).unwrap().count(),
+        1,
+        "failed replacement should clean up the staged binary"
+    );
 }
 
 #[test]
