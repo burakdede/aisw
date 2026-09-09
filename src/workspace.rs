@@ -719,6 +719,20 @@ mod tests {
     }
 
     #[test]
+    fn update_reports_workspace_lock_timeout() {
+        let temp = TempDir::new().unwrap();
+        let store = WorkspaceStore::new(temp.path());
+        let _lock = store.acquire_lock().unwrap();
+
+        let error = store.update(|_| Ok(())).unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(message.contains("timed out waiting for workspace config lock"));
+        assert!(message.contains("workspaces.json.lock"));
+        assert!(message.contains("retry after it finishes"));
+    }
+
+    #[test]
     fn normalize_remote_variants() {
         assert_eq!(
             normalize_remote("git@github.com:acme/api.git"),
