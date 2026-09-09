@@ -43,6 +43,7 @@
 - Antigravity is now guarded by the generated shell hooks and included in `workspace status --json` and `status --context --json`.
 - OAuth capture no longer leaves an orphaned interactive login process when a step inside the polling loop fails.
 - Profile rename failures now report when a compensating directory or keyring rollback is incomplete.
+- Failed Gemini API-key and OAuth registrations now remove the newly created profile when the config write fails.
 - Failed profile removals now attempt to restore the fresh backup and report when automatic recovery is incomplete.
 
 ### Performance
