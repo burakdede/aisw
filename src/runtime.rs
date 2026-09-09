@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 #[cfg(not(test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -87,4 +89,31 @@ pub fn is_progress_json() -> bool {
 
 pub fn is_machine_mode() -> bool {
     !matches!(output_mode(), OutputMode::Human)
+}
+
+/// Resolve the user's home directory, with a debug-only override for
+/// hermetic integration tests that exercise live tool state.
+pub fn user_home() -> Option<PathBuf> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = crate::auth::test_overrides::string("AISW_TEST_USER_HOME") {
+        return Some(PathBuf::from(path));
+    }
+
+    dirs::home_dir()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_home;
+    use crate::auth::test_overrides::EnvVarGuard;
+    use tempfile::tempdir;
+
+    #[test]
+    fn user_home_honors_the_hermetic_test_override() {
+        let _spawn_lock = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let temp = tempdir().unwrap();
+        let _home = EnvVarGuard::set("AISW_TEST_USER_HOME", temp.path());
+
+        assert_eq!(user_home().as_deref(), Some(temp.path()));
+    }
 }

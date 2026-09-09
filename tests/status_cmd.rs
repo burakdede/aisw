@@ -248,6 +248,39 @@ fn status_json_has_expected_keys() {
     }
     assert_eq!(claude["credentials_present"], true);
     assert_eq!(claude["permissions_ok"], true);
+    assert!(claude["live_state_diagnostic"].is_null());
+}
+
+#[test]
+fn status_keeps_rows_when_live_state_cannot_be_inspected() {
+    let env = TestEnv::new();
+    add_and_activate_codex(&env, "work");
+    env.cmd()
+        .args(["use", "codex", "work", "--state-mode", "shared"])
+        .assert()
+        .success();
+    std::fs::write(env.fake_home.join(".codex").join("auth.json"), b"{").unwrap();
+
+    let output = env
+        .cmd()
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("invalid JSON");
+    let rows = json.as_array().unwrap();
+    let codex = rows.iter().find(|entry| entry["tool"] == "codex").unwrap();
+    assert_eq!(codex["active_profile_applied"], serde_json::Value::Null);
+    assert_eq!(codex["live_state_diagnostic"], "inspection_failed");
+    assert!(rows.iter().any(|entry| entry["tool"] == "claude"));
+
+    env.cmd()
+        .args(["status"])
+        .assert()
+        .success()
+        .stdout(contains("live tool state could not be inspected"));
 }
 
 #[test]
@@ -305,6 +338,44 @@ fn status_json_reports_antigravity_classification_and_live_state() {
     assert_eq!(antigravity["active_profile_applied"], true);
     assert_eq!(antigravity["credentials_present"], true);
     assert_eq!(antigravity["permissions_ok"], true);
+}
+
+#[test]
+fn status_json_reports_antigravity_api_key_provider_state() {
+    let env = TestEnv::new();
+    env.add_fake_tool("agy", "agy 1.1.25");
+    env.cmd()
+        .args(["add", "antigravity", "work", "--api-key", VALID_GEMINI_KEY])
+        .assert()
+        .success();
+    env.cmd()
+        .env("GEMINI_API_KEY", VALID_GEMINI_KEY)
+        .args(["use", "antigravity", "work"])
+        .assert()
+        .success();
+
+    let output = env
+        .cmd()
+        .env("GEMINI_API_KEY", VALID_GEMINI_KEY)
+        .args(["status", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("invalid JSON");
+    let antigravity = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["tool"] == "agy")
+        .unwrap();
+    assert_eq!(antigravity["auth_method"], "api_key");
+    assert_eq!(
+        antigravity["antigravity_auth_classification"],
+        "api_key_environment"
+    );
+    assert_eq!(antigravity["active_profile_applied"], true);
 }
 
 #[test]

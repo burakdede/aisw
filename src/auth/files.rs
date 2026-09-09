@@ -34,7 +34,13 @@ pub fn apply_profile_file(
     dest: PathBuf,
 ) -> Result<()> {
     let bytes = profile_store.read_file(tool, name, stored_filename)?;
-    crate::live_apply::apply_transaction(vec![LiveFileChange::write(dest, bytes)])
+    let root = dest
+        .parent()
+        .and_then(Path::parent)
+        .or_else(|| dest.parent())
+        .unwrap_or_else(|| Path::new("."))
+        .to_owned();
+    crate::live_apply::apply_transaction(&root, vec![LiveFileChange::write(dest, bytes)])
 }
 
 pub fn stored_profile_file_matches_live(

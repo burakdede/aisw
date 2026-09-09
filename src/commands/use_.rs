@@ -1,12 +1,13 @@
 use std::io::IsTerminal;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use dialoguer::{theme::ColorfulTheme, Input, Select};
 
 use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
+use crate::commands::context::{restore_live_state_for_context, snapshot_live_state_for_context};
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::error::AiswError;
 use crate::machine;
@@ -25,7 +26,7 @@ pub(crate) struct ResolvedProfileSwitch {
 }
 
 pub fn run(args: UseArgs, home: &Path) -> Result<()> {
-    let user_home = dirs::home_dir().context("could not determine home directory")?;
+    let user_home = crate::runtime::user_home().context("could not determine home directory")?;
     if args.all {
         let profile_name = args.all_profile.as_deref().unwrap_or_default();
         if profile_name.is_empty() {
@@ -43,7 +44,8 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
         let tool = args
             .tool
             .context("use requires <tool> unless --all is provided")?;
-        run_for_tool(
+        let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+        run_for_tool_unlocked(
             tool,
             args.profile_name.as_deref(),
             args.state_mode,
@@ -52,6 +54,7 @@ pub fn run(args: UseArgs, home: &Path) -> Result<()> {
             home,
             &user_home,
         )
+        .map(|_| ())
     }
 }
 
@@ -64,8 +67,10 @@ pub(crate) fn run_all_in(
     user_home: &Path,
 ) -> Result<()> {
     let config_store = ConfigStore::new(home);
+    let _switch_lock = config_store.acquire_switch_lock()?;
     let config = config_store.load()?;
     let mut switches = Vec::new();
+    let mut warnings = Vec::new();
 
     for tool in Tool::ALL {
         let profiles = config.profiles_for(tool);
@@ -118,7 +123,9 @@ pub(crate) fn run_all_in(
         crate::commands::context::snapshot_live_state_for_context(&switches, user_home)?;
     let apply_result = (|| -> Result<()> {
         for switch in &switches {
-            apply_resolved_profile_switch(switch, false, home, user_home)?;
+            warnings.extend(apply_resolved_profile_switch(
+                switch, false, home, user_home,
+            )?);
         }
         config_store.activate_profiles(&activation_requests(&switches))?;
         Ok(())
@@ -145,7 +152,7 @@ pub(crate) fn run_all_in(
                 "state_mode": state_mode_map(home, &affected_tools)?,
                 "live_match": live_match_map(home, user_home, &affected_tools)?,
                 "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
-                "warnings": Vec::<String>::new(),
+                "warnings": warnings,
             }),
         )?;
     }
@@ -158,7 +165,8 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
     let tool = args
         .tool
         .context("run_in requires tool when --all is not set")?;
-    run_for_tool(
+    let _switch_lock = ConfigStore::new(home).acquire_switch_lock()?;
+    run_for_tool_unlocked(
         tool,
         args.profile_name.as_deref(),
         args.state_mode,
@@ -167,9 +175,10 @@ pub(crate) fn run_in(args: UseArgs, home: &Path, user_home: &Path) -> Result<()>
         home,
         user_home,
     )
+    .map(|_| ())
 }
 
-fn run_for_tool(
+fn run_for_tool_unlocked(
     tool: Tool,
     requested_profile_name: Option<&str>,
     state_mode_override: Option<StateMode>,
@@ -177,7 +186,7 @@ fn run_for_tool(
     json: bool,
     home: &Path,
     user_home: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let before_backup_ids = backup_ids_for(home, Some(tool))?;
     let resolved = resolve_profile_switch_request(
         tool,
@@ -187,13 +196,14 @@ fn run_for_tool(
         home,
         user_home,
     )?;
-    apply_resolved_profile_switch(&resolved, emit_env, home, user_home)?;
-
-    ConfigStore::new(home).activate_profile(
-        tool,
-        &resolved.profile_name,
-        tool.supports_state_mode().then_some(resolved.state_mode),
-    )?;
+    let warnings = apply_and_activate_profile_switch(&resolved, emit_env, home, user_home, || {
+        ConfigStore::new(home).activate_profile(
+            tool,
+            &resolved.profile_name,
+            tool.supports_state_mode().then_some(resolved.state_mode),
+        )?;
+        Ok(())
+    })?;
 
     if json {
         let after_backup_ids = backup_ids_for(home, Some(tool))?;
@@ -205,14 +215,56 @@ fn run_for_tool(
                 "state_mode": state_mode_map(home, &[tool])?,
                 "live_match": live_match_map(home, user_home, &[tool])?,
                 "backup_ids": diff_backup_ids(&before_backup_ids, &after_backup_ids),
-                "warnings": Vec::<String>::new(),
+                "warnings": warnings.clone(),
             }),
         )?;
     } else if !emit_env {
         print_switch_summary(&resolved, home, user_home);
     }
 
-    Ok(())
+    Ok(warnings)
+}
+
+fn apply_and_activate_profile_switch<F>(
+    resolved: &ResolvedProfileSwitch,
+    emit_env: bool,
+    home: &Path,
+    user_home: &Path,
+    activate: F,
+) -> Result<Vec<String>>
+where
+    F: FnOnce() -> Result<()>,
+{
+    let snapshots = (!emit_env)
+        .then(|| snapshot_live_state_for_context(std::slice::from_ref(resolved), user_home))
+        .transpose()?;
+    let switch_result = (|| -> Result<Vec<String>> {
+        let warnings = apply_resolved_profile_switch(resolved, emit_env, home, user_home)?;
+        activate()?;
+        Ok(warnings)
+    })();
+
+    let warnings = match switch_result {
+        Ok(warnings) => warnings,
+        Err(err) => {
+            if let Some(snapshots) = snapshots {
+                return match restore_live_state_for_context(&snapshots, user_home) {
+                    Ok(()) => Err(err),
+                    Err(rollback_err) => Err(switch_failure_with_rollback_error(err, rollback_err)),
+                };
+            }
+            return Err(err);
+        }
+    };
+
+    Ok(warnings)
+}
+
+fn switch_failure_with_rollback_error(
+    switch_error: anyhow::Error,
+    rollback_error: anyhow::Error,
+) -> anyhow::Error {
+    anyhow!("{switch_error:#}\nAutomatic rollback also failed: {rollback_error:#}")
 }
 
 fn activation_requests(
@@ -361,8 +413,33 @@ pub(crate) fn apply_resolved_profile_switch(
     emit_env: bool,
     home: &Path,
     user_home: &Path,
-) -> Result<()> {
-    let profile_store = prepare_profile_switch(resolved, home, user_home)?;
+) -> Result<Vec<String>> {
+    let profile_store = ProfileStore::new(home);
+    let mut warnings = Vec::new();
+    if resolved.backup_on_switch {
+        let backup_manager = BackupManager::new(home);
+        let profile_dir =
+            profile_store.validated_profile_dir(resolved.tool, &resolved.profile_name)?;
+        backup_manager.snapshot(
+            resolved.tool,
+            &resolved.profile_name,
+            &profile_dir,
+            &resolved.profile_meta,
+        )?;
+    }
+
+    if let Ok(config) = ConfigStore::new(home).load() {
+        if let Err(e) = maybe_sync_active_profile_before_switch(
+            &config,
+            &profile_store,
+            resolved.tool,
+            user_home,
+        ) {
+            let warning = format!("could not sync active profile before switching: {e:#}");
+            output::print_warning_stderr(format!("Warning: {warning}"));
+            warnings.push(warning);
+        }
+    }
 
     match resolved.tool {
         Tool::Claude => match resolved.profile_meta.auth_method {
@@ -485,7 +562,14 @@ pub(crate) fn apply_resolved_profile_switch(
         }
         Tool::Antigravity => {
             if emit_env {
-                auth::antigravity::emit_shell_env();
+                auth::antigravity::emit_shell_env(
+                    &profile_store,
+                    &resolved.profile_name,
+                    resolved.profile_meta.auth_method,
+                    resolved.profile_meta.credential_backend,
+                )?;
+            } else if resolved.profile_meta.auth_method == AuthMethod::ApiKey {
+                auth::antigravity::apply_api_key_settings(user_home)?;
             } else {
                 auth::antigravity::apply_live_credentials(
                     &profile_store,
@@ -497,7 +581,7 @@ pub(crate) fn apply_resolved_profile_switch(
         }
     }
 
-    Ok(())
+    Ok(warnings)
 }
 
 fn prepare_profile_switch(
@@ -757,12 +841,18 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
             }
         }
     } else if resolved.tool == Tool::Antigravity {
-        output::print_effect(
-            "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
-        );
-        output::print_effect(
-            "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
-        );
+        if resolved.profile_meta.auth_method == AuthMethod::ApiKey {
+            output::print_effect(
+                "Antigravity selected modelProvider=gemini; use the shell hook or --emit-env so GEMINI_API_KEY is available to agy.",
+            );
+        } else {
+            output::print_effect(
+                "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
+            );
+            output::print_effect(
+                "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
+            );
+        }
     }
     output::print_blank_line();
     output::print_next_step(output::next_step_after_use());
@@ -1280,6 +1370,45 @@ mod tests {
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
+    }
+
+    #[test]
+    fn failed_activation_restores_live_profile_state() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        fs::create_dir_all(&home).unwrap();
+        setup_claude_api_key_profile(&home, "work");
+
+        let resolved = resolve_profile_switch_request(
+            Tool::Claude,
+            Some("work"),
+            None,
+            false,
+            &home,
+            &user_home,
+        )
+        .unwrap();
+        let err = apply_and_activate_profile_switch(&resolved, false, &home, &user_home, || {
+            Err(anyhow!("config activation failed"))
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("config activation failed"));
+        assert!(!user_home.join(".claude/.credentials.json").exists());
+    }
+
+    #[test]
+    fn rollback_failure_keeps_original_switch_error() {
+        let err = switch_failure_with_rollback_error(
+            anyhow!("config activation failed"),
+            anyhow!("permission denied restoring credentials"),
+        );
+        let message = err.to_string();
+        assert!(message.contains("config activation failed"));
+        assert!(message.contains("permission denied restoring credentials"));
     }
 
     #[test]

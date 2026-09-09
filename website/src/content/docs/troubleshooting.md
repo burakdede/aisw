@@ -347,7 +347,9 @@ If a desktop app, remote sidecar, or long-lived shell already had the old accoun
 
 **Fix:**
 - Wait for the other command to complete.
-- If no `aisw` process is running, a stale lock may remain. Check for lock files under `~/.aisw/` and remove any that have a modification time older than a minute.
+- If no `aisw` process is running, retry the command. Lock files under `~/.aisw/` may remain after a process exits; their presence alone does not indicate a held lock, and deleting one while another process holds it can defeat coordination.
+
+The same guidance applies to live-switch lock timeouts: wait for the active switch to finish, then retry. The lock is released automatically when its process exits.
 
 ---
 

@@ -38,7 +38,7 @@ pub(crate) fn collect_rows(args: &ListArgs, home: &Path) -> Result<Vec<Row>> {
     let config_store = ConfigStore::new(home);
     let config = config_store.load()?;
     let profile_store = ProfileStore::new(home);
-    let user_home = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
+    let user_home = crate::runtime::user_home().unwrap_or_else(|| Path::new(".").to_path_buf());
 
     let selected_tool = args.tool.or(args.tool_filter);
     let tools: Vec<Tool> = match selected_tool {
