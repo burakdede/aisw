@@ -254,6 +254,28 @@ fn init_imports_claude_profile_when_same_email_has_different_org() {
 }
 
 #[test]
+fn init_reports_unknown_claude_live_credentials_without_importing_them() {
+    let env = TestEnv::new();
+    let claude_dir = env.fake_home.join(".claude");
+    fs::create_dir_all(&claude_dir).unwrap();
+    fs::write(
+        claude_dir.join(".credentials.json"),
+        br#"{"futureCredentialFormat":{"value":"token"}}"#,
+    )
+    .unwrap();
+
+    run_init(&env).success().stdout(contains(
+        "Claude local state exists, but aisw could not find importable auth",
+    ));
+    assert!(!env
+        .aisw_home
+        .join("profiles")
+        .join("claude")
+        .join("default")
+        .exists());
+}
+
+#[test]
 fn init_is_idempotent_for_claude_oauth_import_without_identity_fields() {
     let env = TestEnv::new();
     let claude_dir = env.fake_home.join(".claude");

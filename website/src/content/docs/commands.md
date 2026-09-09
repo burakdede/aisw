@@ -102,6 +102,7 @@ Notes:
 - For Gemini, when both `~/.gemini/.env` and OAuth cache files are present, import uses the `.env` file first.
 - For Claude Code on macOS, `init` checks the Keychain before checking the credentials file.
 - `init` will not import a duplicate if the OAuth identity matches an already-stored profile.
+- Claude live payloads with an unknown credential shape are reported as unavailable and are not imported; this fail-closed behavior avoids creating profiles that cannot be applied after an upstream format change.
 
 ```sh
 aisw init
@@ -137,6 +138,7 @@ Notes:
 - In `--non-interactive` mode, interactive OAuth is not available and the command fails.
 - `--api-key-stdin` is intended for GUI and automation integrations that should not expose secrets in process arguments.
 - `--from-live` captures what the tool is currently using; it does not launch a browser or auth flow.
+- `--from-live` imports only credential shapes recognized for the selected tool. Unknown Claude payloads fail closed and must be re-authenticated or reviewed against the current upstream format.
 - `--from-live` always activates the profile because those credentials are already live.
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
 - For Codex ChatGPT-managed auth, `--from-live` is a bootstrap import, not a durable interchangeable account bundle.
