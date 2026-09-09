@@ -546,6 +546,26 @@ fn init_reports_codex_local_state_without_importable_auth() {
 }
 
 #[test]
+fn init_reports_codex_ephemeral_backend_without_calling_it_unknown() {
+    let env = TestEnv::new();
+    let codex_dir = env.fake_home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(
+        codex_dir.join("config.toml"),
+        b"cli_auth_credentials_store = \"ephemeral\"\n",
+    )
+    .unwrap();
+
+    run_init(&env)
+        .success()
+        .stdout(contains("Auth storage"))
+        .stdout(contains("ephemeral"))
+        .stdout(contains("process-local"))
+        .stdout(contains("cannot be imported by aisw"))
+        .stdout(predicates::str::contains("not recognized").not());
+}
+
+#[test]
 fn init_reports_codex_auto_backend_without_importable_auth() {
     let env = TestEnv::new();
     let codex_dir = env.fake_home.join(".codex");
