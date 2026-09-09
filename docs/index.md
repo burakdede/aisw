@@ -54,7 +54,8 @@ aisw add claude work --api-key "$ANTHROPIC_API_KEY"
 aisw add claude personal              # launches interactive OAuth
 aisw add codex work --api-key "$OPENAI_API_KEY"
 aisw add gemini work --api-key "$GEMINI_API_KEY"
-aisw add antigravity work             # OAuth only  -  no API-key auth upstream
+aisw add antigravity work             # shared OAuth
+aisw add antigravity api --api-key "$GEMINI_API_KEY"
 
 # Activate a profile
 aisw use claude work

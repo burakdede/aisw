@@ -41,3 +41,18 @@ fn profile_onboarding_lists_every_supported_tool() {
         );
     }
 }
+
+#[test]
+fn onboarding_documents_list_antigravity_api_key_auth() {
+    for path in ["docs/index.md", "website/src/content/docs/index.md"] {
+        let content = read_repo_file(path);
+        assert!(
+            content.contains("aisw add antigravity api --api-key \"$GEMINI_API_KEY\""),
+            "Antigravity API-key onboarding is missing: {path}"
+        );
+        assert!(
+            !content.contains("OAuth only") && !content.contains("no API-key auth upstream"),
+            "Antigravity onboarding still contradicts supported API-key auth: {path}"
+        );
+    }
+}
