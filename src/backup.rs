@@ -285,7 +285,15 @@ impl BackupManager {
                     if let Some(profile_name) =
                         profile_path.file_name().and_then(|name| name.to_str())
                     {
-                        let _ = secure_store::delete_backup_secret(tool, profile_name, &old);
+                        if backup_uses_system_keyring(&profile_path)? {
+                            secure_store::delete_backup_secret(tool, profile_name, &old)
+                                .with_context(|| {
+                                    format!(
+                                        "could not clean up secure credentials for {} profile '{}' in backup '{}'",
+                                        tool, profile_name, old
+                                    )
+                                })?;
+                        }
                     }
                 }
             }
@@ -363,6 +371,17 @@ fn read_metadata(path: &Path) -> Result<BackupProfileMetadata> {
     })?;
     serde_json::from_slice(&bytes)
         .with_context(|| format!("could not parse backup metadata file {}", path.display()))
+}
+
+fn backup_uses_system_keyring(profile_path: &Path) -> Result<bool> {
+    let metadata_path = profile_path.join(METADATA_FILE);
+    if !metadata_path.is_file() {
+        return Ok(false);
+    }
+    Ok(read_metadata(&metadata_path)?
+        .profile_meta
+        .credential_backend
+        == CredentialBackend::SystemKeyring)
 }
 
 fn restore_profile_meta(
@@ -1004,6 +1023,39 @@ mod tests {
 
         m.prune(10).unwrap();
         assert_eq!(m.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn prune_removes_secure_backup_secret_with_backup_directory() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", dir.path().join("keychain"));
+        let ps = profile_store(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        secure_store::write_profile_secret(Tool::Claude, "work", br#"{"token":"tok"}"#).unwrap();
+        let meta = ProfileMeta {
+            auth_method: AuthMethod::OAuth,
+            credential_backend: CredentialBackend::SystemKeyring,
+            ..profile_meta()
+        };
+        let profile_dir = ps.profile_dir(Tool::Claude, "work");
+        let backup_path = manager(dir.path())
+            .snapshot(Tool::Claude, "work", &profile_dir, &meta)
+            .unwrap();
+        let backup_id = backup_path
+            .parent()
+            .and_then(|path| path.parent())
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap()
+            .to_owned();
+
+        manager(dir.path()).prune(0).unwrap();
+
+        assert!(manager(dir.path()).list().unwrap().is_empty());
+        let err =
+            secure_store::restore_profile_secret(Tool::Claude, "work", &backup_id).unwrap_err();
+        assert!(err.to_string().contains("missing secure credentials"));
     }
 
     #[test]
