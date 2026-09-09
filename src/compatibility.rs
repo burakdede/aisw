@@ -44,17 +44,57 @@ pub fn assess(tool: Tool, detected: Option<&str>) -> Status {
 }
 
 fn parse_version(raw: &str) -> Option<Version> {
-    raw.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.')
-        .filter_map(|part| part.strip_prefix('v').or(Some(part)))
-        .find_map(|part| {
-            let mut components = part.split('.');
-            let version = Version(
-                components.next()?.parse().ok()?,
-                components.next()?.parse().ok()?,
-                components.next()?.parse().ok()?,
-            );
-            components.next().is_none().then_some(version)
-        })
+    for (start, ch) in raw.char_indices() {
+        let version_start = if ch == 'v'
+            && raw
+                .get(start + ch.len_utf8()..)
+                .and_then(|rest| rest.chars().next())
+                .is_some_and(|next| next.is_ascii_digit())
+        {
+            start + ch.len_utf8()
+        } else if ch.is_ascii_digit() {
+            start
+        } else {
+            continue;
+        };
+
+        let end = raw[version_start..]
+            .char_indices()
+            .find_map(|(offset, ch)| {
+                (!ch.is_ascii_digit() && ch != '.').then_some(version_start + offset)
+            })
+            .unwrap_or(raw.len());
+        let suffix = &raw[end..];
+        if suffix.starts_with('-') || suffix.starts_with('+') {
+            continue;
+        }
+        if suffix
+            .chars()
+            .next()
+            .is_some_and(|next| next.is_ascii_alphanumeric() || next == '.')
+        {
+            continue;
+        }
+
+        let mut components = raw[version_start..end].split('.');
+        let (Some(major), Some(minor), Some(patch)) =
+            (components.next(), components.next(), components.next())
+        else {
+            continue;
+        };
+        if components.next().is_some() {
+            continue;
+        }
+        let (Ok(major), Ok(minor), Ok(patch)) = (
+            major.parse::<u64>(),
+            minor.parse::<u64>(),
+            patch.parse::<u64>(),
+        ) else {
+            continue;
+        };
+        return Some(Version(major, minor, patch));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -90,6 +130,18 @@ mod tests {
         assert_eq!(assess(Tool::Gemini, None), Status::Unknown);
         assert_eq!(
             assess(Tool::Gemini, Some("gemini development")),
+            Status::Unknown
+        );
+    }
+
+    #[test]
+    fn treats_prerelease_and_build_metadata_as_unknown() {
+        assert_eq!(
+            assess(Tool::Codex, Some("codex-cli 0.153.4-beta.1")),
+            Status::Unknown
+        );
+        assert_eq!(
+            assess(Tool::Codex, Some("codex-cli 0.153.4+build.1")),
             Status::Unknown
         );
     }
