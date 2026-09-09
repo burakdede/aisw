@@ -10,28 +10,62 @@ use common::TestEnv;
 const KEYRING_SERVICE: &str = "aisw";
 
 struct CanaryCleanup {
-    accounts: Vec<String>,
+    entries: Vec<CanaryEntry>,
+}
+
+struct CanaryEntry {
+    service: String,
+    account: String,
+    previous: Option<String>,
 }
 
 impl CanaryCleanup {
     fn new() -> Self {
         Self {
-            accounts: Vec::new(),
+            entries: Vec::new(),
         }
     }
 
-    fn track(&mut self, account: String) {
-        self.accounts.push(account);
+    fn track(&mut self, account: String) -> Result<(), keyring::Error> {
+        self.track_entry(KEYRING_SERVICE, account).map(|_| ())
+    }
+
+    fn track_entry(
+        &mut self,
+        service: &str,
+        account: impl Into<String>,
+    ) -> Result<Option<String>, keyring::Error> {
+        let account = account.into();
+        let entry = keyring::Entry::new(service, &account)?;
+        let previous = match entry.get_password() {
+            Ok(password) => Some(password),
+            Err(keyring::Error::NoEntry) => None,
+            Err(error) => return Err(error),
+        };
+        self.entries.push(CanaryEntry {
+            service: service.to_owned(),
+            account,
+            previous: previous.clone(),
+        });
+        Ok(previous)
+    }
+
+    fn restore(&self) {
+        for tracked in &self.entries {
+            if let Ok(entry) = keyring::Entry::new(&tracked.service, &tracked.account) {
+                if let Some(previous) = &tracked.previous {
+                    let _ = entry.set_password(previous);
+                } else {
+                    let _ = entry.delete_credential();
+                }
+            }
+        }
     }
 }
 
 impl Drop for CanaryCleanup {
     fn drop(&mut self) {
-        for account in &self.accounts {
-            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, account) {
-                let _ = entry.delete_credential();
-            }
-        }
+        self.restore();
     }
 }
 
@@ -92,7 +126,12 @@ fn json_output(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> serde_json::Valu
     serde_json::from_slice(&output.stdout).expect("stdout should be valid json")
 }
 
-fn write_config_for_profiles(env: &TestEnv, claude_profiles: &[&str], codex_profiles: &[&str]) {
+fn write_config_for_profiles(
+    env: &TestEnv,
+    claude_profiles: &[&str],
+    codex_profiles: &[&str],
+    antigravity_profiles: &[&str],
+) {
     let claude_json: serde_json::Map<String, serde_json::Value> = claude_profiles
         .iter()
         .map(|name| {
@@ -121,14 +160,29 @@ fn write_config_for_profiles(env: &TestEnv, claude_profiles: &[&str], codex_prof
             )
         })
         .collect();
+    let antigravity_json: serde_json::Map<String, serde_json::Value> = antigravity_profiles
+        .iter()
+        .map(|name| {
+            (
+                (*name).to_owned(),
+                serde_json::json!({
+                    "added_at": "2026-01-01T00:00:00Z",
+                    "auth_method": "o_auth",
+                    "credential_backend": "system_keyring",
+                    "label": null
+                }),
+            )
+        })
+        .collect();
 
     let config = serde_json::json!({
         "version": 1,
-        "active": {"claude": null, "codex": null, "gemini": null},
+        "active": {"claude": null, "codex": null, "gemini": null, "antigravity": null},
         "profiles": {
             "claude": claude_json,
             "codex": codex_json,
-            "gemini": {}
+            "gemini": {},
+            "antigravity": antigravity_json
         },
         "settings": {"backup_on_switch": true, "max_backups": 10}
     });
@@ -155,12 +209,14 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
 
     write_fake_tool(&bin_dir, "claude", "2.1.87 (Claude Code)");
     write_fake_tool(&bin_dir, "codex", "codex-cli 0.117.0");
+    write_fake_tool(&bin_dir, "agy", "agy 1.1.27");
 
     let suffix = canary_suffix();
     let claude_oauth = format!("claude-oauth-{suffix}");
     let claude_api = format!("claude-api-{suffix}");
     let codex_oauth = format!("codex-oauth-{suffix}");
     let codex_api = format!("codex-api-{suffix}");
+    let antigravity = format!("antigravity-{suffix}");
 
     fs::create_dir_all(
         env.aisw_home
@@ -194,6 +250,33 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         b"cli_auth_credentials_store = \"file\"\n",
     )
     .unwrap();
+
+    let antigravity_dir = env
+        .aisw_home
+        .join("profiles")
+        .join("antigravity")
+        .join(&antigravity);
+    fs::create_dir_all(&antigravity_dir).unwrap();
+    fs::write(
+        antigravity_dir.join("keyring.json"),
+        br#"{"service":"gemini","account":"antigravity"}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(antigravity_dir.join("app")).unwrap();
+    fs::write(
+        antigravity_dir.join("app").join("settings.json"),
+        br#"{"modelProvider":"gemini"}"#,
+    )
+    .unwrap();
+    fs::create_dir_all(antigravity_dir.join("shared").join("projects")).unwrap();
+    fs::write(
+        antigravity_dir
+            .join("shared")
+            .join("projects")
+            .join("repo.json"),
+        br#"{"mode":"plan"}"#,
+    )
+    .unwrap();
     fs::write(
         codex_api_dir.join("config.toml"),
         b"cli_auth_credentials_store = \"file\"\n",
@@ -204,6 +287,7 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         &env,
         &[&claude_oauth, &claude_api],
         &[&codex_oauth, &codex_api],
+        &[&antigravity],
     );
 
     let mut cleanup = CanaryCleanup::new();
@@ -211,11 +295,13 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     let claude_api_account = format!("profile:claude:{claude_api}");
     let codex_oauth_account = format!("profile:codex:{codex_oauth}");
     let codex_api_account = format!("profile:codex:{codex_api}");
-
-    cleanup.track(claude_oauth_account.clone());
-    cleanup.track(claude_api_account.clone());
-    cleanup.track(codex_oauth_account.clone());
-    cleanup.track(codex_api_account.clone());
+    let antigravity_account = format!("profile:agy:{antigravity}");
+    cleanup.track(claude_oauth_account.clone()).unwrap();
+    cleanup.track(claude_api_account.clone()).unwrap();
+    cleanup.track(codex_oauth_account.clone()).unwrap();
+    cleanup.track(codex_api_account.clone()).unwrap();
+    cleanup.track(antigravity_account.clone()).unwrap();
+    let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity").unwrap();
 
     keyring::Entry::new(KEYRING_SERVICE, &claude_oauth_account)
         .unwrap()
@@ -233,6 +319,10 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .unwrap()
         .set_password(r#"{"token":"sk-codex-real-canary-token"}"#)
         .unwrap();
+    keyring::Entry::new(KEYRING_SERVICE, &antigravity_account)
+        .unwrap()
+        .set_password(r#"{"email":"real-antigravity@example.com"}"#)
+        .unwrap();
 
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "claude", &claude_oauth]),
@@ -249,6 +339,10 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "codex", &codex_api]),
         "codex api use",
+    );
+    assert_success(
+        &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
+        "antigravity use",
     );
 
     let status = json_output(&env, &bin_dir, &["status", "--json"]);
@@ -270,9 +364,26 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     assert_eq!(codex_row["credential_backend"], "system_keyring");
     assert_eq!(codex_row["credentials_present"], true);
 
+    let antigravity_row = status_rows
+        .iter()
+        .find(|row| row["tool"] == "agy")
+        .expect("antigravity status row should exist");
+    assert_eq!(antigravity_row["active_profile"], antigravity);
+    assert_eq!(antigravity_row["credential_backend"], "system_keyring");
+    assert_eq!(antigravity_row["credentials_present"], true);
+    assert_eq!(
+        fs::read(env.fake_home.join(".gemini/antigravity-cli/settings.json")).unwrap(),
+        br#"{"modelProvider":"gemini"}"#
+    );
+    assert_eq!(
+        fs::read(env.fake_home.join(".gemini/config/projects/repo.json")).unwrap(),
+        br#"{"mode":"plan"}"#
+    );
+
     let list = json_output(&env, &bin_dir, &["list", "--json"]);
     assert_eq!(list["claude"]["active"], claude_api);
     assert_eq!(list["codex"]["active"], codex_api);
+    assert_eq!(list["agy"]["active"], antigravity);
 
     assert_success(
         &canary_cmd(
@@ -302,4 +413,19 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         ),
         "codex api remove",
     );
+    assert_success(
+        &canary_cmd(
+            &env,
+            &bin_dir,
+            &["remove", "antigravity", &antigravity, "--yes", "--force"],
+        ),
+        "antigravity remove",
+    );
+
+    cleanup.restore();
+    let restored_live_secret = keyring::Entry::new("gemini", "antigravity")
+        .unwrap()
+        .get_password()
+        .ok();
+    assert_eq!(restored_live_secret, previous_antigravity_live_secret);
 }
