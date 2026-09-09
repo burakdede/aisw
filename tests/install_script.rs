@@ -294,6 +294,23 @@ fn install_script_defaults_to_home_local_bin() {
     assert!(stdout.contains("Note:"));
 }
 
+#[cfg(unix)]
+#[test]
+fn install_script_rejects_symlinked_binary_destination() {
+    let env = InstallerEnv::new("Linux", "x86_64");
+    let install_dir = env.home_dir.join("install");
+    let outside_target = env.home_dir.join("outside");
+    fs::create_dir_all(&install_dir).unwrap();
+    fs::write(&outside_target, "keep me\n").unwrap();
+    std::os::unix::fs::symlink(&outside_target, install_dir.join("aisw")).unwrap();
+
+    let output = env.run(None, Some(&install_dir));
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read_to_string(&outside_target).unwrap(), "keep me\n");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("symlinked binary destination"));
+}
+
 #[test]
 fn install_script_uses_expected_target_for_supported_platforms() {
     for (os, arch) in [

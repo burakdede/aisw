@@ -22,6 +22,10 @@ description: aisw security posture  -  local-only credential storage, OS keyring
 
 Credentials are stored under `~/.aisw/profiles/<tool>/<name>/`. The central config file `~/.aisw/config.json` contains only profile metadata (name, auth method, timestamps, labels). It does not contain credential material.
 
+The shell installer refuses to write through a symlinked install directory or
+binary destination. This prevents a stale `aisw` link from redirecting an
+upgrade outside the directory selected by `AISW_INSTALL_DIR`.
+
 For keyring-backed profiles, the sensitive credential bytes are stored in the OS keyring. The profile directory on disk contains a minimal reference or empty file; the actual secret lives in the keyring.
 
 ### File permissions
