@@ -74,6 +74,10 @@ All operations are local filesystem and OS keyring operations. You can audit thi
 
 Profile activation uses a snapshot-and-apply model. Before writing any live credential file, the current live state is captured. If any file write fails partway through, the snapshot is restored atomically. You never end up with a partially applied profile.
 
+If the commit and its automatic rollback both fail, `aisw` reports both errors
+so the operator knows that live state needs inspection before retrying. Staged
+file cleanup failures are reported alongside the operation error as well.
+
 This is particularly important for Claude Code, which stores credentials across multiple locations (the credentials file and OAuth account metadata in `~/.claude.json`). A failed write to either location triggers a full rollback.
 
 ### Backups before destructive operations
