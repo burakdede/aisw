@@ -89,6 +89,11 @@ aisw backup list --json
 aisw doctor --json
 ```
 
+The machine-readable doctor result keeps its existing `checks` array and adds
+an additive top-level `ok` boolean. Use it when a caller needs the diagnostic
+result in the same JSON document rather than deriving it from individual
+checks; the command still exits non-zero when `ok` is `false`.
+
 With `--json`, success and expected command failures are emitted as structured JSON on stdout. Human-oriented stdout/stderr output is suppressed. The process still exits non-zero on failure.
 
 Mutation results are wrapped in a top-level `result` object. For `use`,

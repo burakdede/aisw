@@ -644,6 +644,10 @@ aisw doctor
 aisw doctor --json
 ```
 
+`doctor --json` preserves the `checks` array and adds an additive top-level
+`ok` boolean. It is `true` when no check has status `fail`; the process still
+uses a non-zero exit code when `ok` is `false`.
+
 ---
 
 ## `aisw verify`

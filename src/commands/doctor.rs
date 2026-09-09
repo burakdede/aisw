@@ -395,12 +395,15 @@ fn print_text(report: &DoctorReport) {
     }
 }
 
+#[derive(Serialize)]
+struct DoctorJsonOutput<'a> {
+    ok: bool,
+    checks: &'a [CheckResult],
+}
+
 fn print_json(report: &DoctorReport) -> Result<()> {
-    #[derive(Serialize)]
-    struct Output<'a> {
-        checks: &'a [CheckResult],
-    }
-    let out = serde_json::to_string_pretty(&Output {
+    let out = serde_json::to_string_pretty(&DoctorJsonOutput {
+        ok: !report.any_failed(),
         checks: &report.checks,
     })?;
     println!("{out}");
@@ -750,5 +753,30 @@ mod tests {
         let args = DoctorArgs { json: true };
         // Should not panic or error.
         let _ = run_in(args, &home, &user_home, std::ffi::OsStr::new(""));
+    }
+
+    #[test]
+    fn doctor_json_includes_overall_result_without_changing_checks() {
+        let report = DoctorReport {
+            checks: vec![CheckResult::pass("config/json", "valid")],
+        };
+        let output = serde_json::to_value(DoctorJsonOutput {
+            ok: !report.any_failed(),
+            checks: &report.checks,
+        })
+        .unwrap();
+
+        assert_eq!(output["ok"], true);
+        assert_eq!(output["checks"].as_array().unwrap().len(), 1);
+
+        let failed_report = DoctorReport {
+            checks: vec![CheckResult::fail("config/json", "invalid")],
+        };
+        let failed_output = serde_json::to_value(DoctorJsonOutput {
+            ok: !failed_report.any_failed(),
+            checks: &failed_report.checks,
+        })
+        .unwrap();
+        assert_eq!(failed_output["ok"], false);
     }
 }
