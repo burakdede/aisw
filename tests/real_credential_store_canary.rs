@@ -78,6 +78,31 @@ fn assert_entry_absent(service: &str, account: &str) {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
+    if std::env::var_os("GITHUB_ACTIONS").is_none() {
+        return;
+    }
+    let output = std::process::Command::new("security")
+        .args([
+            "add-generic-password",
+            "-A",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-w",
+            "aisw-canary-placeholder",
+        ])
+        .output()
+        .expect("security should be available on macOS");
+    assert!(
+        output.status.success(),
+        "could not preauthorize disposable keychain entry {service}/{account}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn canary_suffix() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -331,6 +356,17 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     cleanup.track(codex_api_account.clone()).unwrap();
     cleanup.track(antigravity_account.clone()).unwrap();
     let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity").unwrap();
+
+    for account in [
+        &claude_oauth_account,
+        &claude_api_account,
+        &codex_oauth_account,
+        &codex_api_account,
+        &antigravity_account,
+    ] {
+        preauthorize_ci_keychain_entry(KEYRING_SERVICE, account);
+    }
+    preauthorize_ci_keychain_entry("gemini", "antigravity");
 
     keyring::Entry::new(KEYRING_SERVICE, &claude_oauth_account)
         .unwrap()
