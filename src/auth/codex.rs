@@ -28,7 +28,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const OAUTH_CAPTURE_DIR: &str = ".oauth-capture";
 
 fn live_dir(user_home: &Path) -> PathBuf {
-    user_home.join(".codex")
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| user_home.join(".codex"))
 }
 
 fn live_auth_path(user_home: &Path) -> PathBuf {
