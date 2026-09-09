@@ -120,15 +120,30 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
         .nth(2)
         .and_then(|path| path.file_name())
         .and_then(|name| name.to_str())
-        .map(str::to_owned);
+        .map(str::to_owned)
+        .context("could not determine backup id after creating removal backup")?;
 
-    if profile_meta.credential_backend == crate::config::CredentialBackend::SystemKeyring {
-        auth::secure_store::delete_profile_secret(args.tool, profile_name)?;
+    let removal_result = (|| -> Result<()> {
+        if profile_meta.credential_backend == crate::config::CredentialBackend::SystemKeyring {
+            auth::secure_store::delete_profile_secret(args.tool, profile_name)?;
+        }
+        profile_store.delete(args.tool, profile_name)?;
+        // `remove_profile` also clears `active` in the same locked mutation, so
+        // there is no window where `active` names a profile that no longer exists.
+        config_store.remove_profile(args.tool, profile_name)?;
+        Ok(())
+    })();
+
+    if let Err(err) = removal_result {
+        let rollback_result =
+            BackupManager::new(home).restore(&backup_id, &profile_store, &config_store);
+        return Err(match rollback_result {
+            Ok(()) => err.context("profile removal failed; restored the profile from its backup"),
+            Err(rollback_err) => err
+                .context("profile removal failed and automatic restoration was incomplete")
+                .context(format!("could not restore removal backup: {rollback_err}")),
+        });
     }
-    profile_store.delete(args.tool, profile_name)?;
-    // `remove_profile` also clears `active` in the same locked mutation, so
-    // there is no window where `active` names a profile that no longer exists.
-    config_store.remove_profile(args.tool, profile_name)?;
 
     if args.json {
         machine::print_success(
@@ -137,7 +152,7 @@ pub(crate) fn run_inner(args: RemoveArgs, home: &Path, confirmed: bool) -> Resul
                 "tool": args.tool.binary_name(),
                 "removed_profile": profile_name,
                 "was_active": is_active,
-                "backup_ids": backup_id.into_iter().collect::<Vec<_>>(),
+                "backup_ids": vec![backup_id],
                 "remaining_profiles": remaining_profiles(home, args.tool)?,
             }),
         )?;
@@ -495,6 +510,49 @@ mod tests {
         assert!(backups_dir.exists());
         let entries: Vec<_> = fs::read_dir(&backups_dir).unwrap().collect();
         assert!(!entries.is_empty());
+    }
+
+    #[test]
+    fn config_save_failure_restores_profile_from_removal_backup() {
+        let tmp = tempdir().unwrap();
+        let ps = ProfileStore::new(tmp.path());
+        let cs = ConfigStore::new(tmp.path());
+        auth::claude::add_api_key(
+            &ps,
+            &cs,
+            "work",
+            "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            None,
+        )
+        .unwrap();
+        let profile_file = ps
+            .profile_dir(Tool::Claude, "work")
+            .join(".credentials.json");
+        let expected_profile_file = fs::read(&profile_file).unwrap();
+        fs::create_dir(tmp.path().join("config.json.tmp")).unwrap();
+
+        let err = run_inner(
+            RemoveArgs {
+                tool: Tool::Claude,
+                profile_name: Some("work".to_owned()),
+                yes: true,
+                force: true,
+                json: false,
+            },
+            tmp.path(),
+            true,
+        )
+        .unwrap_err();
+
+        assert!(format!("{err:#}").contains("profile removal failed"));
+        assert!(ps.exists(Tool::Claude, "work"));
+        assert_eq!(fs::read(profile_file).unwrap(), expected_profile_file);
+        assert!(cs
+            .load()
+            .unwrap()
+            .profiles_for(Tool::Claude)
+            .contains_key("work"));
+        assert!(!BackupManager::new(tmp.path()).list().unwrap().is_empty());
     }
 
     #[test]

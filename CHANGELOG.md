@@ -42,6 +42,7 @@
 - `aisw doctor` no longer reports a false `credentials file missing` failure for every Gemini profile. It now checks the files a profile actually stores rather than one hardcoded name per tool, which also stopped `aisw verify` from inheriting the failure.
 - Antigravity is now guarded by the generated shell hooks and included in `workspace status --json` and `status --context --json`.
 - OAuth capture no longer leaves an orphaned interactive login process when a step inside the polling loop fails.
+- Failed profile removals now attempt to restore the fresh backup and report when automatic recovery is incomplete.
 
 ### Performance
 
