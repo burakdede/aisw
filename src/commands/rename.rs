@@ -417,6 +417,10 @@ mod tests {
             None,
         )
         .unwrap();
+        let profile_file = ps
+            .profile_dir(Tool::Claude, "default")
+            .join(".credentials.json");
+        let expected_profile_file = fs::read(&profile_file).unwrap();
         fs::create_dir(tmp.path().join("config.json.tmp")).unwrap();
 
         let err = run_inner(rename_args(Tool::Claude, "default", "work"), tmp.path()).unwrap_err();
@@ -424,6 +428,7 @@ mod tests {
         assert!(format!("{err:#}").contains("config.json.tmp"));
         assert!(ps.exists(Tool::Claude, "default"));
         assert!(!ps.exists(Tool::Claude, "work"));
+        assert_eq!(fs::read(profile_file).unwrap(), expected_profile_file);
         assert!(cs
             .load()
             .unwrap()
