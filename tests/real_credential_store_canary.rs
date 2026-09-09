@@ -263,7 +263,7 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
 
     write_fake_tool(&bin_dir, "claude", "2.1.87 (Claude Code)");
     write_fake_tool(&bin_dir, "codex", "codex-cli 0.117.0");
-    write_fake_tool(&bin_dir, "agy", "agy 1.1.27");
+    write_fake_tool(&bin_dir, "agy", "agy 1.1.28");
 
     let suffix = canary_suffix();
     let claude_oauth = format!("claude-oauth-{suffix}");

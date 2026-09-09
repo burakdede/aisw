@@ -24,10 +24,10 @@ struct Version(u64, u64, u64);
 
 pub fn baseline(tool: Tool) -> &'static str {
     match tool {
-        Tool::Claude => "v2.1.263",
+        Tool::Claude => "v2.1.266",
         Tool::Codex => "rust-v0.153.4",
-        Tool::Gemini => "v0.58.0",
-        Tool::Antigravity => "1.1.27",
+        Tool::Gemini => "v0.59.0",
+        Tool::Antigravity => "1.1.28",
     }
 }
 
@@ -64,10 +64,10 @@ mod tests {
     #[test]
     fn recognizes_each_audited_release() {
         for (tool, version) in [
-            (Tool::Claude, "claude 2.1.263"),
+            (Tool::Claude, "claude 2.1.266"),
             (Tool::Codex, "codex-cli 0.153.4"),
-            (Tool::Gemini, "gemini 0.58.0"),
-            (Tool::Antigravity, "agy 1.1.27"),
+            (Tool::Gemini, "gemini 0.59.0"),
+            (Tool::Antigravity, "agy 1.1.28"),
         ] {
             assert_eq!(assess(tool, Some(version)), Status::Verified);
         }
