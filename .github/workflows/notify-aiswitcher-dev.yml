@@ -22,7 +22,7 @@ jobs:
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "AISWITCHER_DEV_DISPATCH_TOKEN secret is not set. Skipping." >&2
-            exit 1
+            exit 0
           fi
           status=$(curl -s -o /dev/null -w "%{http_code}" \
             -X POST \
