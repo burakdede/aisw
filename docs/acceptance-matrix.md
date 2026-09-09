@@ -4,7 +4,7 @@ This matrix records the current end-to-end acceptance status for supported `aisw
 
 ## Versioned compatibility baseline
 
-The baseline below records the upstream releases checked against `aisw` `0.3.8` at commit `f28aaf9`, verified on 2026-09-08. The release pins make the audit reproducible; they are not a guarantee that a future upstream release preserves the same storage contracts. Verification is based on the repository's unit and integration tests plus the documented upstream release and authentication behavior; it does not claim that each vendor binary was installed on every listed operating system in CI.
+The baseline below records the upstream releases checked against `aisw` `0.3.8` at commit `457b009`, verified on 2026-09-09. The release pins make the audit reproducible; they are not a guarantee that a future upstream release preserves the same storage contracts. Verification is based on the repository's unit and integration tests plus the documented upstream release and authentication behavior; it does not claim that each vendor binary was installed on every listed operating system in CI.
 
 | Agent | Upstream release | OS coverage | Compatibility basis | Result | Sources |
 | --- | --- | --- | --- | --- | --- |
