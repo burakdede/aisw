@@ -176,10 +176,24 @@ fn stage_changes(changes: Vec<LiveFileChange>) -> Result<Vec<PreparedChange>> {
                     .with_context(|| format!("could not create {}", parent.display()))?;
 
                 let staged_path = staged_path_for(&path);
-                maybe_inject_fault("live_apply.stage_write")?;
-                std::fs::write(&staged_path, &contents)
-                    .with_context(|| format!("could not write {}", staged_path.display()))?;
-                set_permissions_600(&staged_path)?;
+                let stage_result = (|| -> Result<()> {
+                    maybe_inject_fault("live_apply.stage_write")?;
+                    std::fs::write(&staged_path, &contents)
+                        .with_context(|| format!("could not write {}", staged_path.display()))?;
+                    set_permissions_600(&staged_path)
+                })();
+                if let Err(stage_error) = stage_result {
+                    let cleanup_result = cleanup_staged_paths(
+                        prepared.iter().filter_map(PreparedChange::staged_path),
+                        Some(&staged_path),
+                    );
+                    return match cleanup_result {
+                        Ok(()) => Err(stage_error),
+                        Err(cleanup_error) => Err(anyhow!(
+                            "{stage_error:#}\nStaged-file cleanup also failed: {cleanup_error:#}"
+                        )),
+                    };
+                }
                 prepared.push(PreparedChange::Write { path, staged_path });
             }
             LiveFileChange::Delete { path } => prepared.push(PreparedChange::Delete { path }),
@@ -265,16 +279,42 @@ fn restore_original_state(path: &Path, snapshot: &OriginalFileState) -> Result<(
 }
 
 fn cleanup_staged_files(prepared: &[PreparedChange]) -> Result<()> {
-    for change in prepared {
-        if let PreparedChange::Write { staged_path, .. } = change {
-            if staged_path.exists() {
-                std::fs::remove_file(staged_path).with_context(|| {
-                    format!("could not clean up staged file {}", staged_path.display())
-                })?;
+    cleanup_staged_paths(
+        prepared.iter().filter_map(PreparedChange::staged_path),
+        None,
+    )
+}
+
+impl PreparedChange {
+    fn staged_path(&self) -> Option<&Path> {
+        match self {
+            Self::Write { staged_path, .. } => Some(staged_path),
+            Self::Delete { .. } => None,
+        }
+    }
+}
+
+fn cleanup_staged_paths<'a>(
+    paths: impl IntoIterator<Item = &'a Path>,
+    extra_path: Option<&'a Path>,
+) -> Result<()> {
+    let mut first_error = None;
+    for path in paths.into_iter().chain(extra_path) {
+        if !path.exists() {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(path)
+            .with_context(|| format!("could not clean up staged file {}", path.display()))
+        {
+            if first_error.is_none() {
+                first_error = Some(error);
             }
         }
     }
-    Ok(())
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 fn staged_path_for(dest: &Path) -> PathBuf {
@@ -534,6 +574,42 @@ mod tests {
         assert!(
             entries.iter().all(|name| !name.contains(".aisw-stage-")),
             "staged files should be removed after failure: {entries:?}"
+        );
+
+        reset_fault_state();
+    }
+
+    #[test]
+    fn cleans_up_earlier_staged_files_when_later_stage_fails() {
+        let _guard = fault_env_lock().lock().unwrap();
+        reset_fault_state();
+
+        let dir = tempdir().unwrap();
+        let first = dir.path().join("auth.json");
+        let second = dir.path().join("config.toml");
+
+        // SAFETY: serialized by `fault_env_lock`.
+        unsafe {
+            std::env::set_var("AISW_FAULT_INJECTION", "live_apply.stage_write:2");
+        }
+
+        let err = apply_transaction(
+            dir.path(),
+            vec![
+                LiveFileChange::write(first, b"secret".to_vec()),
+                LiveFileChange::write(second, b"config".to_vec()),
+            ],
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("live_apply.stage_write"));
+        let entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            entries.iter().all(|name| !name.contains(".aisw-stage-")),
+            "staged files should be removed after staging failure: {entries:?}"
         );
 
         reset_fault_state();
