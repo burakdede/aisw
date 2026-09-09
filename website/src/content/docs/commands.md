@@ -577,7 +577,8 @@ aisw backup restore <backup_id> [--yes] [--json]
 ```
 
 Restore profile files and credentials from a backup. Profile metadata is saved
-only after restoration succeeds, and file writes are applied as one
+only after restoration succeeds. All backup entries are validated before any
+files are changed, and each profile's file writes are applied as one
 rollback-capable transaction. Does not activate the profile; run `aisw use`
 after restore.
 
