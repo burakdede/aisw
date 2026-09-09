@@ -5,8 +5,9 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 
+use crate::error::AiswError;
 use crate::types::Tool;
 
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
@@ -62,22 +63,14 @@ pub fn detect_all() -> HashMap<Tool, Option<DetectedTool>> {
 pub fn require(tool: Tool) -> Result<DetectedTool> {
     match detect(tool) {
         Some(d) => Ok(d),
-        None => bail!(
-            "{} is not installed or not found on PATH.\n  \
-             Install it and make sure the binary is on your PATH.",
-            tool.binary_name()
-        ),
+        None => Err(AiswError::ToolNotInstalled { tool }.into()),
     }
 }
 
 pub(crate) fn require_in(tool: Tool, path: OsString) -> Result<DetectedTool> {
     match detect_in(tool, path) {
         Some(d) => Ok(d),
-        None => bail!(
-            "{} is not installed or not found on PATH.\n  \
-             Install it and make sure the binary is on your PATH.",
-            tool.binary_name()
-        ),
+        None => Err(AiswError::ToolNotInstalled { tool }.into()),
     }
 }
 
