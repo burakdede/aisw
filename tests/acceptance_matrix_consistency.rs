@@ -114,7 +114,7 @@ fn acceptance_matrix_records_current_versioned_agent_baseline() {
         "versioned compatibility baseline should record its verification date"
     );
     assert!(
-        matrix.contains("against `aisw` `0.3.8` at commit `457b009`"),
+        matrix.contains("against `aisw` `0.3.8` at commit `3da8323`"),
         "versioned compatibility baseline should identify the aisw baseline"
     );
 
