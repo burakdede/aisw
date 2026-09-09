@@ -1,12 +1,13 @@
 use std::io::IsTerminal;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use dialoguer::{theme::ColorfulTheme, Input, Select};
 
 use crate::auth;
 use crate::backup::BackupManager;
 use crate::cli::UseArgs;
+use crate::commands::context::{restore_live_state_for_context, snapshot_live_state_for_context};
 use crate::config::{AuthMethod, ConfigStore, ProfileMeta};
 use crate::error::AiswError;
 use crate::machine;
@@ -182,13 +183,14 @@ fn run_for_tool_unlocked(
         home,
         user_home,
     )?;
-    let warnings = apply_resolved_profile_switch(&resolved, emit_env, home, user_home)?;
-
-    ConfigStore::new(home).activate_profile(
-        tool,
-        &resolved.profile_name,
-        tool.supports_state_mode().then_some(resolved.state_mode),
-    )?;
+    let warnings = apply_and_activate_profile_switch(&resolved, emit_env, home, user_home, || {
+        ConfigStore::new(home).activate_profile(
+            tool,
+            &resolved.profile_name,
+            tool.supports_state_mode().then_some(resolved.state_mode),
+        )?;
+        Ok(())
+    })?;
 
     if json {
         let after_backup_ids = backup_ids_for(home, Some(tool))?;
@@ -208,6 +210,48 @@ fn run_for_tool_unlocked(
     }
 
     Ok(warnings)
+}
+
+fn apply_and_activate_profile_switch<F>(
+    resolved: &ResolvedProfileSwitch,
+    emit_env: bool,
+    home: &Path,
+    user_home: &Path,
+    activate: F,
+) -> Result<Vec<String>>
+where
+    F: FnOnce() -> Result<()>,
+{
+    let snapshots = (!emit_env)
+        .then(|| snapshot_live_state_for_context(std::slice::from_ref(resolved), user_home))
+        .transpose()?;
+    let switch_result = (|| -> Result<Vec<String>> {
+        let warnings = apply_resolved_profile_switch(resolved, emit_env, home, user_home)?;
+        activate()?;
+        Ok(warnings)
+    })();
+
+    let warnings = match switch_result {
+        Ok(warnings) => warnings,
+        Err(err) => {
+            if let Some(snapshots) = snapshots {
+                return match restore_live_state_for_context(&snapshots, user_home) {
+                    Ok(()) => Err(err),
+                    Err(rollback_err) => Err(switch_failure_with_rollback_error(err, rollback_err)),
+                };
+            }
+            return Err(err);
+        }
+    };
+
+    Ok(warnings)
+}
+
+fn switch_failure_with_rollback_error(
+    switch_error: anyhow::Error,
+    rollback_error: anyhow::Error,
+) -> anyhow::Error {
+    anyhow!("{switch_error:#}\nAutomatic rollback also failed: {rollback_error:#}")
 }
 
 pub(crate) fn resolve_profile_switch_request(
@@ -1216,6 +1260,45 @@ mod tests {
 
         let config = ConfigStore::new(&home).load().unwrap();
         assert_eq!(config.active_for(Tool::Claude), Some("work"));
+    }
+
+    #[test]
+    fn failed_activation_restores_live_profile_state() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        fs::create_dir_all(&home).unwrap();
+        setup_claude_api_key_profile(&home, "work");
+
+        let resolved = resolve_profile_switch_request(
+            Tool::Claude,
+            Some("work"),
+            None,
+            false,
+            &home,
+            &user_home,
+        )
+        .unwrap();
+        let err = apply_and_activate_profile_switch(&resolved, false, &home, &user_home, || {
+            Err(anyhow!("config activation failed"))
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("config activation failed"));
+        assert!(!user_home.join(".claude/.credentials.json").exists());
+    }
+
+    #[test]
+    fn rollback_failure_keeps_original_switch_error() {
+        let err = switch_failure_with_rollback_error(
+            anyhow!("config activation failed"),
+            anyhow!("permission denied restoring credentials"),
+        );
+        let message = err.to_string();
+        assert!(message.contains("config activation failed"));
+        assert!(message.contains("permission denied restoring credentials"));
     }
 
     #[test]

@@ -27,6 +27,8 @@
 - Backup restore now commits profile metadata only after its files and secure
   credentials have been restored successfully, and applies file writes as one
   rollback-capable transaction.
+- Failed profile switches now restore live agent state before returning, and
+  retain both the original switch error and any rollback failure details.
 - Failed backup snapshots now clean up partial files and secure-store backup
   entries instead of leaving incomplete recovery artifacts behind.
 - `aisw doctor` now fails clearly when `config.json` uses a schema newer than
@@ -43,6 +45,7 @@
 - Antigravity is now guarded by the generated shell hooks and included in `workspace status --json` and `status --context --json`.
 - OAuth capture no longer leaves an orphaned interactive login process when a step inside the polling loop fails.
 - Profile rename failures now report when a compensating directory or keyring rollback is incomplete.
+- Failed `aisw init` imports now remove newly copied Claude, Codex, and Gemini credentials when profile registration fails.
 - Failed Gemini API-key and OAuth registrations now remove the newly created profile when the config write fails.
 - Failed profile removals now attempt to restore the fresh backup and report when automatic recovery is incomplete.
 
