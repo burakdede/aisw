@@ -72,7 +72,18 @@ aisw backup list --json
 aisw doctor --json
 ```
 
+The machine-readable doctor result keeps its existing `checks` array and adds
+an additive top-level `ok` boolean. Use it when a caller needs the diagnostic
+result in the same JSON document rather than deriving it from individual
+checks; the command still exits non-zero when `ok` is `false`.
+
 With `--json`, success and expected command failures are emitted as structured JSON on stdout. Human-oriented stdout/stderr output is suppressed. The process still exits non-zero on failure.
+
+Mutation results are wrapped in a top-level `result` object. For `use`,
+`result.warnings` contains non-fatal diagnostics such as a failed OAuth
+profile synchronization; an empty array means no such diagnostic was raised.
+Warnings never include credential contents. In `--emit-env` mode, stdout
+remains executable shell code and diagnostics stay on stderr.
 
 For OAuth-based `add`, use `--progress-json` to stream newline-delimited JSON progress events:
 
@@ -212,7 +223,7 @@ eval "$(aisw context use acme --emit-env)"
 
 ## Concurrency
 
-Commands that write `~/.aisw/config.json` take an exclusive file lock. If two `aisw` commands run concurrently, the second will wait briefly then fail with a lock error. This prevents partial writes in parallel CI matrix jobs. Design your CI steps so profile setup runs before parallel job steps that invoke the tools.
+Commands that write `~/.aisw/config.json` take an exclusive file lock. `aisw use` and `aisw context use` also take an operation lock across the complete live profile switch, including active-profile metadata. If two switching commands run concurrently, the second waits briefly then fails with a lock error. Design your CI steps so profile setup and switching run before parallel job steps that invoke the tools.
 
 ## Common CI patterns
 

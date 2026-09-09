@@ -214,6 +214,13 @@ fn detect_live_accounts(
             user_home,
             detected.get(&Tool::Gemini).and_then(|entry| entry.as_ref()),
         )?,
+        detect_live_antigravity(
+            aisw_home,
+            user_home,
+            detected
+                .get(&Tool::Antigravity)
+                .and_then(|entry| entry.as_ref()),
+        )?,
     ])
 }
 
@@ -713,6 +720,7 @@ fn detect_live_codex(
                 auth::codex::LiveAuthStorage::Keyring => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json or the system keyring.".to_owned(),
                 auth::codex::LiveAuthStorage::Auto => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json. Codex may be using the system keyring instead of a file backend.".to_owned(),
                 auth::codex::LiveAuthStorage::File => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json even though the configured backend is file.".to_owned(),
+                auth::codex::LiveAuthStorage::Ephemeral => "Codex is configured for ephemeral credentials, which are process-local and cannot be imported by aisw. Use a durable file or keyring auth mode before running init.".to_owned(),
                 auth::codex::LiveAuthStorage::Unknown => "Codex local state exists, but aisw could not find importable auth in ~/.codex/auth.json. The configured auth backend is not recognized.".to_owned(),
             })
         } else {
@@ -842,6 +850,81 @@ fn detect_live_gemini(
             "Both Gemini API key (.env) and OAuth cache were found. Detection follows .env precedence."
                 .to_owned(),
         ),
+    })
+}
+
+fn detect_live_antigravity(
+    aisw_home: &Path,
+    user_home: &Path,
+    detected: Option<&DetectedTool>,
+) -> Result<LiveAccountStatus> {
+    let profile_store = ProfileStore::new(aisw_home);
+    let config_store = ConfigStore::new(aisw_home);
+    let app_dir = auth::antigravity::live_app_dir(user_home);
+    let shared_dir = auth::antigravity::live_shared_dir(user_home);
+    let local_state = (app_dir.exists() || shared_dir.exists())
+        .then(|| user_home.join(".gemini").display().to_string());
+    let Some(snapshot) = auth::antigravity::live_credentials_snapshot_for_import(user_home)? else {
+        return Ok(LiveAccountStatus {
+            tool: Tool::Antigravity.binary_name(),
+            detected: detected.is_some(),
+            outcome: if local_state.is_some() {
+                "local_state_without_importable_auth"
+            } else {
+                "no_live_auth"
+            },
+            auth_method: None,
+            source_description: None,
+            existing_profile: None,
+            local_state,
+            note: None,
+        });
+    };
+
+    let Some(secret) = snapshot.keyring_secret.as_deref() else {
+        return Ok(LiveAccountStatus {
+            tool: Tool::Antigravity.binary_name(),
+            detected: detected.is_some(),
+            outcome: "local_state_without_importable_auth",
+            auth_method: None,
+            source_description: Some(format!(
+                "found {} config roots without a readable live keyring credential",
+                user_home.join(".gemini").display()
+            )),
+            existing_profile: None,
+            local_state,
+            note: Some(
+                "Antigravity config state exists, but its shared OS keyring credential was not readable."
+                    .to_owned(),
+            ),
+        });
+    };
+
+    let existing_profile = auth::identity::existing_antigravity_oauth_profile_for_live_secret(
+        &profile_store,
+        &config_store,
+        Some(secret),
+    )?;
+    let keyring_ref = snapshot.keyring_ref;
+
+    Ok(LiveAccountStatus {
+        tool: Tool::Antigravity.binary_name(),
+        detected: detected.is_some(),
+        outcome: if existing_profile.is_some() {
+            "already_managed"
+        } else {
+            "detected"
+        },
+        auth_method: Some("oauth"),
+        source_description: Some(format!(
+            "found {} ({}/{})",
+            auth::system_keyring::display_name(),
+            keyring_ref.service,
+            keyring_ref.account
+        )),
+        existing_profile,
+        local_state,
+        note: None,
     })
 }
 
@@ -1101,6 +1184,11 @@ fn import_codex(
                 auth::codex::LiveAuthStorage::File => output::print_info(
                     "Codex local state exists, but aisw could not find importable auth in \
                      ~/.codex/auth.json even though the configured backend is file.",
+                ),
+                auth::codex::LiveAuthStorage::Ephemeral => output::print_info(
+                    "Codex is configured for ephemeral credentials, which are process-local and \
+                     cannot be imported by aisw. Use a durable file or keyring auth mode before \
+                     running init.",
                 ),
                 auth::codex::LiveAuthStorage::Unknown => output::print_info(
                     "Codex local state exists, but aisw could not find importable auth in \
@@ -1411,6 +1499,43 @@ mod tests {
         assert_eq!(status.outcome, "detected");
         assert_eq!(status.auth_method, Some("api_key"));
         assert!(status.note.unwrap().contains(".env precedence"));
+    }
+
+    #[test]
+    fn detect_live_antigravity_reports_shared_keyring_oauth() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let tmp = tempdir().unwrap();
+        let aisw_home = tmp.path().join("aisw");
+        let user_home = tmp.path().join("home");
+        let keyring_root = tmp.path().join("keyring");
+        fs::create_dir_all(auth::antigravity::live_app_dir(&user_home)).unwrap();
+        fs::write(
+            auth::antigravity::live_app_dir(&user_home).join("settings.json"),
+            br#"{"theme":"dark"}"#,
+        )
+        .unwrap();
+        let _keyring =
+            crate::auth::test_overrides::EnvVarGuard::set("AISW_KEYRING_TEST_DIR", &keyring_root);
+        auth::system_keyring::upsert_generic_password(
+            "gemini",
+            "antigravity",
+            br#"{"email":"agy@example.com"}"#,
+        )
+        .unwrap();
+
+        let status = detect_live_antigravity(&aisw_home, &user_home, None).unwrap();
+
+        assert_eq!(status.tool, "agy");
+        assert_eq!(status.outcome, "detected");
+        assert_eq!(status.auth_method, Some("oauth"));
+        assert_eq!(
+            status.local_state,
+            Some(user_home.join(".gemini").display().to_string())
+        );
+        assert!(status
+            .source_description
+            .unwrap()
+            .contains("gemini/antigravity"));
     }
 
     #[test]

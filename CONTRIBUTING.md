@@ -94,3 +94,9 @@ Short subject line. No "feat:"/"fix:" prefixes. No bullet lists in the body unle
 ## Pull requests
 
 One logical change per PR. If a PR needs a long explanation, the code probably needs simplification first.
+
+Stacked pull requests are supported when a change depends on another open
+branch. Each stack member receives the normal hosted CI checks. Keep the
+dependency visible in the PR description and retarget the dependent PR to
+`main` after its parent merges when GitHub does not update the base
+automatically.

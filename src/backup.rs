@@ -52,6 +52,15 @@ impl BackupManager {
         profile_meta: &ProfileMeta,
     ) -> Result<PathBuf> {
         profile_meta.credential_backend.validate_for_tool(tool)?;
+        let expected_profile_dir = ProfileStore::new(&self.home)
+            .validated_profile_dir(tool, name)
+            .with_context(|| format!("could not validate profile '{}' for backup", name))?;
+        if profile_dir != expected_profile_dir {
+            bail!(
+                "refusing to snapshot unexpected profile path '{}'",
+                profile_dir.display()
+            );
+        }
         let backup_id = backup_id_now();
         let dest = self
             .backups_dir()
@@ -185,12 +194,12 @@ impl BackupManager {
                     continue;
                 }
 
-                let dest_dir = profile_store.profile_dir(tool, &profile_name);
+                let dest_dir = profile_store.validated_profile_dir(tool, &profile_name)?;
                 let profile_meta =
                     restore_profile_meta(config_store, tool, &profile_name, &profile_path)?;
                 profile_meta.credential_backend.validate_for_tool(tool)?;
 
-                let restored_files = restore_profile_tree(&profile_path, &dest_dir)?;
+                let restored_files = restore_profile_tree(&self.home, &profile_path, &dest_dir)?;
                 restored += restored_files;
 
                 if profile_meta.credential_backend == CredentialBackend::SystemKeyring {
@@ -285,7 +294,7 @@ fn copy_profile_tree(src_root: &Path, dest_root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn restore_profile_tree(src_root: &Path, dest_root: &Path) -> Result<usize> {
+fn restore_profile_tree(home: &Path, src_root: &Path, dest_root: &Path) -> Result<usize> {
     let mut changes = Vec::new();
     for file in crate::auth::files::list_regular_files_recursive(src_root)? {
         if file.file_name == METADATA_FILE {
@@ -298,7 +307,7 @@ fn restore_profile_tree(src_root: &Path, dest_root: &Path) -> Result<usize> {
         changes.push(crate::live_apply::LiveFileChange::write(dst, contents));
     }
     let restored = changes.len();
-    crate::live_apply::apply_transaction(changes)?;
+    crate::live_apply::apply_transaction(home, changes)?;
     Ok(restored)
 }
 
@@ -600,7 +609,11 @@ mod tests {
     #[test]
     fn failed_snapshot_removes_partial_backup() {
         let dir = tempdir().unwrap();
-        let missing_profile_dir = dir.path().join("missing-profile");
+        let missing_profile_dir = dir
+            .path()
+            .join("profiles")
+            .join(Tool::Claude.dir_name())
+            .join("work");
         let m = manager(dir.path());
 
         let err = m
@@ -609,6 +622,32 @@ mod tests {
 
         assert!(err.to_string().contains("could not read"));
         assert!(m.list().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_refuses_a_symlinked_profile_directory() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let profiles = dir.path().join("profiles").join("codex");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&profiles).unwrap();
+        fs::create_dir(&outside).unwrap();
+        symlink(&outside, profiles.join("work")).unwrap();
+
+        let store = profile_store(dir.path());
+        let err = manager(dir.path())
+            .snapshot(
+                Tool::Codex,
+                "work",
+                &store.profile_dir(Tool::Codex, "work"),
+                &profile_meta(),
+            )
+            .unwrap_err();
+
+        assert!(format!("{err:#}").contains("symlink"));
+        assert!(!dir.path().join(BACKUPS_DIR).exists());
     }
 
     #[test]
