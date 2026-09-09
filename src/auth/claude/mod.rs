@@ -33,6 +33,7 @@ use paths::live_credentials_path;
 // ---- Constants ----
 
 pub(super) const CREDENTIALS_FILE: &str = ".credentials.json";
+pub(super) const ACCOUNT_METADATA_FILE: &str = ".claude.json";
 pub(super) const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
 pub(super) const OAUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 pub(super) const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
@@ -117,6 +118,48 @@ pub use oauth::{
 };
 pub use paths::live_local_state_dir;
 
+/// Classifies credential payloads that aisw knows how to apply to Claude.
+///
+/// This deliberately recognizes a small set of observed upstream shapes so a
+/// future schema change cannot be mistaken for OAuth credentials.
+pub fn classify_live_credentials(bytes: &[u8]) -> Option<crate::config::AuthMethod> {
+    let normalized = normalize_credentials_bytes(bytes).unwrap_or_else(|| bytes.to_vec());
+    let value: serde_json::Value = serde_json::from_slice(&normalized).ok()?;
+    let object = value.as_object()?;
+
+    if nonempty_string(object.get("apiKey")) {
+        return Some(crate::config::AuthMethod::ApiKey);
+    }
+
+    let oauth = ["oauthToken", "token", "accessToken", "access_token"]
+        .into_iter()
+        .any(|field| nonempty_string(object.get(field)))
+        || object
+            .get("claudeAiOauth")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|oauth| {
+                ["accessToken", "refreshToken", "token", "access_token"]
+                    .into_iter()
+                    .any(|field| nonempty_string(oauth.get(field)))
+            })
+        || object
+            .get("account")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|account| {
+                ["email", "emailAddress", "email_address"]
+                    .into_iter()
+                    .any(|field| nonempty_string(account.get(field)))
+            });
+
+    oauth.then_some(crate::config::AuthMethod::OAuth)
+}
+
+fn nonempty_string(value: Option<&serde_json::Value>) -> bool {
+    value
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
 pub fn classify_profile(
     user_home: &Path,
     profile_store: &ProfileStore,
@@ -133,7 +176,8 @@ pub fn classify_profile(
                         ClaudeAuthClassification::OAuthMacosKeychainSharedLive
                     }
                     KeychainScheme::ScopedByConfigDir => {
-                        let profile_dir = profile_store.profile_dir(Tool::Claude, name);
+                        let profile_dir =
+                            profile_store.validated_profile_dir(Tool::Claude, name)?;
                         let service = scoped_keychain_service_for_config_dir(
                             &profile_dir,
                             user_home,
@@ -171,17 +215,18 @@ pub fn apply_live_credentials(
     let stored = read_stored_credentials(profile_store, name, backend)?;
 
     match auth_storage(user_home) {
-        ClaudeAuthStorage::File => {
-            crate::live_apply::apply_transaction(vec![crate::live_apply::LiveFileChange::write(
+        ClaudeAuthStorage::File => crate::live_apply::apply_transaction(
+            user_home,
+            vec![crate::live_apply::LiveFileChange::write(
                 live_credentials_path(user_home),
                 stored,
-            )])
-        }
+            )],
+        ),
         ClaudeAuthStorage::Keychain => {
             let service = match state_mode {
                 StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
                 StateMode::Isolated => scoped_keychain_service_for_config_dir(
-                    &profile_store.profile_dir(Tool::Claude, name),
+                    &profile_store.validated_profile_dir(Tool::Claude, name)?,
                     user_home,
                     current_keychain_scheme(),
                 ),
@@ -231,7 +276,7 @@ pub fn live_credentials_match(
             let service = match state_mode {
                 StateMode::Shared => KEYCHAIN_SERVICE.to_owned(),
                 StateMode::Isolated => scoped_keychain_service_for_config_dir(
-                    &profile_store.profile_dir(Tool::Claude, name),
+                    &profile_store.validated_profile_dir(Tool::Claude, name)?,
                     user_home,
                     current_keychain_scheme(),
                 ),
@@ -889,7 +934,7 @@ mod tests {
              target=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"\n\
              mkdir -p \"$target\"\n\
              printf '%s' '{\"oauthToken\":\"tok\",\"account\":{\"email\":\"burak@example.com\"}}' > \"$target/.credentials.json\"\n\
-             printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"burak@example.com\",\"organizationUuid\":\"org-b\"}}' > \"$HOME/.claude.json\"\n",
+             printf '%s' '{\"oauthAccount\":{\"emailAddress\":\"burak@example.com\",\"organizationUuid\":\"org-b\"}}' > \"$target/.claude.json\"\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -973,6 +1018,51 @@ mod tests {
         );
         // Profile dir cleaned up after the failed OAuth attempt.
         assert!(!ps.exists(Tool::Claude, "work"));
+    }
+
+    #[test]
+    fn classify_live_credentials_accepts_known_api_key_and_oauth_shapes() {
+        assert_eq!(
+            classify_live_credentials(br#"{"apiKey":"sk-ant-test"}"#),
+            Some(AuthMethod::ApiKey)
+        );
+        for payload in [
+            br#"{"oauthToken":"token"}"#.as_slice(),
+            br#"{"token":"token"}"#.as_slice(),
+            br#"{"claudeAiOauth":{"accessToken":"token"}}"#.as_slice(),
+        ] {
+            assert_eq!(classify_live_credentials(payload), Some(AuthMethod::OAuth));
+        }
+    }
+
+    #[test]
+    fn classify_live_credentials_rejects_unknown_or_empty_shapes() {
+        for payload in [
+            br#"{}"#.as_slice(),
+            br#"{"apiKey":""}"#.as_slice(),
+            br#"{"futureCredentialFormat":{"value":"token"}}"#.as_slice(),
+            b"not-json".as_slice(),
+        ] {
+            assert_eq!(classify_live_credentials(payload), None);
+        }
+    }
+
+    #[test]
+    fn live_snapshot_ignores_unknown_credential_payload() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude").join(CREDENTIALS_FILE),
+            br#"{"futureCredentialFormat":{"value":"token"}}"#,
+        )
+        .unwrap();
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        assert!(oauth::live_credentials_snapshot_for_import(&user_home)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1230,6 +1320,37 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn apply_live_oauth_account_metadata_refuses_a_symlinked_live_directory() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("home");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&user_home).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join(".claude.json"), b"{}").unwrap();
+        std::os::unix::fs::symlink(outside.join(".claude.json"), user_home.join(".claude.json"))
+            .unwrap();
+
+        let (ps, _cs) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            OAUTH_ACCOUNT_FILE,
+            br#"{"emailAddress":"new@example.com"}"#,
+        )
+        .unwrap();
+
+        let err = oauth::apply_live_oauth_account_metadata(&ps, "work", &user_home).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("symlink"),
+            "expected symlink refusal, got: {err}"
+        );
+        assert_eq!(fs::read(outside.join(".claude.json")).unwrap(), b"{}");
+    }
+
+    #[test]
     #[cfg(all(unix, not(target_os = "macos")))]
     fn oauth_credentials_file_has_600_permissions() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
@@ -1260,6 +1381,100 @@ mod tests {
         let path = ps.profile_dir(Tool::Claude, "work").join(CREDENTIALS_FILE);
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn oauth_waits_for_nonempty_credentials_before_capture() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             sleep 0.1\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            CredentialBackend::File,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(ps.profile_dir(Tool::Claude, "work").join(CREDENTIALS_FILE))
+                .unwrap()
+                .trim(),
+            r#"{"oauthToken":"tok"}"#
+        );
+    }
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn oauth_persists_metadata_from_profile_config_dir() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(
+            home.join(ACCOUNT_METADATA_FILE),
+            r#"{"oauthAccount":{"emailAddress":"native@example.com"}}"#,
+        )
+        .unwrap();
+        let _home = EnvVarGuard::set("HOME", &home);
+        let bin = bin_dir.join("claude");
+        fs::write(
+            &bin,
+            "#!/bin/sh\n\
+             mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthAccount\":{\"emailAddress\":\"profile@example.com\"}}' > \"$CLAUDE_CONFIG_DIR/.claude.json\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (ps, cs) = stores(dir.path());
+        oauth::add_oauth_with(
+            &ps,
+            &cs,
+            "work",
+            None,
+            &bin,
+            CredentialBackend::File,
+            std::time::Duration::from_secs(2),
+            TEST_POLL,
+        )
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &ps.read_file(Tool::Claude, "work", OAUTH_ACCOUNT_FILE)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(metadata["emailAddress"], "profile@example.com");
     }
 
     #[test]
@@ -1397,7 +1612,7 @@ mod tests {
              [ -n \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
              printf '%s' \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -1516,7 +1731,7 @@ mod tests {
              [ -n \"$CLAUDE_CONFIG_DIR\" ] || exit 7\n\
              printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
@@ -1618,7 +1833,7 @@ mod tests {
              printf '%s %s' \"$1\" \"$2\" > \"$HOME/login_args\"\n\
              printf '%s' \"$CLAUDE_CONFIG_DIR\" > \"$HOME/env_was_set\"\n\
              mkdir -p \"$CLAUDE_CONFIG_DIR\"\n\
-             echo '{}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
+             echo '{\"oauthToken\":\"tok\"}' > \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n\
              exit 0\n",
         )
         .unwrap();
