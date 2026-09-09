@@ -116,6 +116,14 @@ fn tool_verification(tool: &status::ToolStatus) -> ToolVerification {
             ));
             VerifyStatus::Warn
         }
+    } else if !tool.active_profile_registered {
+        issues.push("active profile is missing from aisw config".to_owned());
+        remediation.push(format!(
+            "Run 'aisw repair --apply' or re-add {} {}",
+            tool.tool.binary_name(),
+            tool.active_profile.as_deref().unwrap_or("<profile>")
+        ));
+        VerifyStatus::Fail
     } else if tool.credential_state == status::CredentialState::Unknown {
         issues.push("managed credential layout is not recognized".to_owned());
         remediation.push(
@@ -346,6 +354,20 @@ mod tests {
 
         assert_eq!(result.status, VerifyStatus::Warn);
         assert!(result.issues[0].contains("layout"));
+    }
+
+    #[test]
+    fn verify_fails_when_active_profile_is_dangling() {
+        let mut tool = tool_status(Tool::Claude);
+        tool.active_profile_registered = false;
+        tool.credentials_present = false;
+        tool.credential_state = status::CredentialState::Missing;
+
+        let result = tool_verification(&tool);
+
+        assert_eq!(result.status, VerifyStatus::Fail);
+        assert!(result.issues[0].contains("missing from aisw config"));
+        assert!(result.remediation[0].contains("aisw repair --apply"));
     }
 
     #[test]

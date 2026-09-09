@@ -662,6 +662,7 @@ Read-only confidence check that combines installation health with live profile c
 - Reuses `doctor` checks for binaries, config, shell hook, keyring, and permissions.
 - Verifies whether each active tool's live credentials still match the profile `aisw` records as active.
 - Returns non-zero when concrete failures are found, such as live mismatch, missing managed credentials, or missing binaries.
+- Reports a clear repair hint when the recorded active profile is missing from the managed profile map.
 
 | Flag | Effect |
 |---|---|
