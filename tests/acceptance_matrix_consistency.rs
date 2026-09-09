@@ -135,6 +135,22 @@ fn acceptance_matrix_records_current_versioned_agent_baseline() {
 }
 
 #[test]
+fn website_command_docs_preserve_compatibility_warning() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let canonical = std::fs::read_to_string(repo_root.join("docs/commands.md"))
+        .expect("canonical command docs should be readable");
+    let website = std::fs::read_to_string(repo_root.join("website/src/content/docs/commands.md"))
+        .expect("website command docs should be readable");
+    let warning = "Prerelease and build-metadata suffixes are treated as unparseable so an\nunaudited build cannot be mistaken for the pinned stable release.";
+
+    assert!(canonical.contains(warning));
+    assert!(
+        website.contains(warning),
+        "website command docs must preserve the compatibility warning"
+    );
+}
+
+#[test]
 fn credential_store_canary_is_bounded_and_fail_closed() {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workflow_path = repo_root
