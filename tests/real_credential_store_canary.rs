@@ -357,16 +357,19 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     cleanup.track(antigravity_account.clone()).unwrap();
     let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity").unwrap();
 
-    for account in [
-        &claude_oauth_account,
-        &claude_api_account,
-        &codex_oauth_account,
-        &codex_api_account,
-        &antigravity_account,
-    ] {
-        preauthorize_ci_keychain_entry(KEYRING_SERVICE, account);
+    #[cfg(target_os = "macos")]
+    {
+        for account in [
+            &claude_oauth_account,
+            &claude_api_account,
+            &codex_oauth_account,
+            &codex_api_account,
+            &antigravity_account,
+        ] {
+            preauthorize_ci_keychain_entry(KEYRING_SERVICE, account);
+        }
+        preauthorize_ci_keychain_entry("gemini", "antigravity");
     }
-    preauthorize_ci_keychain_entry("gemini", "antigravity");
 
     keyring::Entry::new(KEYRING_SERVICE, &claude_oauth_account)
         .unwrap()
