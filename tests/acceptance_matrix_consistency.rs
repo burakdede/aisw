@@ -114,15 +114,15 @@ fn acceptance_matrix_records_current_versioned_agent_baseline() {
         "versioned compatibility baseline should record its verification date"
     );
     assert!(
-        matrix.contains("against `aisw` `0.3.8` at commit `3da8323`"),
+        matrix.contains("against `aisw` `0.3.8` at commit `2fd9cf7`"),
         "versioned compatibility baseline should identify the aisw baseline"
     );
 
     for expected in [
-        ("Claude Code", "v2.1.263"),
+        ("Claude Code", "v2.1.266"),
         ("Codex CLI", "rust-v0.153.4"),
-        ("Gemini CLI", "v0.58.0"),
-        ("Antigravity CLI", "1.1.27"),
+        ("Gemini CLI", "v0.59.0"),
+        ("Antigravity CLI", "1.1.28"),
     ] {
         let row_marker = format!("| {} | `{}` |", expected.0, expected.1);
         assert!(

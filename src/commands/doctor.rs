@@ -460,7 +460,7 @@ mod tests {
         // Put a dummy executable named "claude" on a temp PATH.
         let dir = tempdir().unwrap();
         let bin = dir.path().join("claude");
-        fs::write(&bin, "#!/bin/sh\necho 'claude 2.1.263'").unwrap();
+        fs::write(&bin, "#!/bin/sh\necho 'claude 2.1.266'").unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
 
         let path = std::ffi::OsString::from(dir.path());
