@@ -624,6 +624,43 @@ fn use_all_rolls_back_prior_live_switches_and_active_profiles() {
     assert_eq!(config["active"]["codex"], "current");
 }
 
+/// `use --all` must reject an invalid matching profile before touching a tool
+/// that appears earlier in the deterministic switch order.
+#[test]
+fn use_all_resolves_all_profiles_before_mutation() {
+    let env = TestEnv::new();
+    env.add_fake_tool("claude", "claude 1.0.0");
+    env.add_fake_tool("gemini", "gemini 1.0.0");
+    env.cmd()
+        .args(["add", "claude", "work", "--api-key", CLAUDE_KEY])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["add", "gemini", "work", "--api-key", GEMINI_KEY])
+        .assert()
+        .success();
+
+    let config_path = env.aisw_home.join("config.json");
+    let mut config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    config["profiles"]["gemini"]["work"]["credential_backend"] =
+        serde_json::json!("system_keyring");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+    let output = env.output(&["use", "--all", "--profile", "work"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("gemini"));
+    assert!(!env
+        .fake_home
+        .join(".claude")
+        .join(".credentials.json")
+        .exists());
+
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(config["active"]["claude"], serde_json::Value::Null);
+}
+
 /// `init --json` looked up the rc file for whatever `$SHELL` reported and hit
 /// an `unreachable!()` for anything but bash/zsh/fish/pwsh — so it aborted with
 /// exit 101 under a plain `/bin/sh`, which is the default in most containers.

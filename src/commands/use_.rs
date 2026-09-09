@@ -1384,6 +1384,34 @@ mod tests {
     }
 
     #[test]
+    fn all_flag_resolves_matching_profiles_before_mutating() {
+        let tmp = tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let user_home = tmp.path().join("uhome");
+        fs::create_dir_all(&home).unwrap();
+        setup_claude_api_key_profile(&home, "work");
+        setup_gemini_api_key_profile(&home, "work");
+
+        let config_path = home.join("config.json");
+        let mut config: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["profiles"]["gemini"]["work"]["credential_backend"] =
+            serde_json::json!("system_keyring");
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        let err = run_all_in("work", None, false, false, &home, &user_home).unwrap_err();
+        assert!(err.to_string().contains("gemini"));
+        assert!(!user_home.join(".claude").join(".credentials.json").exists());
+        assert_eq!(
+            ConfigStore::new(&home)
+                .load()
+                .unwrap()
+                .active_for(Tool::Claude),
+            None
+        );
+    }
+
+    #[test]
     fn use_creates_backup_when_enabled() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
