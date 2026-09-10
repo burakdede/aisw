@@ -439,6 +439,7 @@ Credentials never leave the local machine. There is no remote service, no teleme
 Most users should be able to get productive from this README. For deeper workflows, edge cases, and tool-specific behavior, use the docs below.
 
 - [Common switching situations](https://burakdede.github.io/aisw/common-situations/)
+- [Frequently asked questions](https://burakdede.github.io/aisw/faq/) - direct answers for common account-switching workflows
 - [Quickstart](https://burakdede.github.io/aisw/quickstart/)
 - [Commands](https://burakdede.github.io/aisw/commands/)
 - [Why AI Switcher](https://burakdede.github.io/aisw/why-aisw/)
