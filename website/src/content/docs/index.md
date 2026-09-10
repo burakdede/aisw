@@ -183,8 +183,6 @@ See [Workspace guardrails](/aisw/workspace/) for resolution order, remote patter
 | Check support before installing | [Supported tools](/aisw/supported-tools/) | [Acceptance matrix](/aisw/acceptance-matrix/) |
 | Diagnose a mismatch or failed switch | [Troubleshooting](/aisw/troubleshooting/) | [Configuration](/aisw/configuration/) |
 
-For direct answers to common searches such as “how do I switch between two Claude Code accounts?” or “can I manage multiple Codex CLI accounts?”, see [Frequently Asked Questions](/aisw/faq/).
-
 ## Additional reference
 
 - [Adding profiles](/aisw/adding-profiles/)
