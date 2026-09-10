@@ -390,7 +390,7 @@ function rewriteRepoMarkdownLinks(markdown) {
 }
 
 function buildRobotsTxt() {
-  return `User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/sitemap-index.xml\n`;
+  return 'User-agent: *\nDisallow: /\n';
 }
 
 function buildLlmsTxt(currentVersion) {
