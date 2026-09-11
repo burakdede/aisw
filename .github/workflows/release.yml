@@ -18,9 +18,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux targets build through cross so the binary links against an
+          # old glibc; a native ubuntu-latest build requires the runner's glibc.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            cross: false
+            cross: true
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             cross: true
@@ -87,8 +89,23 @@ jobs:
             exit 1
           fi
 
+      - name: Check glibc floor
+        if: contains(matrix.target, 'linux-gnu')
+        shell: bash
+        env:
+          BINARY: ${{ steps.artifact.outputs.binary }}
+          MAX_GLIBC_MINOR: "28"
+        run: |
+          required="$(strings "$BINARY" | grep -o 'GLIBC_2\.[0-9]*' | sort -t. -k2 -n -u | tail -1)"
+          echo "Highest required glibc symbol: ${required:-none}"
+          minor="${required#GLIBC_2.}"
+          if [ -n "$required" ] && [ "$minor" -gt "$MAX_GLIBC_MINOR" ]; then
+            echo "Error: $BINARY requires $required; the supported floor is glibc 2.$MAX_GLIBC_MINOR" >&2
+            exit 1
+          fi
+
       - name: Cold start check
-        if: "!matrix.cross && matrix.os != 'windows-latest'"
+        if: "matrix.os != 'windows-latest' && matrix.target != 'aarch64-unknown-linux-gnu'"
         shell: bash
         env:
           BINARY: ${{ steps.artifact.outputs.binary }}
