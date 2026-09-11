@@ -49,9 +49,12 @@ jobs:
         with:
           key: release-${{ matrix.target }}
 
+      # Each cross release pins its build images, and with them the glibc a
+      # Linux binary links against: 0.2.5 images ship glibc 2.23. Bump
+      # deliberately; the glibc floor check below fails if a bump raises it.
       - name: Install cross
         if: matrix.cross
-        run: cargo install cross --locked
+        run: cargo install cross --version 0.2.5 --locked
 
       - name: Build
         shell: bash
