@@ -1,6 +1,6 @@
 ---
 title: Command reference
-description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, verify, repair, project-bindings, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
+description: Complete syntax and flag reference for all aisw commands  -  add, context, use, list, status, usage, verify, repair, project-bindings, remove, rename, backup, workspace, init, uninstall, shell-hook, and doctor.
 ---
 
 # Command reference
@@ -42,6 +42,7 @@ aisw workspace doctor [--json]
 aisw workspace guard --mode warn|strict [--json]
 aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
+aisw usage [claude|codex] [profile] [--active-only] [--json]
 aisw remove <tool> <profile> [--yes] [--force] [--json]
 aisw rename <tool> <old> <new> [--json]
 aisw backup list [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
@@ -490,6 +491,44 @@ aisw status --tool claude
 aisw status --active-only
 aisw status --search work --json
 aisw status --context --json
+```
+
+---
+
+## `aisw usage`
+
+```text
+aisw usage [claude|codex] [profile] [--active-only] [--json]
+```
+
+Show the rate-limit windows the vendor reports for each OAuth profile, so you
+can see which account still has headroom before switching. Supported for
+`claude` and `codex`; Gemini CLI and Antigravity CLI expose no usage endpoint.
+
+This is the only command that connects to the network. For each profile it
+sends that profile's own access token to the vendor endpoint that issued it
+(`api.anthropic.com` for Claude Code, `chatgpt.com` for Codex CLI), which is
+the same request the upstream CLI makes to render its own usage view. Nothing
+is sent anywhere else, and nothing is sent unless you run this command.
+
+| Argument / flag | Effect |
+|---|---|
+| `claude` \| `codex` | Limit to one tool |
+| `profile` | Limit to one profile of that tool |
+| `--active-only` | Show only each tool's active profile |
+| `--json` | Output as JSON |
+
+Notes:
+- Windows named `5h` and `7d` are the vendor's rolling limits. Other names are vendor-defined, such as a per-model weekly limit for Claude or a reserve pool for Codex.
+- API-key profiles, expired tokens, and endpoint failures are listed per profile with the reason, and the command still exits 0 so one stale profile does not hide the others. Run the upstream CLI with that profile active to refresh an expired token.
+- `resets_at` in JSON output is an RFC 3339 UTC timestamp; the human view converts it to local time.
+
+```sh
+aisw usage
+aisw usage claude
+aisw usage codex work
+aisw usage --active-only
+aisw usage --json
 ```
 
 ---

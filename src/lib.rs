@@ -13,6 +13,7 @@ pub mod runtime;
 pub mod terminal;
 pub mod tool_detection;
 pub mod types;
+pub mod usage;
 pub mod util;
 pub mod workspace;
 

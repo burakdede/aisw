@@ -367,6 +367,7 @@ aisw add <tool> <profile> [--api-key KEY | --api-key-stdin | --from-env | --from
                           [--set-active] [--yes] [--json] [--progress-json]
 aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
 aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
+aisw usage [claude|codex] [profile] [--active-only] [--json]
 aisw rename <tool> <old> <new> [--json]
 aisw remove <tool> <profile> [--yes] [--force] [--json]
 
@@ -432,7 +433,7 @@ See [Automation and scripting](https://burakdede.github.io/aisw/automation/) for
 
 ## Security
 
-Credentials never leave the local machine. There is no remote service, no telemetry, and no credential proxy. All profile files are written with `0600` permissions. OS keyring integration uses the platform-native API directly. See [Security](https://burakdede.github.io/aisw/security/) for the full posture.
+Credentials never leave the local machine, with one opt-in exception: `aisw usage` sends a profile's own token to the vendor that issued it to read rate-limit usage. There is no remote service, no telemetry, and no credential proxy. All profile files are written with `0600` permissions. OS keyring integration uses the platform-native API directly. See [Security](https://burakdede.github.io/aisw/security/) for the full posture.
 
 ## Documentation
 

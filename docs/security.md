@@ -10,6 +10,7 @@ description: aisw security posture  -  local-only credential storage, OS keyring
 ## Summary
 
 - Credentials are stored locally only  -  no remote service, no telemetry, no sync.
+- The only network access is `aisw usage`, which on request sends each profile's own token to the vendor that issued it.
 - Sensitive files are written with `0600` permissions (owner read/write only).
 - OS keyring integration uses the platform-native API (macOS Keychain, Linux Secret Service, Windows Credential Manager).
 - Switching is transactional: a failed write rolls back to the previous state.
@@ -61,12 +62,12 @@ On Linux, if the Secret Service daemon is not running (common on headless server
 
 `aisw` is a local tool. It does not:
 
-- Send credentials to any server.
+- Send credentials to any server other than the vendor that issued them, and only when you run `aisw usage`.
 - Call any `aisw`-operated API.
 - Include telemetry, analytics, or crash reporting.
-- Connect to the network for any purpose.
+- Connect to the network for any other purpose.
 
-All operations are local filesystem and OS keyring operations. You can audit this by inspecting the source at [github.com/burakdede/aisw](https://github.com/burakdede/aisw).
+All other operations are local filesystem and OS keyring operations. `aisw usage` sends a profile's access token over HTTPS to that vendor's own usage endpoint (`api.anthropic.com` for Claude Code, `chatgpt.com` for Codex CLI), which is the same request the upstream CLI makes to show its rate limits. That code lives in one module, `src/usage.rs`. You can audit this by inspecting the source at [github.com/burakdede/aisw](https://github.com/burakdede/aisw).
 
 ## Switching safety
 
