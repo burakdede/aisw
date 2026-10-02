@@ -7,3 +7,9 @@ website/node_modules
 website/.git
 website/.vscode
 .claude/
+integrations/vscode/node_modules
+integrations/vscode/dist
+integrations/vscode/dist-test
+integrations/vscode/.vscode-test
+integrations/vscode/*.vsix
+vscode-compatibility-report.json

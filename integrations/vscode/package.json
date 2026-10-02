@@ -1,0 +1,74 @@
+{
+  "name": "aisw-vscode",
+  "displayName": "AISW",
+  "description": "Switch AISW profiles and contexts from VS Code and Cursor.",
+  "version": "0.1.0",
+  "publisher": "aisw",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/burakdede/aisw"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "AISW",
+      "properties": {
+        "aisw.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the aisw executable. Empty uses aisw from PATH."
+        },
+        "aisw.refreshDebounceMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "Debounce interval for refreshes caused by editor focus changes."
+        }
+      }
+    },
+    "commands": [
+      {"command": "aisw.refresh", "title": "AISW: Refresh"},
+      {"command": "aisw.switchContext", "title": "AISW: Switch Context"},
+      {"command": "aisw.switchProfile", "title": "AISW: Switch Profile"},
+      {"command": "aisw.verify", "title": "AISW: Verify Active State"},
+      {"command": "aisw.diagnose", "title": "AISW: Diagnose CLI"},
+      {"command": "aisw.addProfile", "title": "AISW: Add Profile"},
+      {"command": "aisw.removeProfile", "title": "AISW: Remove Profile"}
+    ],
+    "menus": {
+      "commandPalette": [
+        {"command": "aisw.refresh"},
+        {"command": "aisw.switchContext"},
+        {"command": "aisw.switchProfile"},
+        {"command": "aisw.verify"},
+        {"command": "aisw.diagnose"},
+        {"command": "aisw.addProfile"},
+        {"command": "aisw.removeProfile"}
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run check",
+    "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
+    "test:compat": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/compatibility.test.js",
+    "test:integration": "npm run build && tsc -p tsconfig.test.json && node dist-test/test/run-vscode.js",
+    "package": "npm run build && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "@vscode/test-electron": "^2.4.1",
+    "ovsx": "^0.10.7",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,49 @@
+name: Publish VS Code Extension
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to validate and publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish VS Code and Cursor package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
+
+      - name: Install system dependencies
+        run: bash .github/scripts/install-linux-dependencies.sh libdbus-1-dev pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run hard compatibility gate
+        run: bash .github/scripts/vscode-compatibility.sh
+
+      - name: Require publishing credentials
+        run: |
+          test -n "$VSCE_PAT" || { echo "VSCE_PAT is required" >&2; exit 1; }
+          test -n "$OVSX_TOKEN" || { echo "OVSX_TOKEN is required" >&2; exit 1; }
+
+      - name: Publish the exact tested VSIX to Visual Studio Marketplace
+        working-directory: integrations/vscode
+        run: vsce publish --packagePath aisw-vscode-*.vsix
+
+      - name: Publish the exact tested VSIX to Open VSX
+        working-directory: integrations/vscode
+        run: ovsx publish aisw-vscode-*.vsix --pat "$OVSX_TOKEN"

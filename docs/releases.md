@@ -59,6 +59,18 @@ Pre-release suffixes are not supported by the release workflow; use a separate t
 
 The release is always created as a draft. A human must publish it.
 
+## CLI and VS Code compatibility gate
+
+The CLI release workflow runs `.github/scripts/vscode-compatibility.sh` before
+publishing the crate or creating a release. The gate builds the exact CLI
+release candidate, tests the extension against it and the minimum supported
+released CLI, runs the full extension tests, and inspects the VSIX package.
+
+A failed gate prevents CLI publication and leaves no release artifact ready.
+The same gate runs again before a published release can publish the VSIX to
+the Visual Studio Marketplace and Open VSX. The compatibility report records
+the CLI API/schema versions and extension version tested together.
+
 ## Homebrew publishing
 
 Homebrew is published by a separate workflow:
