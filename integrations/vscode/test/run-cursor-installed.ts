@@ -43,13 +43,13 @@ async function main(): Promise<void> {
   if (!listed.includes('aisw.aisw-vscode@0.1.0')) throw new Error('Cursor did not list the installed AISW VSIX.');
 
   const cursor = spawn(executable, [
+    '--headless',
     '--classic',
     '--skip-onboarding',
     '--disable-updates',
     '--disable-telemetry',
     `--user-data-dir=${userDataDir}`,
     `--extensions-dir=${extensionsDir}`,
-    '--new-window',
     workspace,
   ], { detached: process.platform !== 'win32', env, stdio: 'ignore' });
   try {
