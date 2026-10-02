@@ -535,9 +535,21 @@ Publish the same package to:
 - Open VSX for Cursor's VSIX-compatible extension installation and other
   compatible editors.
 
-Test the packaged VSIX in both VS Code and Cursor before publishing. Cursor's
-marketplace and extension availability are not identical to VS Code's, so
-distribution is a release concern, not a code fork.
+Test the packaged VSIX in both VS Code and Cursor before publishing. The
+installed-extension smoke runner accepts `VSCODE_EXECUTABLE_PATH` and
+`VSCODE_CLI_PATH` for VS Code, or `CURSOR_EXECUTABLE_PATH` and
+`CURSOR_CLI_PATH` for Cursor. For example:
+
+```sh
+CURSOR_EXECUTABLE_PATH="/Applications/Cursor.app/Contents/MacOS/Cursor" \
+CURSOR_CLI_PATH="/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
+npm run test:integration:installed
+```
+
+The runner creates separate user-data, extensions, `HOME`, and `AISW_HOME`
+directories, so the smoke test does not modify the normal editor install or
+local AISW state. Cursor's marketplace and extension availability are not
+identical to VS Code's, so distribution is a release concern, not a code fork.
 
 Cursor also has a separate Plugin Marketplace. It does not publish VSIX files:
 submissions are public Git repositories containing a root `plugin.json` or

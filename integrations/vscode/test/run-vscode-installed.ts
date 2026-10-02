@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   await mkdir(path.join(userDataDir, 'User'), { recursive: true });
   await writeFile(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({ 'aisw.binaryPath': binary }));
   const vscodeVersion = process.env.VSCODE_VERSION ?? 'stable';
-  let vscodeExecutablePath = process.env.VSCODE_EXECUTABLE_PATH;
+  let vscodeExecutablePath = process.env.CURSOR_EXECUTABLE_PATH ?? process.env.VSCODE_EXECUTABLE_PATH;
   if (!vscodeExecutablePath) {
     vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vscodeVersion });
     linkMacOSExecutable(vscodeExecutablePath);
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const vscodeCli = process.env.VSCODE_CLI_PATH ?? resolveCliPathFromVSCodeExecutablePath(vscodeExecutablePath);
+  const vscodeCli = process.env.CURSOR_CLI_PATH ?? process.env.VSCODE_CLI_PATH ?? resolveCliPathFromVSCodeExecutablePath(vscodeExecutablePath);
   await runCommand(vscodeCli, [
     `--user-data-dir=${userDataDir}`,
     `--extensions-dir=${extensionsDir}`,
