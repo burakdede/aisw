@@ -449,6 +449,10 @@ Most users should be able to get productive from this README. For deeper workflo
 - [Automation and scripting](https://burakdede.github.io/aisw/automation/)
 - [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/)
 
+## Community projects
+
+- [aipets](https://github.com/Kakoedlinnoeslovo/aipets): a macOS menu-bar widget (SwiftBar) that shows every aisw profile's Claude Code / Codex quota as a tamagotchi-style pet, with one-click switching and add/remove.
+
 ## License
 
 MIT.
