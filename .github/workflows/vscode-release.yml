@@ -11,6 +11,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: vscode-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   id-token: write
@@ -56,6 +60,31 @@ jobs:
       - name: Run hard compatibility gate
         run: bash .github/scripts/vscode-compatibility.sh
 
+      - name: Pin and checksum the tested VSIX
+        working-directory: integrations/vscode
+        run: |
+          shopt -s nullglob
+          packages=(aisw-vscode-*.vsix)
+          test "${#packages[@]}" -eq 1 || {
+            echo "Expected exactly one tested VSIX, found ${#packages[@]}" >&2
+            exit 1
+          }
+          vsix="${packages[0]}"
+          sha256sum "$vsix" > "$vsix.sha256"
+          echo "VSIX_PATH=$vsix" >> "$GITHUB_ENV"
+          echo "Publishing $vsix (SHA-256 $(awk '{print $1}' "$vsix.sha256"))"
+
+      - name: Retain compatibility and artifact evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-release-evidence-${{ inputs.tag || github.ref_name }}
+          path: |
+            vscode-compatibility-report.json
+            integrations/vscode/aisw-vscode-*.vsix
+            integrations/vscode/aisw-vscode-*.vsix.sha256
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Require publishing credentials
         run: |
           if [ -n "$VSCE_AZURE_CLIENT_ID" ]; then
@@ -77,13 +106,13 @@ jobs:
       - name: Publish the exact tested VSIX to Visual Studio Marketplace with Entra ID
         if: env.VSCE_AZURE_CLIENT_ID != ''
         working-directory: integrations/vscode
-        run: npx --no-install vsce publish --azure-credential --packagePath aisw-vscode-*.vsix
+        run: npx --no-install vsce publish --azure-credential --packagePath "$VSIX_PATH"
 
       - name: Publish the exact tested VSIX to Visual Studio Marketplace with PAT
         if: env.VSCE_AZURE_CLIENT_ID == ''
         working-directory: integrations/vscode
-        run: npx --no-install vsce publish --packagePath aisw-vscode-*.vsix
+        run: npx --no-install vsce publish --packagePath "$VSIX_PATH"
 
       - name: Publish the exact tested VSIX to Open VSX
         working-directory: integrations/vscode
-        run: npx --no-install ovsx publish aisw-vscode-*.vsix --pat "$OVSX_TOKEN"
+        run: npx --no-install ovsx publish "$VSIX_PATH" --pat "$OVSX_TOKEN"

@@ -572,7 +572,11 @@ publishing path with `VSCE_AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and
 `AZURE_SUBSCRIPTION_ID` for GitHub OIDC and Microsoft Entra ID; the workflow
 falls back to `VSCE_PAT` until the Azure DevOps PAT retirement. The release
 workflow uses `npx --no-install` and publishes only the VSIX produced by the
-compatibility gate.
+compatibility gate. The workflow pins both marketplace publish steps to the
+single VSIX produced by that gate, records its SHA-256 checksum, and retains
+the compatibility report and package evidence as a short-lived workflow
+artifact. A per-tag concurrency lock prevents two publication attempts from
+racing or publishing different artifacts for the same extension version.
 
 ## Security and process boundary
 
