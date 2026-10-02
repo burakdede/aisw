@@ -43,17 +43,22 @@ async function main(): Promise<void> {
   if (!listed.includes('aisw.aisw-vscode@0.1.0')) throw new Error('Cursor did not list the installed AISW VSIX.');
 
   const cursor = spawn(executable, [
-    '--headless',
     '--classic',
     '--skip-onboarding',
     '--disable-updates',
     '--disable-telemetry',
+    '--disable-gpu',
+    '--password-store=basic',
+    '--use-inmemory-secretstorage',
+    '--disable-workspace-trust',
+    '--new-window',
     `--user-data-dir=${userDataDir}`,
     `--extensions-dir=${extensionsDir}`,
     workspace,
   ], { detached: process.platform !== 'win32', env, stdio: 'ignore' });
   try {
-    await waitForActivation(userDataDir, cursor, 90_000);
+    const log = await waitForActivation(userDataDir, cursor, 90_000);
+    console.log(`Cursor activation confirmed for aisw.aisw-vscode: ${log}`);
   } finally {
     await terminate(cursor);
   }
@@ -71,26 +76,27 @@ async function runCommand(command: string, args: string[], env: NodeJS.ProcessEn
   });
 }
 
-async function waitForActivation(userDataDir: string, cursor: ChildProcess, timeoutMs: number): Promise<void> {
+async function waitForActivation(userDataDir: string, cursor: ChildProcess, timeoutMs: number): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (cursor.exitCode !== null) throw new Error(`Cursor exited before AISW activation (code ${cursor.exitCode}).`);
     const logs = await activationLogs(userDataDir);
-    if (logs.some((log) => log.includes(ACTIVATION_LINE))) return;
+    const activationLog = logs.find((log) => log.content.includes(ACTIVATION_LINE));
+    if (activationLog) return activationLog.path;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Timed out waiting for Cursor to activate AISW. Logs: ${path.join(userDataDir, 'logs')}`);
 }
 
-async function activationLogs(userDataDir: string): Promise<string[]> {
+async function activationLogs(userDataDir: string): Promise<Array<{ path: string; content: string }>> {
   const logsRoot = path.join(userDataDir, 'logs');
   if (!existsSync(logsRoot)) return [];
   const entries = await readdir(logsRoot, { withFileTypes: true });
-  const values: string[] = [];
+  const values: Array<{ path: string; content: string }> = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const file = path.join(logsRoot, entry.name, 'window1', 'exthost', 'exthost.log');
-    if (existsSync(file)) values.push(await readFile(file, 'utf8'));
+    if (existsSync(file)) values.push({ path: file, content: await readFile(file, 'utf8') });
   }
   return values;
 }

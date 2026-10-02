@@ -20,11 +20,13 @@ CURSOR_CLI_PATH="/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
 npm run test:integration:cursor
 ```
 
+The Cursor runner uses a normal isolated editor window with GPU disabled and
+in-memory secret storage. This avoids the host machine's keychain and verifies
+exact VSIX installation, extension listing, and AISW extension-host activation.
 Both tests use separate user-data, extensions, `HOME`, and `AISW_HOME`
-directories. They never modify the normal VS Code or Cursor installation. The
-Cursor runner verifies exact VSIX installation, extension listing, and AISW
-extension-host activation. UI commands and native terminal flows still require
-manual smoke testing in a functioning Cursor session.
+directories, and never modify the normal VS Code or Cursor installation. UI
+commands and native terminal flows still require manual smoke testing in a
+functioning Cursor session.
 Both local harnesses use VS Code 1.93.1 by default, matching the minimum
 engine; set `VSCODE_VERSION` to test another VS Code release.
 
