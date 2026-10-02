@@ -11,6 +11,11 @@ export interface VersionPayload {
 
 export interface CapabilitiesPayload extends VersionPayload {
   features: Record<string, boolean>;
+  tools?: Record<string, {
+    auth_methods?: string[];
+    state_modes?: string[];
+    credential_backends?: string[];
+  }>;
 }
 
 export interface Profile {
@@ -38,6 +43,8 @@ export interface StatusPayload {
     status: string;
     active: string | null;
     profiles: Record<string, string | null> | null;
+    matches?: string[];
+    drift_candidates?: string[];
   };
 }
 

@@ -61,12 +61,12 @@ run_compatibility minimum "$minimum_binary"
 
 echo "Running full extension tests and package inspection"
 npm test --prefix "$extension_dir"
-if command -v xvfb-run >/dev/null 2>&1; then
-  xvfb-run -a npm run test:integration --prefix "$extension_dir"
-else
-  npm run test:integration --prefix "$extension_dir"
-fi
 npm run package --prefix "$extension_dir"
+if command -v xvfb-run >/dev/null 2>&1; then
+  xvfb-run -a npm run test:integration:installed --prefix "$extension_dir"
+else
+  npm run test:integration:installed --prefix "$extension_dir"
+fi
 
 current_version_json="$($current_binary version --json)"
 minimum_version_json="$($minimum_binary version --json)"

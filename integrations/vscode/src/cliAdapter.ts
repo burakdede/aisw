@@ -30,6 +30,7 @@ export interface CliAdapterOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  onCommand?: (command: string[], durationMs: number, exitCode?: number) => void;
 }
 
 export class CliAdapter {
@@ -37,12 +38,14 @@ export class CliAdapter {
   private readonly cwd: string;
   private readonly env: NodeJS.ProcessEnv;
   private readonly timeoutMs: number;
+  private readonly onCommand?: CliAdapterOptions['onCommand'];
 
   constructor(options: CliAdapterOptions) {
     this.binary = options.binaryPath?.trim() || 'aisw';
     this.cwd = options.cwd;
     this.env = options.env ?? process.env;
     this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.onCommand = options.onCommand;
   }
 
   async version(): Promise<VersionPayload> {
@@ -90,6 +93,14 @@ export class CliAdapter {
     return this.json<JsonEnvelope>(['context', 'use', context]);
   }
 
+  removeProfile(tool: string, profile: string): Promise<JsonEnvelope> {
+    return this.json<JsonEnvelope>(['remove', tool === 'agy' ? 'antigravity' : tool, profile, '--yes']);
+  }
+
+  restoreBackup(backupId: string): Promise<JsonEnvelope> {
+    return this.json<JsonEnvelope>(['backup', 'restore', backupId, '--yes']);
+  }
+
   async diagnose(): Promise<{ version: VersionPayload; capabilities: CapabilitiesPayload }> {
     const version = await this.version();
     const capabilities = await this.capabilities();
@@ -98,6 +109,7 @@ export class CliAdapter {
 
   private async json<T>(command: string[], options: { allowNonZeroJson?: boolean } = {}): Promise<T> {
     const args = ['--non-interactive', ...command, '--json'];
+    const started = Date.now();
     try {
       const { stdout, stderr } = await execFileAsync(this.binary, args, {
         cwd: this.cwd,
@@ -121,10 +133,12 @@ export class CliAdapter {
       if (stderr.trim()) {
         throw new CliError('aisw wrote unexpected diagnostics to stderr.');
       }
+      this.onCommand?.(command, Date.now() - started, 0);
       return parsed as T;
     } catch (error) {
+      const childError = error as NodeJS.ErrnoException & { code?: string | number; killed?: boolean; stdout?: string; stderr?: string };
+      this.onCommand?.(command, Date.now() - started, typeof childError.code === 'number' ? childError.code : undefined);
       if (error instanceof CliError) throw error;
-      const childError = error as NodeJS.ErrnoException & { code?: string; killed?: boolean; stdout?: string; stderr?: string };
       if (childError.code === 'ENOENT') {
         throw new CliError(
           `Could not find aisw at '${this.binary}'. Install aisw or set aisw.binaryPath.`,
