@@ -638,7 +638,7 @@ pub fn read_api_key_with_backend(
     })
 }
 
-fn read_stored_credentials(
+pub(crate) fn read_stored_credentials(
     profile_store: &ProfileStore,
     name: &str,
     backend: CredentialBackend,

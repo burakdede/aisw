@@ -26,6 +26,7 @@ struct FeatureFlags {
     contexts: bool,
     workspace_bindings: bool,
     project_bindings_alias: bool,
+    usage: bool,
 }
 
 #[derive(Serialize)]
@@ -62,6 +63,7 @@ pub fn run(args: CapabilitiesArgs) -> Result<()> {
             contexts: true,
             workspace_bindings: true,
             project_bindings_alias: true,
+            usage: true,
         },
         tools: ToolCapabilitiesSet {
             claude: tool_capabilities(Tool::Claude),

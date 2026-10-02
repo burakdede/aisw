@@ -41,6 +41,7 @@ fn capabilities_json_reports_tool_capabilities() {
     assert_eq!(json["features"]["verify"], true);
     assert_eq!(json["features"]["repair"], true);
     assert_eq!(json["features"]["project_bindings_alias"], true);
+    assert_eq!(json["features"]["usage"], true);
     assert_eq!(json["tools"]["gemini"]["state_modes"][0], "isolated");
     assert_eq!(json["tools"]["codex"]["fail_closed_keyring_identity"], true);
 }

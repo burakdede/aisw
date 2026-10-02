@@ -17,6 +17,7 @@ pub mod repair;
 pub mod shell_hook;
 pub mod status;
 pub mod uninstall;
+pub mod usage;
 pub mod use_;
 pub mod verify;
 pub mod version;
@@ -34,6 +35,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Remove(args) => remove::run(args, &home)?,
         Command::Rename(args) => rename::run(args, &home)?,
         Command::Status(args) => status::run(args, &home)?,
+        Command::Usage(args) => usage::run(args, &home)?,
         Command::Init(args) => {
             let user_home =
                 crate::runtime::user_home().context("could not determine home directory")?;
