@@ -30,6 +30,8 @@
 
 ---
 
+> **New:** [AI Switcher for Coding Agents](https://marketplace.visualstudio.com/items?itemName=aisw.aisw-vscode) brings `aisw` account switching and verification to VS Code and Cursor.
+
 ## Why people use AI Switcher
 
 AI Switcher (`aisw`) exists for a very specific kind of mess:
