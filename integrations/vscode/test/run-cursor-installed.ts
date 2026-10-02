@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   const workspace = path.join(isolated, 'workspace');
   const cliLog = path.join(isolated, 'fake-cli.jsonl');
   const smokeMarker = path.join(isolated, 'smoke-marker.json');
-  const env = { ...process.env, HOME: home, AISW_HOME: path.join(home, 'aisw') };
+  const env = { ...process.env, HOME: home, AISW_HOME: path.join(home, 'aisw'), AISW_EXTENSION_TEST_QUICK_PICK: 'first' };
   const fakeCli = await createFakeCli(isolated, cliLog);
   await mkdir(path.join(userDataDir, 'User'), { recursive: true });
   await mkdir(workspace, { recursive: true });
@@ -68,7 +68,9 @@ async function main(): Promise<void> {
     if (!calls.some((args) => args.includes('status') && args.includes('--context'))) throw new Error('Cursor smoke driver did not reach aisw status --context.');
     if (!calls.some((args) => args.includes('verify'))) throw new Error('Cursor smoke driver did not reach aisw verify.');
     if (!calls.some((args) => args.includes('init') && args.includes('--no-shell-hook'))) throw new Error('Cursor smoke driver did not execute the native aisw init terminal flow.');
-    console.log('Cursor command smoke confirmed: aisw.refresh, aisw.verify, and the native aisw init terminal flow executed in the real extension host.');
+    if (!calls.some((args) => args.includes('context') && args.includes('use') && args.includes('work'))) throw new Error('Cursor smoke driver did not exercise context Quick Pick selection.');
+    if (!calls.some((args) => args.includes('use') && args.includes('claude') && args.includes('personal'))) throw new Error('Cursor smoke driver did not exercise profile Quick Pick selection.');
+    console.log('Cursor command smoke confirmed: refresh, verify, both Quick Pick mutation paths, and the native aisw init terminal flow executed in the real extension host.');
   } finally {
     await terminate(cursor);
   }
@@ -86,8 +88,8 @@ const responses = {
   version: { version: '0.3.10', cli_api_version: 1, json_schema_version: 1, progress_schema_version: 1 },
   capabilities: { version: '0.3.10', cli_api_version: 1, json_schema_version: 1, progress_schema_version: 1, features: { mutation_json: true, verify: true, contexts: true }, tools: { claude: { auth_methods: ['oauth'] } } },
   'status --context': { tools: [{ tool: 'claude', active_profile: null }], context: { status: 'none', active: null, profiles: {} } },
-  list: { claude: { active: null, profiles: [] } },
-  'context list': { contexts: [] },
+  list: { claude: { active: null, profiles: [{ name: 'personal', auth: 'oauth' }] } },
+  'context list': { contexts: [{ name: 'work', profiles: { claude: 'work' } }] },
   'workspace status': { status: 'unmanaged', expected_context: null },
   verify: { summary: { status: 'pass', passed: 0, warnings: 0, failed: 0 }, tools: [] },
 };
@@ -123,9 +125,11 @@ exports.activate = async () => {
   await extension.activate();
   await vscode.commands.executeCommand('aisw.refresh');
   await vscode.commands.executeCommand('aisw.verify');
+  await vscode.commands.executeCommand('aisw.switchContext');
+  await vscode.commands.executeCommand('aisw.switchProfile');
   await vscode.commands.executeCommand('aisw.importLogins');
   await new Promise((resolve) => setTimeout(resolve, 2500));
-  fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({ refresh: true, verify: true, importLogins: true }));
+  fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({ refresh: true, verify: true, switchContext: true, switchProfile: true, importLogins: true }));
 };
 `);
   env.AISW_CURSOR_SMOKE_MARKER = markerPath;

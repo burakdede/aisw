@@ -24,11 +24,14 @@ The Cursor runner uses a normal isolated editor window with GPU disabled and
 in-memory secret storage. This avoids the host machine's keychain and verifies
 exact VSIX installation, extension listing, AISW extension-host activation,
 `aisw.refresh`, `aisw.verify`, and the native `aisw init --no-shell-hook`
-terminal flow against a fake CLI.
-Both tests use separate user-data, extensions, `HOME`, and `AISW_HOME`
-directories, and never modify the normal VS Code or Cursor installation. UI
-commands and native terminal flows still require manual smoke testing in a
-functioning Cursor session.
+terminal flow against a fake CLI. It also executes the context and profile
+selection paths through the real extension host.
+The runner also sets `AISW_EXTENSION_TEST_QUICK_PICK=first` only in its
+disposable test environment; normal extension sessions always use the native
+Quick Pick UI. Both tests use separate user-data, extensions, `HOME`, and
+`AISW_HOME` directories, and never modify the normal VS Code or Cursor
+installation. Interactive keyboard selection and cancellation/non-zero
+terminal exits still require manual smoke testing in a functioning editor.
 Both local harnesses use VS Code 1.93.1 by default, matching the minimum
 engine; set `VSCODE_VERSION` to test another VS Code release.
 

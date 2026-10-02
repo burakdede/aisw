@@ -3,6 +3,14 @@ export interface NativeCommand {
   args: string[];
 }
 
+export type TerminalFlowOutcome = 'success' | 'failure' | 'canceled';
+
+export function terminalFlowOutcome(exitCode?: number): TerminalFlowOutcome {
+  if (exitCode === 0) return 'success';
+  if (exitCode === undefined) return 'canceled';
+  return 'failure';
+}
+
 export function contextCreateCommand(executable: string): NativeCommand {
   return { executable, args: ['context', 'create'] };
 }

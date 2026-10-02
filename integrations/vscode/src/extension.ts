@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { CliAdapter, CliError } from './cliAdapter';
 import { BinaryPathError, resolveBinary } from './binaryResolver';
 import { CapabilitiesPayload, ContextEntry, JsonEnvelope, Profile, ProfileList, StatusPayload } from './contract';
-import { addProfileCommand, contextCreateCommand, importLoginsCommand, workspaceBindCommand } from './nativeFlow';
+import { addProfileCommand, contextCreateCommand, importLoginsCommand, terminalFlowOutcome, workspaceBindCommand } from './nativeFlow';
 import { deriveViewState, profileNameError, toolLabel, WorkspaceStatusPayload } from './state';
 
 const INSTALL_URL = 'https://github.com/burakdede/aisw#installation';
@@ -128,7 +128,7 @@ class AiswExtension {
       items.push({ label: candidate === entry.name ? `Reapply ${entry.name}` : entry.name, description: this.contextDescription(entry.name), context: entry.name });
     }
     items.push({ label: 'Switch a Single Profile…', contextAction: 'profile' });
-    const selection = await vscode.window.showQuickPick(items, { placeHolder: 'Select an AISW context' });
+    const selection = await pickQuick(items, { placeHolder: 'Select an AISW context' });
     if (selection?.contextAction === 'profile') return this.switchProfile();
     if (selection?.context) await this.runMutation(() => this.adapter!.useContext(selection.context!), 'Context switched.', selection.context);
   }
@@ -144,7 +144,7 @@ class AiswExtension {
     if (!this.adapter || !this.profiles) return this.requireRefresh();
     const items = profilePickItems(this.profiles);
     if (!items.some((item) => item.tool)) return this.getStarted();
-    const selection = await vscode.window.showQuickPick(items, { placeHolder: 'Select an AISW profile' });
+    const selection = await pickQuick(items, { placeHolder: 'Select an AISW profile' });
     if (selection?.profileAction === 'add') return this.addProfile();
     if (selection?.tool && selection.profile) await this.runMutation(() => this.adapter!.useProfile(selection.tool!, selection.profile!.name), 'Profile switched.', selection.profile.name);
   }
@@ -195,7 +195,7 @@ class AiswExtension {
   private async addProfile(): Promise<void> {
     if (!this.adapter || !this.capabilities) return this.requireRefresh();
     const tools = Object.entries(this.capabilities.tools ?? {});
-    const tool = await vscode.window.showQuickPick(tools.map(([name, metadata]) => ({ label: toolLabel(name), description: metadata.auth_methods?.length ? `Auth: ${metadata.auth_methods.join(', ')}` : undefined, name })), { placeHolder: 'Select the tool for the new profile' });
+    const tool = await pickQuick(tools.map(([name, metadata]) => ({ label: toolLabel(name), description: metadata.auth_methods?.length ? `Auth: ${metadata.auth_methods.join(', ')}` : undefined, name })), { placeHolder: 'Select the tool for the new profile' });
     if (!tool) return;
     const existingNames = this.profiles?.[tool.name]?.profiles.map((entry) => entry.name) ?? [];
     const profile = await vscode.window.showInputBox({ prompt: 'Profile name', validateInput: (value) => profileNameError(value, existingNames) });
@@ -220,10 +220,11 @@ class AiswExtension {
     if (!this.adapter) return this.requireRefresh();
     const command = importLoginsCommand(this.terminalExecutable());
     this.openTerminal(command.executable, command.args, 'Import existing logins', async (exitCode) => {
-      if (exitCode === 0) {
+      const outcome = terminalFlowOutcome(exitCode);
+      if (outcome === 'success') {
         await this.refresh(false, true);
         this.showSuccess('AISW imported the available logins.');
-      } else if (exitCode !== undefined) {
+      } else if (outcome === 'failure') {
         await vscode.window.showErrorMessage(`Importing existing logins failed (exit code ${exitCode}). The terminal shows what happened.`);
       } else {
         await vscode.window.showInformationMessage('Importing existing logins was canceled.');
@@ -233,14 +234,15 @@ class AiswExtension {
 
   private async bindWorkspace(): Promise<void> {
     if (!this.adapter || !this.contexts?.length) return this.requireRefresh();
-    const selection = await vscode.window.showQuickPick(this.contexts.map((entry) => ({ label: entry.name, entry })), { placeHolder: 'Select the context for this workspace' });
+    const selection = await pickQuick(this.contexts.map((entry) => ({ label: entry.name, entry })), { placeHolder: 'Select the context for this workspace' });
     if (!selection) return;
     const command = workspaceBindCommand(this.terminalExecutable(), this.workspaceCwd(), selection.entry.name);
     this.openTerminal(command.executable, command.args, 'Bind workspace', async (exitCode) => {
-      if (exitCode === 0) {
+      const outcome = terminalFlowOutcome(exitCode);
+      if (outcome === 'success') {
         await this.refresh(false, true);
         this.showSuccess(`Workspace bound to '${selection.entry.name}'.`);
-      } else if (exitCode !== undefined) {
+      } else if (outcome === 'failure') {
         await vscode.window.showErrorMessage(`Binding the workspace failed (exit code ${exitCode}). The terminal shows what happened.`);
       } else {
         await vscode.window.showInformationMessage('Binding the workspace was canceled.');
@@ -317,7 +319,7 @@ class AiswExtension {
 
   private async removeProfile(): Promise<void> {
     if (!this.adapter || !this.profiles) return this.requireRefresh();
-    const selection = await vscode.window.showQuickPick(profileItems(this.profiles), { placeHolder: 'Select the profile to remove' });
+    const selection = await pickQuick(profileItems(this.profiles), { placeHolder: 'Select the profile to remove' });
     if (!selection) return;
     if (selection.active) { await vscode.window.showInformationMessage('Switch away from the active profile before removing it.'); return; }
     const confirmed = await vscode.window.showWarningMessage(
@@ -486,6 +488,13 @@ class AiswExtension {
 
 type ContextPick = vscode.QuickPickItem & { context?: string; contextAction?: 'profile' };
 type ProfilePick = vscode.QuickPickItem & { tool?: string; profile?: Profile; profileAction?: 'add' };
+
+async function pickQuick<T extends vscode.QuickPickItem>(items: readonly T[], options: vscode.QuickPickOptions): Promise<T | undefined> {
+  if (process.env.AISW_EXTENSION_TEST_QUICK_PICK === 'first') {
+    return items.find((item) => item.kind !== vscode.QuickPickItemKind.Separator);
+  }
+  return vscode.window.showQuickPick(items, options);
+}
 
 function profilePickItems(profiles: ProfileList): ProfilePick[] {
   return Object.entries(profiles).flatMap(([tool, entry]) => [

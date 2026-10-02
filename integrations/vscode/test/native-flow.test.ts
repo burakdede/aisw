@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { addProfileCommand, contextCreateCommand, importLoginsCommand, workspaceBindCommand } from '../src/nativeFlow';
+import { addProfileCommand, contextCreateCommand, importLoginsCommand, terminalFlowOutcome, workspaceBindCommand } from '../src/nativeFlow';
+
+test('terminal completion distinguishes success, failure, and cancellation', () => {
+  assert.equal(terminalFlowOutcome(0), 'success');
+  assert.equal(terminalFlowOutcome(7), 'failure');
+  assert.equal(terminalFlowOutcome(undefined), 'canceled');
+});
 
 test('profile flow passes only the validated profile identifier', () => {
   assert.deepEqual(addProfileCommand('/tmp/aisw', 'claude', 'client-work'), {
