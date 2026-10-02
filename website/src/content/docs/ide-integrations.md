@@ -592,8 +592,10 @@ workflow uses `npx --no-install` and publishes only the VSIX produced by the
 compatibility gate. The workflow pins both marketplace publish steps to the
 single VSIX produced by that gate, records its SHA-256 checksum, and retains
 the compatibility report and package evidence as a short-lived workflow
-artifact. A per-tag concurrency lock prevents two publication attempts from
-racing or publishing different artifacts for the same extension version.
+artifact. After publication it checks both registries for the expected version
+and compares the downloaded extension manifest with the tested package. A
+per-tag concurrency lock prevents two publication attempts from racing or
+publishing different artifacts for the same extension version.
 
 ## Security and process boundary
 

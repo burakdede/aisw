@@ -50,6 +50,7 @@ jobs:
             echo "Extension tag version $tag_version does not match package version $package_version" >&2
             exit 1
           }
+          echo "EXTENSION_VERSION=$package_version" >> "$GITHUB_ENV"
 
       - name: Install system dependencies
         run: bash .github/scripts/install-linux-dependencies.sh libdbus-1-dev pkg-config
@@ -116,3 +117,6 @@ jobs:
       - name: Publish the exact tested VSIX to Open VSX
         working-directory: integrations/vscode
         run: npx --no-install ovsx publish "$VSIX_PATH" --pat "$OVSX_TOKEN"
+
+      - name: Verify both marketplace publications
+        run: bash .github/scripts/verify-vscode-publication.sh "$EXTENSION_VERSION" "integrations/vscode/$VSIX_PATH"
