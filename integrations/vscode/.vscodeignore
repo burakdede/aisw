@@ -6,3 +6,8 @@ tsconfig*.json
 node_modules/**
 *.map
 *.vsix
+media/marketplace/status-bar-*.png
+media/marketplace/install-light.png
+media/marketplace/switching-light.png
+media/marketplace/switching-dark.png
+media/marketplace/notifications-dark.png
