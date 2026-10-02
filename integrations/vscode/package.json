@@ -1,13 +1,17 @@
 {
   "name": "aisw-vscode",
-  "displayName": "AISW",
-  "description": "Switch AISW profiles and contexts from VS Code and Cursor.",
+  "displayName": "AI Switcher for Coding Agents",
+  "description": "Switch Claude Code, Codex CLI, Gemini CLI, and Antigravity accounts for work, personal, and client projects in VS Code and Cursor.",
   "version": "0.1.0",
   "publisher": "aisw",
   "license": "MIT",
   "icon": "media/icon.png",
   "galleryBanner": {"color": "#001436", "theme": "dark"},
-  "keywords": ["claude code", "codex", "gemini", "account switcher", "profiles"],
+  "homepage": "https://aiswitcher.dev",
+  "bugs": {
+    "url": "https://github.com/burakdede/aisw/issues"
+  },
+  "keywords": ["AI account switcher", "AI coding agents", "Claude Code accounts", "multiple Claude Code accounts", "Codex CLI accounts", "Gemini CLI accounts", "Antigravity profiles", "coding agent account manager", "AI profile manager", "account switching", "work personal accounts", "client profiles", "workspace account switching", "VS Code", "Cursor"],
   "repository": {
     "type": "git",
     "url": "https://github.com/burakdede/aisw"
@@ -15,12 +19,12 @@
   "engines": {
     "vscode": "^1.93.0"
   },
-  "categories": ["Other"],
+  "categories": ["AI"],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
     "configuration": {
-      "title": "AISW",
+      "title": "AI Switcher",
       "properties": {
         "aisw.binaryPath": {
           "type": "string",
@@ -115,7 +119,7 @@
     "test:integration": "npm run build && tsc -p tsconfig.test.json && node dist-test/test/run-vscode.js",
     "test:integration:installed": "npm run package && tsc -p tsconfig.test.json && node dist-test/test/run-vscode-installed.js",
     "test:integration:cursor": "npm run package && tsc -p tsconfig.test.json && node dist-test/test/run-cursor-installed.js",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies --baseImagesUrl https://raw.githubusercontent.com/burakdede/aisw/main/integrations/vscode"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
