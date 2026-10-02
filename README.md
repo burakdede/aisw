@@ -447,6 +447,7 @@ Most users should be able to get productive from this README. For deeper workflo
 - [How it works](https://burakdede.github.io/aisw/how-it-works/)
 - [Security](https://burakdede.github.io/aisw/security/)
 - [Automation and scripting](https://burakdede.github.io/aisw/automation/)
+- [IDE integrations](https://burakdede.github.io/aisw/ide-integrations/)
 - [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/)
 
 ## Community projects

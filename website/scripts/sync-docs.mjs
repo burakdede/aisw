@@ -283,6 +283,20 @@ const DOCS = [
     ],
   },
   {
+    source: 'ide-integrations.md',
+    output: 'ide-integrations.md',
+    title: 'IDE Integrations',
+    description: 'RFC for a VS Code extension that provides aisw profile and context switching in VS Code and Cursor.',
+    section: 'reference',
+    queries: [
+      'aisw VS Code extension',
+      'aisw Cursor integration',
+      'IDE account switching',
+      'GUI integration for aisw',
+      'editor integration CLI JSON contract',
+    ],
+  },
+  {
     source: 'troubleshooting.md',
     output: 'troubleshooting.md',
     title: 'Troubleshooting',

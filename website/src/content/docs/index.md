@@ -179,6 +179,7 @@ See [Workspace guardrails](/aisw/workspace/) for resolution order, remote patter
 | Install and switch your first account | [Quickstart](/aisw/quickstart/) | [Adding profiles](/aisw/adding-profiles/) |
 | Choose between profiles, contexts, and guardrails | [Common switching situations](/aisw/common-situations/) | [Workspace guardrails](/aisw/workspace/) |
 | Integrate aisw with a GUI, script, or CI job | [Automation and scripting](/aisw/automation/) | [Commands](/aisw/commands/) |
+| Build an editor integration | [IDE integrations](/aisw/ide-integrations/) | [Automation and scripting](/aisw/automation/) |
 | Understand storage, rollback, and platform behavior | [How aisw works](/aisw/how-it-works/) | [Security](/aisw/security/) |
 | Check support before installing | [Supported tools](/aisw/supported-tools/) | [Acceptance matrix](/aisw/acceptance-matrix/) |
 | Diagnose a mismatch or failed switch | [Troubleshooting](/aisw/troubleshooting/) | [Configuration](/aisw/configuration/) |
@@ -193,4 +194,5 @@ For direct answers to common searches such as “how do I switch between two Cla
 - [Why aisw](/aisw/why-aisw/)
 - [Supported tools](/aisw/supported-tools/)
 - [Configuration](/aisw/configuration/)
+- [IDE integrations](/aisw/ide-integrations/)
 - [Changelog](https://github.com/burakdede/aisw/releases)

@@ -139,6 +139,15 @@ Source: https://github.com/burakdede/aisw/blob/main/docs/why-aisw.md
 Headings: The problem | What aisw does differently | Profiles vs contexts | What aisw does not do | Typical users | Design principles | Common questions
 Common queries: why use aisw | AI CLI account switching problem | Claude Code account manager | Codex CLI account switcher | Gemini CLI account switcher | multiple AI coding agent accounts | managing multiple claude accounts consultant | switching AI agents between clients | coding agent account switcher for consultants | claude code credentials file manual editing | ai coding agent credential management | local gui backend for coding agent account switching
 
+## IDE Integrations
+
+URL: https://burakdede.github.io/aisw/ide-integrations/
+Section: reference
+Summary: RFC for a VS Code extension that provides aisw profile and context switching in VS Code and Cursor.
+Source: https://github.com/burakdede/aisw/blob/main/docs/ide-integrations.md
+Headings: Summary | Goals | Non-goals | User experience | Architecture | CLI contract | Cursor compatibility | Security and process boundary | Repository layout | Keeping CLI and extension in sync | When to split the repository | Delivery plan | References
+Common queries: aisw VS Code extension | aisw Cursor integration | IDE account switching | GUI integration for aisw | editor integration CLI JSON contract
+
 ## Troubleshooting
 
 URL: https://burakdede.github.io/aisw/troubleshooting/

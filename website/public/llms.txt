@@ -21,6 +21,7 @@ Current version: 0.3.10
 - [How It Works](https://burakdede.github.io/aisw/how-it-works/): Profile model, atomic credential switching, OS keyring integration, and per-tool implementation details for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.
 - [Security](https://burakdede.github.io/aisw/security/): How aisw stores and protects credentials  -  local-only storage, OS keyring integration, file permissions, transactional writes, and OAuth flow safety.
 - [Why aisw?](https://burakdede.github.io/aisw/why-aisw/): Why aisw exists  -  the problems with manual credential switching across Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI, and why named profiles, contexts, and guardrails fit those workflows better.
+- [IDE Integrations](https://burakdede.github.io/aisw/ide-integrations/): RFC for a VS Code extension that provides aisw profile and context switching in VS Code and Cursor.
 - [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/): Diagnosing and fixing common aisw failures  -  missing tools, hook problems, keyring issues, permission errors, and OAuth failures.
 
 ## Project
