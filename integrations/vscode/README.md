@@ -12,6 +12,8 @@ npm run test:integration:installed
 
 The test uses separate user-data, extensions, `HOME`, and `AISW_HOME`
 directories. It never modifies the normal VS Code or Cursor installation.
+Both local harnesses use VS Code 1.93.1 by default, matching the minimum
+engine; set `VSCODE_VERSION` to test another VS Code release.
 
 Switch AISW profiles and contexts from VS Code-compatible editors. The
 extension is a thin client of the installed `aisw` CLI and never reads or

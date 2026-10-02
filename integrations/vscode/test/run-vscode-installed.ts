@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const binary = path.resolve(root, '../../target/release/aisw');
   await mkdir(path.join(userDataDir, 'User'), { recursive: true });
   await writeFile(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({ 'aisw.binaryPath': binary }));
-  const vscodeVersion = process.env.VSCODE_VERSION ?? 'stable';
+  const vscodeVersion = process.env.VSCODE_VERSION ?? '1.93.1';
   let vscodeExecutablePath = process.env.CURSOR_EXECUTABLE_PATH ?? process.env.VSCODE_EXECUTABLE_PATH;
   if (!vscodeExecutablePath) {
     vscodeExecutablePath = await downloadAndUnzipVSCode({ version: vscodeVersion });
