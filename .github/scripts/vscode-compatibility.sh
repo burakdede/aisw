@@ -9,6 +9,7 @@ trap 'rm -rf "$temporary_dir"' EXIT
 
 current_binary="$repo_root/target/release/aisw"
 minimum_binary="$temporary_dir/aisw-$minimum_version"
+minimum_checksum="$temporary_dir/aisw-$minimum_version.sha256"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64) release_asset="aisw-x86_64-unknown-linux-gnu" ;;
@@ -25,6 +26,19 @@ echo "Downloading minimum supported CLI v$minimum_version"
 curl --fail --silent --show-error --location \
   "https://github.com/burakdede/aisw/releases/download/v$minimum_version/$release_asset" \
   --output "$minimum_binary"
+curl --fail --silent --show-error --location \
+  "https://github.com/burakdede/aisw/releases/download/v$minimum_version/$release_asset.sha256" \
+  --output "$minimum_checksum"
+expected_checksum="$(awk '{print $1}' "$minimum_checksum")"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_checksum="$(sha256sum "$minimum_binary" | awk '{print $1}')"
+else
+  actual_checksum="$(shasum -a 256 "$minimum_binary" | awk '{print $1}')"
+fi
+test "$actual_checksum" = "$expected_checksum" || {
+  echo "Checksum verification failed for $release_asset" >&2
+  exit 1
+}
 chmod +x "$minimum_binary"
 
 echo "Installing extension dependencies"

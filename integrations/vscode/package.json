@@ -55,13 +55,14 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run build",
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "lint": "npm run check",
     "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
     "test:compat": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/compatibility.test.js",
     "test:integration": "npm run build && tsc -p tsconfig.test.json && node dist-test/test/run-vscode.js",
-    "package": "npm run build && vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -67,9 +67,18 @@ release candidate, tests the extension against it and the minimum supported
 released CLI, runs the full extension tests, and inspects the VSIX package.
 
 A failed gate prevents CLI publication and leaves no release artifact ready.
-The same gate runs again before a published release can publish the VSIX to
-the Visual Studio Marketplace and Open VSX. The compatibility report records
-the CLI API/schema versions and extension version tested together.
+Extension publication is independent: push a `vscode-vX.Y.Z` tag matching the
+extension package version. That workflow runs the same gate, then publishes
+the tested VSIX to the Visual Studio Marketplace and Open VSX. The
+compatibility report records the CLI API/schema versions and extension version
+tested together. Marketplace publishing prefers GitHub OIDC with Microsoft
+Entra ID; `VSCE_PAT` remains a temporary fallback during migration.
+
+Cursor Marketplace publication is separate from VSIX distribution. Cursor
+accepts a public plugin repository with a `plugin.json` or
+`.cursor-plugin/plugin.json` manifest and manually reviews submissions. Do not
+add a Cursor Marketplace publish command to the VSIX workflow; submit a
+companion Cursor Plugin and request re-indexing after approved updates.
 
 ## Homebrew publishing
 

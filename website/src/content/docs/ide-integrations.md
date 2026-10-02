@@ -22,7 +22,7 @@ head:
       {"@context":"https://schema.org","@graph":[{"@type":"TechArticle","name":"IDE Integrations","headline":"IDE Integrations","description":"RFC for a VS Code extension that provides aisw profile and context switching in VS Code and Cursor.","url":"https://burakdede.github.io/aisw/ide-integrations/","inLanguage":"en","keywords":"aisw, claude code, codex cli, gemini cli, antigravity cli, account switching, profile manager, credential switching, multiple accounts, work personal accounts, ai coding agent, coding agent account switcher, coding agent profile switch, work personal client profiles, repo account guardrails, anthropic account manager, openai codex account, google gemini cli account, cli tooling, developer tool, ide integrations, reference","image":"https://burakdede.github.io/aisw/aisw-512.png","isPartOf":{"@type":"WebSite","name":"aisw Documentation","url":"https://burakdede.github.io/aisw/"},"about":{"@type":"SoftwareApplication","name":"aisw","applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows","softwareVersion":"0.3.10","url":"https://github.com/burakdede/aisw","image":"https://burakdede.github.io/aisw/aisw-512.png"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Documentation","item":"https://burakdede.github.io/aisw/"},{"@type":"ListItem","position":2,"name":"IDE Integrations","item":"https://burakdede.github.io/aisw/ide-integrations/"}]}]}
 ---
 
-**Status:** Proposed
+**Status:** Accepted
 
 ## Summary
 
@@ -143,11 +143,32 @@ identified.
 Publish the same package to:
 
 - Visual Studio Marketplace for VS Code.
-- Open VSX for Cursor and other compatible editors.
+- Open VSX for Cursor's VSIX-compatible extension installation and other
+  compatible editors.
 
 Test the packaged VSIX in both VS Code and Cursor before publishing. Cursor's
 marketplace and extension availability are not identical to VS Code's, so
 distribution is a release concern, not a code fork.
+
+Cursor also has a separate Plugin Marketplace. It does not publish VSIX files:
+submissions are public Git repositories containing a root `plugin.json` or
+`.cursor-plugin/plugin.json`, and each submission is manually reviewed by
+Cursor. The VS Code extension is therefore not duplicated as a Cursor Plugin
+in this RFC. If AISW later needs a Cursor Marketplace listing, it should be a
+separate companion plugin with its own manifest, repository layout, validation,
+submission, and re-indexing process. A Cursor Marketplace submission is a
+release operation, not an automated VSIX publish step.
+
+Extension releases use independent `vscode-vX.Y.Z` tags. The tag version must
+match `integrations/vscode/package.json`; CLI releases do not republish the
+extension. Before the first release, provision the `aisw` publisher in the
+Visual Studio Marketplace and the `aisw` namespace in Open VSX, then add
+`OVSX_TOKEN` as a repository secret. Configure the preferred Marketplace
+publishing path with `VSCE_AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and
+`AZURE_SUBSCRIPTION_ID` for GitHub OIDC and Microsoft Entra ID; the workflow
+falls back to `VSCE_PAT` until the Azure DevOps PAT retirement. The release
+workflow uses `npx --no-install` and publishes only the VSIX produced by the
+compatibility gate.
 
 ## Security and process boundary
 
@@ -232,8 +253,11 @@ run whenever the CLI publishes a release.
 3. Implement status bar, Quick Pick switching, refresh, verify, and output.
 4. Add terminal-based profile creation and removal.
 5. Add CI coverage against the built CLI and the minimum/latest released CLI.
-6. Package and test in VS Code and Cursor; publish to both registries.
-7. Reassess remote workspaces and repository extraction after adoption.
+6. Package and test in VS Code and Cursor; publish the VSIX to the Visual
+   Studio Marketplace and Open VSX.
+7. If a companion Cursor Plugin is approved, submit its public repository for
+   Cursor review and request re-indexing for updates.
+8. Reassess remote workspaces and repository extraction after adoption.
 
 ## References
 

@@ -13,7 +13,8 @@ test('adapter executes a fake CLI and preserves structured failures', { skip: pr
 case "$2 $3" in
   "version --json") printf '%s\\n' '{"version":"0.3.10","cli_api_version":1,"json_schema_version":1,"progress_schema_version":1}' ;;
   "capabilities --json") printf '%s\\n' '{"version":"0.3.10","cli_api_version":1,"json_schema_version":1,"progress_schema_version":1,"features":{"mutation_json":true,"verify":true,"contexts":true}}' ;;
-  "list --json") printf '%s\\n' '{"claude":{"active":null,"profiles":[]}}' ;;
+	  "list --json") printf '%s\\n' '{"claude":{"active":null,"profiles":[]}}' ;;
+	  "verify --json") printf '%s\\n' '{"summary":{"status":"fail","failed":1,"warnings":0},"tools":[{"tool":"agy","status":"fail","issues":["tool binary not found on PATH"],"remediation":["Install agy"]}]}' ; exit 1 ;;
   *) printf '%s\\n' '{"ok":false,"command":"fake","error":{"kind":"profile_not_found","message":"not found"}}' ; exit 1 ;;
 esac
 `);
@@ -21,6 +22,8 @@ esac
   const adapter = new CliAdapter({ binaryPath: binary, cwd: directory });
   assert.equal((await adapter.version()).cli_api_version, 1);
   assert.equal((await adapter.profiles()).claude.profiles.length, 0);
+  const report = await adapter.verify() as { summary: { status: string } };
+  assert.equal(report.summary.status, 'fail');
   await assert.rejects(() => adapter.useProfile('claude', 'missing'), (error: unknown) => {
     assert.ok(error instanceof CliError);
     assert.equal(error.kind, 'profile_not_found');

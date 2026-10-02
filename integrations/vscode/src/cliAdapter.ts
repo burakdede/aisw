@@ -79,7 +79,7 @@ export class CliAdapter {
   }
 
   verify(): Promise<unknown> {
-    return this.json<unknown>(['verify']);
+    return this.json<unknown>(['verify'], { allowNonZeroJson: true });
   }
 
   useProfile(tool: string, profile: string): Promise<JsonEnvelope> {
@@ -96,7 +96,7 @@ export class CliAdapter {
     return { version, capabilities };
   }
 
-  private async json<T>(command: string[]): Promise<T> {
+  private async json<T>(command: string[], options: { allowNonZeroJson?: boolean } = {}): Promise<T> {
     const args = ['--non-interactive', ...command, '--json'];
     try {
       const { stdout, stderr } = await execFileAsync(this.binary, args, {
@@ -135,6 +135,9 @@ export class CliAdapter {
         throw new CliError('aisw timed out while producing JSON output.', 'cli_timeout');
       }
       const output = parseJson(childError.stdout);
+      if (options.allowNonZeroJson && output !== undefined && !isEnvelopeFailure(output)) {
+        return output as T;
+      }
       if (isEnvelopeFailure(output)) {
         throw new CliError(
           output.error?.message ?? 'aisw reported a command failure.',

@@ -48,6 +48,11 @@ export interface JsonEnvelope {
   error?: { kind?: string; message?: string; remediation?: string[] };
 }
 
+export interface MutationResult {
+  affected_tools?: string[];
+  warnings?: string[];
+}
+
 export function assertCompatible(payload: VersionPayload): void {
   if (payload.cli_api_version !== SUPPORTED_CLI_API_VERSION) {
     throw new Error(

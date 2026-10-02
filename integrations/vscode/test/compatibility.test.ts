@@ -20,4 +20,8 @@ test('real CLI satisfies the editor handshake and read contract', { skip: !binar
   const status = await adapter.status();
   assert.ok(Array.isArray(status.tools));
   assert.equal(typeof status.context.status, 'string');
+  const workspaceStatus = await adapter.workspaceStatus();
+  assert.equal(typeof workspaceStatus, 'object');
+  const verification = await adapter.verify() as { summary?: { status?: string } };
+  assert.ok(['pass', 'warn', 'fail'].includes(verification.summary?.status ?? ''));
 });
