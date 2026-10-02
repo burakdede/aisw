@@ -145,7 +145,7 @@ URL: https://burakdede.github.io/aisw/ide-integrations/
 Section: reference
 Summary: RFC for a VS Code extension that provides aisw profile and context switching in VS Code and Cursor.
 Source: https://github.com/burakdede/aisw/blob/main/docs/ide-integrations.md
-Headings: Summary | Goals | Non-goals | User experience | Architecture | CLI contract | Cursor compatibility | Security and process boundary | Repository layout | Keeping CLI and extension in sync | When to split the repository | Delivery plan | References
+Headings: Summary | Goals | Non-goals | Design goals and guidance | Goals | Principles | Writing | Review checklist | User experience | Status bar item | Installing the CLI | Switching | Notifications | Profile lifecycle | Commands | Settings | Output channel | Walkthrough | Assets | Architecture | CLI contract | Cursor compatibility | Security and process boundary | Repository layout | Keeping CLI and extension in sync | When to split the repository | Delivery plan | References
 Common queries: aisw VS Code extension | aisw Cursor integration | IDE account switching | GUI integration for aisw | editor integration CLI JSON contract
 
 ## Troubleshooting
