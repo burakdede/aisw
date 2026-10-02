@@ -3,6 +3,10 @@ export interface NativeCommand {
   args: string[];
 }
 
+export function contextCreateCommand(executable: string): NativeCommand {
+  return { executable, args: ['context', 'create'] };
+}
+
 export function addProfileCommand(binary: string, tool: string, profile: string): NativeCommand {
   return { executable: binary, args: ['add', tool, profile] };
 }

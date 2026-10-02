@@ -19,6 +19,7 @@ export class CliError extends Error {
     message: string,
     readonly kind = 'cli_error',
     readonly exitCode?: number,
+    readonly remediation?: { kind?: string; command?: string; safe?: boolean },
   ) {
     super(message);
     this.name = 'CliError';
@@ -128,6 +129,8 @@ export class CliAdapter {
         throw new CliError(
           parsed.error?.message ?? 'aisw reported a command failure.',
           parsed.error?.kind ?? 'cli_error',
+          undefined,
+          parsed.error?.remediation,
         );
       }
       if (stderr.trim()) {
@@ -157,6 +160,7 @@ export class CliAdapter {
           output.error?.message ?? 'aisw reported a command failure.',
           output.error?.kind ?? 'cli_error',
           typeof childError.code === 'number' ? childError.code : undefined,
+          output.error?.remediation,
         );
       }
       throw new CliError(sanitize(childError.stderr || childError.message || 'aisw failed.'));

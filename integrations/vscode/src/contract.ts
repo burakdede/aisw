@@ -52,7 +52,7 @@ export interface JsonEnvelope {
   ok: boolean;
   command: string;
   result?: unknown;
-  error?: { kind?: string; message?: string; remediation?: string[] };
+  error?: { kind?: string; message?: string; remediation?: { kind?: string; command?: string; safe?: boolean } };
 }
 
 export interface MutationResult {

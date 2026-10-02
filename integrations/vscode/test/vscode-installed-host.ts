@@ -19,6 +19,7 @@ export async function run(): Promise<void> {
     'aisw.removeProfile',
     'aisw.installCli',
     'aisw.locateCli',
+    'aisw.clearBinaryPath',
     'aisw.importLogins',
     'aisw.bindWorkspace',
   ]) {

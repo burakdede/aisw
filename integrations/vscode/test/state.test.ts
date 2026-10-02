@@ -45,6 +45,7 @@ test('derives setup and missing-cli states', () => {
     deriveViewState({ error: { kind: 'cli_not_found', message: 'Install aisw.' } }).text,
     '$(cloud-download) Install aisw',
   );
+  assert.equal(deriveViewState({ error: { kind: 'binary_path_invalid', message: 'missing' } }).command, 'aisw.clearBinaryPath');
 });
 
 test('summarizes active profiles when no context matches', () => {

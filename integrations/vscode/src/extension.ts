@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { CliAdapter, CliError } from './cliAdapter';
 import { BinaryPathError, resolveBinary } from './binaryResolver';
 import { CapabilitiesPayload, ContextEntry, JsonEnvelope, Profile, ProfileList, StatusPayload } from './contract';
-import { addProfileCommand, importLoginsCommand, workspaceBindCommand } from './nativeFlow';
+import { addProfileCommand, contextCreateCommand, importLoginsCommand, workspaceBindCommand } from './nativeFlow';
 import { deriveViewState, toolLabel, WorkspaceStatusPayload } from './state';
 
 const INSTALL_URL = 'https://github.com/burakdede/aisw#installation';
@@ -31,6 +31,7 @@ class AiswExtension {
   private mutationQueue: Promise<void> = Promise.resolve();
   private mutationActive = false;
   private missingCliNotified = false;
+  private cliNeedsUpdate = false;
   private handshake?: { binary: string; promise: ReturnType<CliAdapter['diagnose']> };
 
   constructor(
@@ -49,8 +50,9 @@ class AiswExtension {
       vscode.commands.registerCommand('aisw.diagnose', () => this.diagnose()),
       vscode.commands.registerCommand('aisw.showOutput', () => this.output.show(true)),
       vscode.commands.registerCommand('aisw.getStarted', () => this.getStarted()),
-      vscode.commands.registerCommand('aisw.installCli', () => this.installCli()),
+      vscode.commands.registerCommand('aisw.installCli', (update?: boolean) => this.installCli(update ?? this.cliNeedsUpdate)),
       vscode.commands.registerCommand('aisw.locateCli', () => this.locateCli()),
+      vscode.commands.registerCommand('aisw.clearBinaryPath', () => this.clearBinaryPath()),
       vscode.commands.registerCommand('aisw.addProfile', () => this.addProfile()),
       vscode.commands.registerCommand('aisw.removeProfile', () => this.removeProfile()),
       vscode.commands.registerCommand('aisw.importLogins', () => this.importLogins()),
@@ -94,6 +96,7 @@ class AiswExtension {
     } catch (error) {
       if (sequence !== this.refreshSequence) return;
       const kind = error instanceof CliError ? error.kind : error instanceof BinaryPathError ? error.kind : isCompatibilityError(error) ? 'incompatible_cli' : error instanceof Error && error.message.startsWith('Could not find aisw') ? 'cli_not_found' : undefined;
+      this.cliNeedsUpdate = kind === 'incompatible_cli';
       this.render({ error: { kind, message: messageFor(error) } });
       this.logError(error);
       if (showErrors) await this.showError(error);
@@ -108,8 +111,26 @@ class AiswExtension {
 
   private async switchContext(): Promise<void> {
     if (!this.adapter || !this.contexts) return this.requireRefresh();
-    const selection = await vscode.window.showQuickPick(this.contexts.map((entry) => ({ label: entry.name, description: describeMappings(entry.profiles), entry })), { placeHolder: 'Select an AISW context' });
-    if (selection) await this.runMutation(() => this.adapter!.useContext(selection.entry.name), 'Context switched.', selection.entry.name);
+    if (!this.contexts.length) {
+      const action = await vscode.window.showInformationMessage('No AISW contexts exist yet. Create one in the AISW terminal?', 'Create in Terminal', 'Cancel');
+      if (action === 'Create in Terminal') this.openContextCreateTerminal();
+      return;
+    }
+    const expected = this.workspaceStatus?.expected_context;
+    const candidate = this.status?.context.drift_candidates?.[0];
+    const items: ContextPick[] = [];
+    if (expected && this.contexts.some((entry) => entry.name === expected)) {
+      items.push({ label: expected, description: `${this.contextDescription(expected)} · this workspace`, context: expected });
+      items.push({ label: 'Other contexts', kind: vscode.QuickPickItemKind.Separator });
+    }
+    for (const entry of this.contexts) {
+      if (entry.name === expected) continue;
+      items.push({ label: candidate === entry.name ? `Reapply ${entry.name}` : entry.name, description: this.contextDescription(entry.name), context: entry.name });
+    }
+    items.push({ label: 'Switch a Single Profile…', contextAction: 'profile' });
+    const selection = await vscode.window.showQuickPick(items, { placeHolder: 'Select an AISW context' });
+    if (selection?.contextAction === 'profile') return this.switchProfile();
+    if (selection?.context) await this.runMutation(() => this.adapter!.useContext(selection.context!), 'Context switched.', selection.context);
   }
 
   private async switchToWorkspaceContext(): Promise<void> {
@@ -121,10 +142,11 @@ class AiswExtension {
 
   private async switchProfile(): Promise<void> {
     if (!this.adapter || !this.profiles) return this.requireRefresh();
-    const items = profileItems(this.profiles);
-    if (!items.length) return this.getStarted();
+    const items = profilePickItems(this.profiles);
+    if (!items.some((item) => item.tool)) return this.getStarted();
     const selection = await vscode.window.showQuickPick(items, { placeHolder: 'Select an AISW profile' });
-    if (selection) await this.runMutation(() => this.adapter!.useProfile(selection.tool, selection.profile.name), 'Profile switched.', selection.profile.name);
+    if (selection?.profileAction === 'add') return this.addProfile();
+    if (selection?.tool && selection.profile) await this.runMutation(() => this.adapter!.useProfile(selection.tool!, selection.profile!.name), 'Profile switched.', selection.profile.name);
   }
 
   private async runMutation(mutation: () => Promise<JsonEnvelope>, success: string, target: string): Promise<void> {
@@ -225,21 +247,39 @@ class AiswExtension {
     });
   }
 
-  private async installCli(): Promise<void> {
+  private contextDescription(name: string): string {
+    const context = this.contexts?.find((entry) => entry.name === name);
+    return context ? describeMappings(context.profiles) : '';
+  }
+
+  private openContextCreateTerminal(): void {
+    const command = contextCreateCommand(this.terminalExecutable());
+    const terminal = vscode.window.createTerminal({ name: 'AISW: Create Context', iconPath: new vscode.ThemeIcon('account'), color: new vscode.ThemeColor('terminal.ansiBlue'), isTransient: true });
+    terminal.show();
+    if (terminal.shellIntegration) terminal.shellIntegration.executeCommand(command.executable, command.args);
+    else terminal.sendText([command.executable, ...command.args].map(shellQuote).join(' '), false);
+  }
+
+  private async installCli(update = false, excludeLabel?: string): Promise<void> {
     if (vscode.env.remoteName) return;
-    const methods = availableInstallMethods();
-    const selection = await vscode.window.showQuickPick(methods, { placeHolder: 'Choose how to install aisw' });
+    const methods = availableInstallMethods(update, this.configuredBinary()).filter((method) => method.label !== excludeLabel);
+    const selection = await vscode.window.showQuickPick(methods, { placeHolder: update ? updatePlaceholder(this.configuredBinary()) : 'Choose how to install aisw' });
     if (!selection) return;
     if (selection.methodKind === 'docs') { await vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL)); return; }
     if (selection.methodKind === 'locate') { await this.locateCli(); return; }
     this.render({ installing: true });
-    this.openTerminal(selection.executable, selection.args, selection.label, async (exitCode) => {
+    const terminal = this.openTerminal(selection.executable, selection.args, selection.label, async (exitCode) => {
       if (exitCode !== 0) {
-        if (exitCode !== undefined) await vscode.window.showErrorMessage(`Installing aisw failed (exit code ${exitCode}). The terminal shows what happened.`);
+        if (exitCode !== undefined) {
+          const action = await vscode.window.showErrorMessage(`Installing aisw failed (exit code ${exitCode}). The terminal shows what happened.`, 'Try Another Method', 'Show Terminal');
+          if (action === 'Try Another Method') await this.installCli(update, selection.label);
+          if (action === 'Show Terminal') terminal.show();
+        }
         else await vscode.window.showInformationMessage('Installing aisw was canceled.');
         return;
       }
       this.handshake = undefined;
+      this.cliNeedsUpdate = false;
       await this.refresh(false, true);
       if (!this.adapter) {
         await vscode.window.showWarningMessage('The install command finished, but aisw was not found. Check the terminal or locate an existing binary.');
@@ -248,6 +288,10 @@ class AiswExtension {
       const action = await vscode.window.showInformationMessage('aisw is installed. Import accounts already signed in on this machine?', 'Import Logins', 'Add Profile Manually');
       if (action === 'Import Logins') await this.importLogins();
       if (action === 'Add Profile Manually') await this.addProfile();
+    }, async () => {
+      const action = await vscode.window.showInformationMessage('Finish the install in the terminal, then check again.', 'Check Again', 'Show Terminal');
+      if (action === 'Check Again') { this.handshake = undefined; await this.refresh(false, true); }
+      if (action === 'Show Terminal') terminal.show();
     });
   }
 
@@ -262,6 +306,13 @@ class AiswExtension {
       this.handshake = undefined;
       await this.refresh(false);
     } catch (error) { await vscode.window.showErrorMessage(`That file isn't a compatible aisw: ${messageFor(error)}`); }
+  }
+
+  private async clearBinaryPath(): Promise<void> {
+    await vscode.workspace.getConfiguration('aisw').update('binaryPath', undefined, vscode.ConfigurationTarget.Global);
+    this.handshake = undefined;
+    this.cliNeedsUpdate = false;
+    await this.refresh(true);
   }
 
   private async removeProfile(): Promise<void> {
@@ -280,8 +331,13 @@ class AiswExtension {
     } catch (error) { await this.showError(error); }
   }
 
-  private openTerminal(executable: string, args: string[], label = args.join(' '), onComplete?: (exitCode?: number) => Promise<void>): void {
-    const terminal = vscode.window.createTerminal({ name: `AISW: ${label}` });
+  private openTerminal(executable: string, args: string[], label = args.join(' '), onComplete?: (exitCode?: number) => Promise<void>, onNoShellIntegration?: () => Promise<void>): vscode.Terminal {
+    const terminal = vscode.window.createTerminal({
+      name: `AISW: ${label}`,
+      iconPath: new vscode.ThemeIcon('account'),
+      color: new vscode.ThemeColor('terminal.ansiBlue'),
+      isTransient: true,
+    });
     terminal.show();
     let executed = false;
     let completed = false;
@@ -308,8 +364,15 @@ class AiswExtension {
       this.output.appendLine('Waiting for terminal shell integration; using a quoted command if it remains unavailable.');
       const disposable = vscode.window.onDidChangeTerminalShellIntegration((event) => { if (event.terminal === terminal) { execute(); disposable.dispose(); } });
       this.extensionContext.subscriptions.push(disposable);
-      setTimeout(() => { if (!executed && !terminal.shellIntegration) { executed = true; terminal.sendText([executable, ...args].map(shellQuote).join(' ')); } }, 3000);
+      setTimeout(() => {
+        if (!executed && !terminal.shellIntegration) {
+          executed = true;
+          void onNoShellIntegration?.();
+          terminal.sendText([executable, ...args].map(shellQuote).join(' '));
+        }
+      }, 3000);
     }
+    return terminal;
   }
 
   private async getStarted(): Promise<void> {
@@ -383,9 +446,28 @@ class AiswExtension {
 
   private async showError(error: unknown): Promise<void> {
     this.logError(error); const message = messageFor(error);
-    const action = error instanceof CliError && error.kind === 'cli_not_found' ? await vscode.window.showErrorMessage(message, 'Install aisw', 'Set binary path') : await vscode.window.showErrorMessage(message);
+    const remediation = error instanceof CliError ? error.remediation : undefined;
+    const canRunRemediation = remediation?.kind === 'run_command' && remediation.safe === true && !!remediation.command;
+    const remediationLabel = canRunRemediation ? `Run ${remediation.command}` : undefined;
+    const action = error instanceof BinaryPathError
+      ? await vscode.window.showErrorMessage(message, 'Clear Setting', 'Open Setting')
+      : error instanceof CliError && error.kind === 'cli_not_found'
+        ? await vscode.window.showErrorMessage(message, 'Install aisw', 'Set binary path')
+        : canRunRemediation
+          ? await vscode.window.showErrorMessage(message, remediationLabel!, 'Show Output')
+          : await vscode.window.showErrorMessage(message);
     if (action === 'Install aisw') await vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL));
     if (action === 'Set binary path') await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:aisw.aisw-vscode aisw.binaryPath');
+    if (action === 'Clear Setting') await this.clearBinaryPath();
+    if (action === 'Open Setting') await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:aisw.aisw-vscode aisw.binaryPath');
+    if (canRunRemediation && action === remediationLabel) this.runRemediation(remediation!.command!);
+    if (action === 'Show Output') this.output.show(true);
+  }
+
+  private runRemediation(command: string): void {
+    const terminal = vscode.window.createTerminal({ name: 'AISW: Remediation', iconPath: new vscode.ThemeIcon('wrench'), color: new vscode.ThemeColor('terminal.ansiYellow'), isTransient: true });
+    terminal.show();
+    terminal.sendText(command, true);
   }
 
   private logError(error: unknown): void { this.output.appendLine(`[${new Date().toISOString()}] ${messageFor(error)}`); }
@@ -396,6 +478,21 @@ class AiswExtension {
     const promise = adapter.diagnose().catch((error) => { if (this.handshake?.promise === promise) this.handshake = undefined; throw error; });
     this.handshake = { binary, promise }; return promise;
   }
+}
+
+type ContextPick = vscode.QuickPickItem & { context?: string; contextAction?: 'profile' };
+type ProfilePick = vscode.QuickPickItem & { tool?: string; profile?: Profile; profileAction?: 'add' };
+
+function profilePickItems(profiles: ProfileList): ProfilePick[] {
+  return Object.entries(profiles).flatMap(([tool, entry]) => [
+    { label: toolLabel(tool), kind: vscode.QuickPickItemKind.Separator } as ProfilePick,
+    ...entry.profiles.map((profile) => ({
+      label: profile.name,
+      description: `${entry.active === profile.name ? 'active' : 'available'}${profile.auth ? ` · ${profile.auth}` : ''}`,
+      tool,
+      profile,
+    })),
+  ]).concat([{ label: 'Add Profile…', profileAction: 'add' }]);
 }
 
 function profileItems(profiles: ProfileList): Array<{ label: string; description: string; tool: string; profile: Profile; active: boolean }> {
@@ -425,14 +522,56 @@ function formatVerification(report: unknown, affectedTools?: string[], profiles?
 
 type InstallMethod = { label: string; description: string; methodKind: 'command' | 'locate' | 'docs'; executable: string; args: string[] };
 
-function availableInstallMethods(): InstallMethod[] {
+function availableInstallMethods(update = false, configuredBinary = ''): InstallMethod[] {
   const methods: InstallMethod[] = [];
-  if (commandAvailable('brew')) methods.push({ label: 'Homebrew', description: 'brew install burakdede/tap/aisw', methodKind: 'command', executable: 'brew', args: ['install', 'burakdede/tap/aisw'] });
-  methods.push({ label: 'Install script', description: 'curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh', methodKind: 'command', executable: process.env.SHELL || 'sh', args: ['-c', 'curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh'] });
-  if (commandAvailable('cargo')) methods.push({ label: 'Cargo', description: 'cargo install aisw --locked', methodKind: 'command', executable: 'cargo', args: ['install', 'aisw', '--locked'] });
+  const updateMethods = updateCommands(update ? configuredBinary : '');
+  if (commandAvailable('brew')) methods.push(updateMethods.brew);
+  methods.push(updateMethods.script);
+  if (commandAvailable('cargo')) methods.push(updateMethods.cargo);
   methods.push({ label: 'Locate an Existing aisw…', description: 'Choose an installed aisw executable', methodKind: 'locate', executable: '', args: [] });
   methods.push({ label: 'Open Installation Guide', description: INSTALL_URL, methodKind: 'docs', executable: '', args: [] });
   return methods;
+}
+
+function updateCommands(configuredBinary: string): { brew: InstallMethod; script: InstallMethod; cargo: InstallMethod } {
+  const update = configuredBinary ? inferUpdateMethod(configuredBinary) : undefined;
+  return {
+    brew: {
+      label: 'Homebrew',
+      description: update === 'brew' ? 'brew upgrade aisw' : 'brew install burakdede/tap/aisw',
+      methodKind: 'command',
+      executable: 'brew',
+      args: update === 'brew' ? ['upgrade', 'aisw'] : ['install', 'burakdede/tap/aisw'],
+    },
+    script: {
+      label: 'Install script',
+      description: update === 'script' ? 'curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh' : 'curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh',
+      methodKind: 'command',
+      executable: process.env.SHELL || 'sh',
+      args: ['-c', 'curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh'],
+    },
+    cargo: {
+      label: 'Cargo',
+      description: update === 'cargo' ? 'cargo install aisw --locked --force' : 'cargo install aisw --locked',
+      methodKind: 'command',
+      executable: 'cargo',
+      args: update === 'cargo' ? ['install', 'aisw', '--locked', '--force'] : ['install', 'aisw', '--locked'],
+    },
+  };
+}
+
+function inferUpdateMethod(binary: string): 'brew' | 'cargo' | 'script' | undefined {
+  const normalized = binary.replaceAll('\\', '/');
+  if (normalized.includes('/Cellar/') || normalized.includes('/homebrew/')) return 'brew';
+  if (normalized.includes('/.cargo/bin/')) return 'cargo';
+  if (normalized.includes('/.local/bin/')) return 'script';
+  return undefined;
+}
+
+function updatePlaceholder(configuredBinary: string): string {
+  return configuredBinary
+    ? `Update the aisw installation at ${configuredBinary}`
+    : 'Update aisw using the method that installed it';
 }
 
 function shellQuote(value: string): string {

@@ -56,7 +56,7 @@ export function deriveViewState(input: ViewInput): ViewState {
     return state(
       missing ? '$(cloud-download) Install aisw' : invalidPath ? '$(error) AISW: Check binaryPath' : incompatible ? '$(error) AISW: Update aisw' : '$(error) AISW: Error',
       input.error.message,
-      missing ? 'aisw.installCli' : invalidPath ? 'workbench.action.openSettings' : 'aisw.diagnose',
+      missing ? 'aisw.installCli' : invalidPath ? 'aisw.clearBinaryPath' : incompatible ? 'aisw.installCli' : 'aisw.diagnose',
     );
   }
 
