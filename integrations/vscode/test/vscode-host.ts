@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as vscode from 'vscode';
 
 export async function run(): Promise<void> {
-  const extension = vscode.extensions.getExtension('aisw-vscode');
+  const extension = vscode.extensions.getExtension('aisw.aisw-vscode');
   assert.ok(extension, 'AISW extension should be discoverable in the Extension Host');
   await extension.activate();
 
