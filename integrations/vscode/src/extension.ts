@@ -109,14 +109,14 @@ class AiswExtension {
   private async switchContext(): Promise<void> {
     if (!this.adapter || !this.contexts) return this.requireRefresh();
     const selection = await vscode.window.showQuickPick(this.contexts.map((entry) => ({ label: entry.name, description: describeMappings(entry.profiles), entry })), { placeHolder: 'Select an AISW context' });
-    if (selection) await this.runMutation(() => this.adapter!.useContext(selection.entry.name), 'Context switched.');
+    if (selection) await this.runMutation(() => this.adapter!.useContext(selection.entry.name), 'Context switched.', selection.entry.name);
   }
 
   private async switchToWorkspaceContext(): Promise<void> {
     const expected = this.workspaceStatus?.expected_context;
     if (!expected) return this.switchContext();
     if (!this.contexts?.some((context) => context.name === expected)) { await vscode.window.showErrorMessage(`Workspace context '${expected}' is not available.`); return; }
-    await this.runMutation(() => this.adapter!.useContext(expected), 'Workspace context switched.');
+    await this.runMutation(() => this.adapter!.useContext(expected), 'Workspace context switched.', expected);
   }
 
   private async switchProfile(): Promise<void> {
@@ -124,17 +124,18 @@ class AiswExtension {
     const items = profileItems(this.profiles);
     if (!items.length) return this.getStarted();
     const selection = await vscode.window.showQuickPick(items, { placeHolder: 'Select an AISW profile' });
-    if (selection) await this.runMutation(() => this.adapter!.useProfile(selection.tool, selection.profile.name), 'Profile switched.');
+    if (selection) await this.runMutation(() => this.adapter!.useProfile(selection.tool, selection.profile.name), 'Profile switched.', selection.profile.name);
   }
 
-  private async runMutation(mutation: () => Promise<JsonEnvelope>, success: string): Promise<void> {
-    const task = this.mutationQueue.then(() => this.performMutation(mutation, success));
+  private async runMutation(mutation: () => Promise<JsonEnvelope>, success: string, target: string): Promise<void> {
+    const task = this.mutationQueue.then(() => this.performMutation(mutation, success, target));
     this.mutationQueue = task.catch(() => undefined);
     return task;
   }
 
-  private async performMutation(mutation: () => Promise<JsonEnvelope>, success: string): Promise<void> {
+  private async performMutation(mutation: () => Promise<JsonEnvelope>, success: string, target: string): Promise<void> {
     this.mutationActive = true;
+    this.render({ switchingTo: target });
     try {
       const result = await mutation();
       await this.refresh(false, true);
@@ -142,7 +143,7 @@ class AiswExtension {
       const warnings = mutationWarnings(result);
       if (warnings.length) await vscode.window.showWarningMessage(warnings.join(' '));
       if (report.failed.length) await vscode.window.showWarningMessage(`${success} ${report.failed.join(' ')}`);
-      else await vscode.window.showInformationMessage(success);
+      else this.showSuccess(success);
     } catch (error) { await this.showError(error); }
     finally { this.mutationActive = false; }
   }
@@ -153,7 +154,7 @@ class AiswExtension {
       await this.refresh(false, false);
       const formatted = formatVerification(report, undefined, this.profiles);
       if (formatted.failed.length) await vscode.window.showWarningMessage(formatted.message);
-      else await vscode.window.showInformationMessage(formatted.message);
+      else this.showSuccess(formatted.message);
     } catch (error) { await this.showError(error); }
   }
 
@@ -182,7 +183,7 @@ class AiswExtension {
           await this.refresh(false, true);
           const report = await this.scopedVerify([tool.name]);
           if (report.failed.length) await vscode.window.showWarningMessage(`Profile flow completed, but verification found issues: ${report.failed.join('; ')}`);
-          else await vscode.window.showInformationMessage(`${toolLabel(tool.name)} profile '${profile}' added.`);
+          else this.showSuccess(`${toolLabel(tool.name)} profile '${profile}' added.`);
         } else if (exitCode !== undefined) {
           await vscode.window.showErrorMessage(`Adding the ${toolLabel(tool.name)} profile failed (exit code ${exitCode}). The terminal shows what happened.`);
         } else {
@@ -198,7 +199,7 @@ class AiswExtension {
     this.openTerminal(command.executable, command.args, 'Import existing logins', async (exitCode) => {
       if (exitCode === 0) {
         await this.refresh(false, true);
-        await vscode.window.showInformationMessage('AISW imported the available logins.');
+        this.showSuccess('AISW imported the available logins.');
       } else if (exitCode !== undefined) {
         await vscode.window.showErrorMessage(`Importing existing logins failed (exit code ${exitCode}). The terminal shows what happened.`);
       } else {
@@ -215,7 +216,7 @@ class AiswExtension {
     this.openTerminal(command.executable, command.args, 'Bind workspace', async (exitCode) => {
       if (exitCode === 0) {
         await this.refresh(false, true);
-        await vscode.window.showInformationMessage(`Workspace bound to '${selection.entry.name}'.`);
+        this.showSuccess(`Workspace bound to '${selection.entry.name}'.`);
       } else if (exitCode !== undefined) {
         await vscode.window.showErrorMessage(`Binding the workspace failed (exit code ${exitCode}). The terminal shows what happened.`);
       } else {
@@ -231,6 +232,7 @@ class AiswExtension {
     if (!selection) return;
     if (selection.methodKind === 'docs') { await vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL)); return; }
     if (selection.methodKind === 'locate') { await this.locateCli(); return; }
+    this.render({ installing: true });
     this.openTerminal(selection.executable, selection.args, selection.label, async (exitCode) => {
       if (exitCode !== 0) {
         if (exitCode !== undefined) await vscode.window.showErrorMessage(`Installing aisw failed (exit code ${exitCode}). The terminal shows what happened.`);
@@ -274,7 +276,7 @@ class AiswExtension {
       await this.refresh(false);
       const backupId = backupIds(result)[0];
       const action = await vscode.window.showInformationMessage('Profile removed.', ...(backupId ? ['Undo'] as const : []));
-      if (action === 'Undo' && backupId) { await this.adapter.restoreBackup(backupId); await this.refresh(false); await vscode.window.showInformationMessage('Profile restored.'); }
+      if (action === 'Undo' && backupId) { await this.adapter.restoreBackup(backupId); await this.refresh(false); this.showSuccess('Profile restored.'); }
     } catch (error) { await this.showError(error); }
   }
 
@@ -341,13 +343,15 @@ class AiswExtension {
 
   private requireRefresh(): Thenable<void> { return vscode.window.showInformationMessage('AISW is still loading; run AISW: Refresh if this persists.').then(() => undefined); }
 
+  private showSuccess(message: string): void { vscode.window.setStatusBarMessage(`AISW: ${message}`, 3000); }
+
   private scheduleRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     const delay = vscode.workspace.getConfiguration('aisw').get<number>('refreshDebounceMs', 500);
     this.refreshTimer = setTimeout(() => void this.refresh(false, false), delay);
   }
 
-  private render(input: { loading?: boolean; error?: { kind?: string; message: string } } = {}): void {
+  private render(input: { loading?: boolean; switchingTo?: string; installing?: boolean; error?: { kind?: string; message: string } } = {}): void {
     const view = deriveViewState({ ...input, status: this.status, profiles: this.profiles, workspace: this.workspaceStatus, remote: !!vscode.env.remoteName });
     this.statusBar.text = view.text; this.statusBar.command = view.command; this.statusBar.tooltip = markdownTooltip(view.tooltip);
     this.statusBar.accessibilityInformation = { label: view.accessibilityLabel, role: 'button' };
@@ -355,7 +359,7 @@ class AiswExtension {
     const stateKey = input.error?.kind === 'cli_not_found' ? 'cliMissing'
       : input.error?.kind === 'binary_path_invalid' ? 'binaryPathInvalid'
         : input.error?.kind === 'incompatible_cli' ? 'incompatible'
-          : input.error?.kind ?? (input.loading ? 'loading' : vscode.env.remoteName ? 'remote' : this.adapter ? 'ready' : 'unknown');
+          : input.error?.kind ?? (input.loading ? 'loading' : input.switchingTo ? 'switching' : input.installing ? 'installing' : vscode.env.remoteName ? 'remote' : this.adapter ? 'ready' : 'unknown');
     void vscode.commands.executeCommand('setContext', 'aisw.state', stateKey);
     void vscode.commands.executeCommand('setContext', 'aisw.isRemote', !!vscode.env.remoteName);
     void vscode.commands.executeCommand('setContext', 'aisw.cliInstalled', !input.error && !input.loading && !!this.adapter);

@@ -73,3 +73,13 @@ test('shows no active profile when profiles exist but none is active', () => {
   assert.equal(view.text, '$(account) No active profile');
   assert.equal(view.command, 'aisw.switchProfile');
 });
+
+test('derives mutation and installer progress states', () => {
+  const switching = deriveViewState({ switchingTo: 'client-acme' });
+  assert.equal(switching.text, '$(sync~spin) Switching to client-acme…');
+  assert.equal(switching.command, undefined);
+
+  const installing = deriveViewState({ installing: true });
+  assert.equal(installing.text, '$(sync~spin) Installing aisw…');
+  assert.equal(installing.command, 'workbench.action.terminal.focus');
+});

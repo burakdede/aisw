@@ -12,6 +12,8 @@ export interface ViewInput {
   profiles?: ProfileList;
   workspace?: WorkspaceStatusPayload;
   loading?: boolean;
+  switchingTo?: string;
+  installing?: boolean;
   remote?: boolean;
   error?: { kind?: string; message: string };
 }
@@ -40,6 +42,12 @@ export function deriveViewState(input: ViewInput): ViewState {
   }
   if (input.loading) {
     return state('$(sync~spin) AISW', 'Loading AISW state.');
+  }
+  if (input.switchingTo) {
+    return state(`$(sync~spin) Switching to ${input.switchingTo}…`, `Switching to ${input.switchingTo}.`);
+  }
+  if (input.installing) {
+    return state('$(sync~spin) Installing aisw…', 'Installing aisw in the AISW terminal.', 'workbench.action.terminal.focus');
   }
   if (input.error) {
     const missing = input.error.kind === 'cli_not_found';
