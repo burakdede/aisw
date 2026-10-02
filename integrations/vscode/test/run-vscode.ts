@@ -18,8 +18,9 @@ async function main(): Promise<void> {
   const binary = await createFakeCli(isolated);
   await mkdir(home, { recursive: true });
   await mkdir(path.join(userDataDir, 'User'), { recursive: true });
-  await writeFile(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({ 'aisw.binaryPath': binary }));
-  const extensionTestsEnv = { ...process.env, HOME: home, AISW_HOME: path.join(home, 'aisw') };
+  await writeFile(path.join(userDataDir, 'User', 'settings.json'), JSON.stringify({}));
+  const extensionTestsEnv: NodeJS.ProcessEnv = { ...process.env, HOME: home, AISW_HOME: path.join(home, 'aisw') };
+  extensionTestsEnv.PATH = `${isolated}${path.delimiter}${process.env.PATH ?? ''}`;
   let vscodeExecutablePath = await downloadAndUnzipVSCode(options);
   linkMacOSExecutable(vscodeExecutablePath);
   if (!existsSync(vscodeExecutablePath)) {

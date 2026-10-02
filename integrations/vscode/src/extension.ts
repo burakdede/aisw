@@ -394,7 +394,7 @@ class AiswExtension {
     });
   }
 
-  private configuredBinary(): string { return vscode.workspace.getConfiguration('aisw').get<string>('binaryPath', '').trim() || 'aisw'; }
+  private configuredBinary(): string { return vscode.workspace.getConfiguration('aisw').get<string>('binaryPath', '').trim(); }
 
   private workspaceCwd(): string {
     const activeUri = vscode.window.activeTextEditor?.document.uri;
@@ -402,7 +402,7 @@ class AiswExtension {
     return activeFolder?.uri.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
   }
 
-  private terminalExecutable(): string { return this.configuredBinary() === 'aisw' ? 'aisw' : resolveBinary(this.configuredBinary()); }
+  private terminalExecutable(): string { return this.configuredBinary() ? resolveBinary(this.configuredBinary()) : 'aisw'; }
 
   private requireRefresh(): Thenable<void> { return vscode.window.showInformationMessage('AISW is still loading; run AISW: Refresh if this persists.').then(() => undefined); }
 
