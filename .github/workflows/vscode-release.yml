@@ -1,0 +1,122 @@
+name: Publish VS Code Extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Extension tag to validate and publish (vscode-vX.Y.Z)
+        required: true
+        type: string
+
+concurrency:
+  group: vscode-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish VS Code and Cursor package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      VSCE_AZURE_CLIENT_ID: ${{ secrets.VSCE_AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Validate extension release tag
+        working-directory: integrations/vscode
+        env:
+          EXTENSION_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          case "$EXTENSION_TAG" in
+            vscode-v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Expected an extension tag like vscode-v0.1.0, got $EXTENSION_TAG" >&2; exit 1 ;;
+          esac
+          tag_version="${EXTENSION_TAG#vscode-v}"
+          package_version="$(node -p "require('./package.json').version")"
+          test "$tag_version" = "$package_version" || {
+            echo "Extension tag version $tag_version does not match package version $package_version" >&2
+            exit 1
+          }
+          echo "EXTENSION_VERSION=$package_version" >> "$GITHUB_ENV"
+
+      - name: Install system dependencies
+        run: bash .github/scripts/install-linux-dependencies.sh libdbus-1-dev pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run hard compatibility gate
+        run: bash .github/scripts/vscode-compatibility.sh
+
+      - name: Pin and checksum the tested VSIX
+        working-directory: integrations/vscode
+        run: |
+          shopt -s nullglob
+          packages=(aisw-vscode-*.vsix)
+          test "${#packages[@]}" -eq 1 || {
+            echo "Expected exactly one tested VSIX, found ${#packages[@]}" >&2
+            exit 1
+          }
+          vsix="${packages[0]}"
+          sha256sum "$vsix" > "$vsix.sha256"
+          echo "VSIX_PATH=$vsix" >> "$GITHUB_ENV"
+          echo "Publishing $vsix (SHA-256 $(awk '{print $1}' "$vsix.sha256"))"
+
+      - name: Retain compatibility and artifact evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-release-evidence-${{ inputs.tag || github.ref_name }}
+          path: |
+            vscode-compatibility-report.json
+            integrations/vscode/aisw-vscode-*.vsix
+            integrations/vscode/aisw-vscode-*.vsix.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Require publishing credentials
+        run: |
+          if [ -n "$VSCE_AZURE_CLIENT_ID" ]; then
+            test -n "$AZURE_TENANT_ID" || { echo "AZURE_TENANT_ID is required with VSCE_AZURE_CLIENT_ID" >&2; exit 1; }
+            test -n "$AZURE_SUBSCRIPTION_ID" || { echo "AZURE_SUBSCRIPTION_ID is required with VSCE_AZURE_CLIENT_ID" >&2; exit 1; }
+          else
+            test -n "$VSCE_PAT" || { echo "Configure Entra publishing secrets or VSCE_PAT" >&2; exit 1; }
+          fi
+          test -n "$OVSX_TOKEN" || { echo "OVSX_TOKEN is required" >&2; exit 1; }
+
+      - name: Authenticate to Azure for Marketplace publishing
+        if: env.VSCE_AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.VSCE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish the exact tested VSIX to Visual Studio Marketplace with Entra ID
+        if: env.VSCE_AZURE_CLIENT_ID != ''
+        working-directory: integrations/vscode
+        run: npx --no-install vsce publish --azure-credential --packagePath "$VSIX_PATH"
+
+      - name: Publish the exact tested VSIX to Visual Studio Marketplace with PAT
+        if: env.VSCE_AZURE_CLIENT_ID == ''
+        working-directory: integrations/vscode
+        run: npx --no-install vsce publish --packagePath "$VSIX_PATH"
+
+      - name: Publish the exact tested VSIX to Open VSX
+        working-directory: integrations/vscode
+        run: npx --no-install ovsx publish "$VSIX_PATH" --pat "$OVSX_TOKEN"
+
+      - name: Verify both marketplace publications
+        run: bash .github/scripts/verify-vscode-publication.sh "$EXTENSION_VERSION" "integrations/vscode/$VSIX_PATH"

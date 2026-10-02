@@ -59,6 +59,27 @@ Pre-release suffixes are not supported by the release workflow; use a separate t
 
 The release is always created as a draft. A human must publish it.
 
+## CLI and VS Code compatibility gate
+
+The CLI release workflow runs `.github/scripts/vscode-compatibility.sh` before
+publishing the crate or creating a release. The gate builds the exact CLI
+release candidate, tests the extension against it and the minimum supported
+released CLI, runs the full extension tests, and inspects the VSIX package.
+
+A failed gate prevents CLI publication and leaves no release artifact ready.
+Extension publication is independent: push a `vscode-vX.Y.Z` tag matching the
+extension package version. That workflow runs the same gate, then publishes
+the tested VSIX to the Visual Studio Marketplace and Open VSX. The
+compatibility report records the CLI API/schema versions and extension version
+tested together. Marketplace publishing prefers GitHub OIDC with Microsoft
+Entra ID; `VSCE_PAT` remains a temporary fallback during migration.
+
+Cursor Marketplace publication is separate from VSIX distribution. Cursor
+accepts a public plugin repository with a `plugin.json` or
+`.cursor-plugin/plugin.json` manifest and manually reviews submissions. Do not
+add a Cursor Marketplace publish command to the VSIX workflow; submit a
+companion Cursor Plugin and request re-indexing after approved updates.
+
 ## Homebrew publishing
 
 Homebrew is published by a separate workflow:

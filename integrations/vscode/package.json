@@ -1,0 +1,128 @@
+{
+  "name": "aisw-vscode",
+  "displayName": "AISW",
+  "description": "Switch AISW profiles and contexts from VS Code and Cursor.",
+  "version": "0.1.0",
+  "publisher": "aisw",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {"color": "#001436", "theme": "dark"},
+  "keywords": ["claude code", "codex", "gemini", "account switcher", "profiles"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/burakdede/aisw"
+  },
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "AISW",
+      "properties": {
+        "aisw.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the aisw executable. Empty uses aisw from PATH.",
+          "scope": "machine"
+        },
+        "aisw.refreshDebounceMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "Debounce interval for refreshes caused by editor focus changes.",
+          "scope": "window"
+        },
+        "aisw.workspaceMismatch.notify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when this workspace expects a different AISW context.",
+          "scope": "window"
+        }
+      }
+    },
+    "commands": [
+      {"command": "aisw.refresh", "title": "AISW: Refresh", "category": "AISW", "icon": "$(refresh)"},
+      {"command": "aisw.switchContext", "title": "AISW: Switch Context", "category": "AISW", "icon": "$(arrow-swap)"},
+      {"command": "aisw.switchToWorkspaceContext", "title": "AISW: Switch to Workspace Context", "category": "AISW", "icon": "$(repo)"},
+      {"command": "aisw.switchProfile", "title": "AISW: Switch Profile", "category": "AISW", "icon": "$(account)"},
+      {"command": "aisw.verify", "title": "AISW: Verify Active Accounts", "category": "AISW", "icon": "$(pass-filled)"},
+      {"command": "aisw.diagnose", "title": "AISW: Show CLI Diagnostics", "category": "AISW", "icon": "$(info)"},
+      {"command": "aisw.showOutput", "title": "AISW: Show Output", "category": "AISW", "icon": "$(output)"},
+      {"command": "aisw.getStarted", "title": "AISW: Get Started", "category": "AISW", "icon": "$(book)"},
+      {"command": "aisw.installCli", "title": "AISW: Install or Update aisw…", "category": "AISW", "icon": "$(cloud-download)"},
+      {"command": "aisw.locateCli", "title": "AISW: Locate aisw…", "category": "AISW", "icon": "$(folder-opened)"},
+      {"command": "aisw.clearBinaryPath", "title": "AISW: Clear Configured Binary Path", "category": "AISW", "icon": "$(clear-all)"},
+      {"command": "aisw.addProfile", "title": "AISW: Add Profile…", "category": "AISW", "icon": "$(add)"},
+      {"command": "aisw.importLogins", "title": "AISW: Import Existing Logins", "category": "AISW", "icon": "$(cloud-download)"},
+      {"command": "aisw.bindWorkspace", "title": "AISW: Bind Workspace…", "category": "AISW", "icon": "$(repo)"},
+      {"command": "aisw.removeProfile", "title": "AISW: Remove Profile…", "category": "AISW", "icon": "$(trash)"}
+    ],
+    "menus": {
+      "commandPalette": [
+        {"command": "aisw.refresh"},
+        {"command": "aisw.switchContext"},
+        {"command": "aisw.switchToWorkspaceContext", "when": "aisw.workspaceMismatch"},
+        {"command": "aisw.switchProfile"},
+        {"command": "aisw.verify"},
+        {"command": "aisw.diagnose"},
+        {"command": "aisw.showOutput"},
+        {"command": "aisw.getStarted"},
+        {"command": "aisw.installCli", "when": "!aisw.isRemote"},
+        {"command": "aisw.locateCli", "when": "!aisw.isRemote"},
+        {"command": "aisw.clearBinaryPath", "when": "aisw.state == 'binaryPathInvalid'"},
+        {"command": "aisw.addProfile"},
+        {"command": "aisw.importLogins", "when": "!aisw.isRemote"},
+        {"command": "aisw.bindWorkspace", "when": "!aisw.isRemote"},
+        {"command": "aisw.removeProfile", "when": "aisw.hasProfiles"}
+      ]
+    },
+    "walkthroughMetadata": {
+      "id": "aisw.getStarted",
+      "title": "Get started with AISW",
+      "description": "Keep the right AI coding account active for this workspace."
+    },
+    "walkthroughs": [
+      {
+        "id": "aisw.getStarted",
+        "title": "Get started with AISW",
+        "description": "Keep the right AI coding account active for this workspace.",
+        "steps": [
+        {"id": "install", "title": "Install aisw", "description": "Install the aisw CLI, then run AISW: Refresh.", "command": "aisw.installCli", "when": "!aisw.cliInstalled"},
+        {"id": "profile", "title": "Add your first profile", "description": "Import existing logins or run AISW: Add Profile to save an account.", "command": "aisw.importLogins", "when": "!aisw.hasProfiles"},
+        {"id": "context", "title": "Create a context", "description": "Create a context with the native AISW CLI, then refresh this window.", "command": "aisw.switchContext", "when": "aisw.hasProfiles && !aisw.hasContexts"},
+        {"id": "workspace", "title": "Bind this workspace", "description": "Bind this repository to the context it should use.", "command": "aisw.bindWorkspace", "when": "aisw.hasContexts"}
+        ]
+      }
+    ]
+  },
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "restrictedConfigurations": ["aisw.binaryPath"]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run check",
+    "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
+    "test:compat": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/compatibility.test.js",
+    "test:integration": "npm run build && tsc -p tsconfig.test.json && node dist-test/test/run-vscode.js",
+    "test:integration:installed": "npm run package && tsc -p tsconfig.test.json && node dist-test/test/run-vscode-installed.js",
+    "test:integration:cursor": "npm run package && tsc -p tsconfig.test.json && node dist-test/test/run-cursor-installed.js",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "~1.93.0",
+    "@vscode/vsce": "^3.2.1",
+    "@vscode/test-electron": "^2.4.1",
+    "ovsx": "^0.10.7",
+    "typescript": "^5.6.0"
+  }
+}

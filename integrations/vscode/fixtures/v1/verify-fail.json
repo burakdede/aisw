@@ -1,0 +1,1 @@
+{"summary":{"status":"fail","passed":1,"warnings":0,"failed":1},"tools":[{"tool":"agy","status":"fail","issues":["tool binary not found on PATH"],"remediation":["Install agy"]}]}

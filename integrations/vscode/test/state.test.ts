@@ -1,0 +1,92 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { deriveViewState, profileNameError } from '../src/state';
+
+const profiles = {
+  claude: { active: 'work', profiles: [{ name: 'work' }] },
+  codex: { active: null, profiles: [] },
+};
+
+test('derives an exact context state', () => {
+  const view = deriveViewState({
+    status: {
+      tools: [
+        { tool: 'claude', active_profile: 'work' },
+        { tool: 'codex', active_profile: null },
+      ],
+      context: { status: 'exact', active: 'client-acme', profiles: { claude: 'work' } },
+    },
+    profiles,
+    workspace: { status: 'match', expected_context: 'client-acme', matched_rule: 'repo' },
+  });
+  assert.equal(view.text, '$(account) client-acme');
+  assert.equal(view.command, 'aisw.switchContext');
+  assert.equal(view.workspaceMismatch, false);
+});
+
+test('derives a workspace mismatch with warning styling', () => {
+  const view = deriveViewState({
+    status: {
+      tools: [{ tool: 'claude', active_profile: 'work' }],
+      context: { status: 'exact', active: 'personal', profiles: { claude: 'work' } },
+    },
+    profiles,
+    workspace: { status: 'mismatch', expected_context: 'client-acme' },
+  });
+  assert.equal(view.text, '$(warning) personal ≠ client-acme');
+  assert.equal(view.background, 'warning');
+  assert.equal(view.command, 'aisw.switchToWorkspaceContext');
+});
+
+test('derives setup and missing-cli states', () => {
+  assert.equal(deriveViewState({ profiles: {} }).command, 'aisw.getStarted');
+  assert.equal(
+    deriveViewState({ error: { kind: 'cli_not_found', message: 'Install aisw.' } }).text,
+    '$(cloud-download) Install aisw',
+  );
+  assert.equal(deriveViewState({ error: { kind: 'binary_path_invalid', message: 'missing' } }).command, 'aisw.clearBinaryPath');
+});
+
+test('summarizes active profiles when no context matches', () => {
+  const view = deriveViewState({
+    status: {
+      tools: [
+        { tool: 'claude', active_profile: 'work' },
+        { tool: 'codex', active_profile: 'personal' },
+      ],
+      context: { status: 'none', active: null, profiles: null },
+    },
+    profiles,
+  });
+  assert.equal(view.text, '$(account) Claude Code:work +1');
+  assert.equal(view.command, 'aisw.switchProfile');
+});
+
+test('shows no active profile when profiles exist but none is active', () => {
+  const view = deriveViewState({
+    status: {
+      tools: [{ tool: 'claude', active_profile: null }],
+      context: { status: 'none', active: null, profiles: null },
+    },
+    profiles: { claude: { active: null, profiles: [{ name: 'work' }] } },
+  });
+  assert.equal(view.text, '$(account) No active profile');
+  assert.equal(view.command, 'aisw.switchProfile');
+});
+
+test('derives mutation and installer progress states', () => {
+  const switching = deriveViewState({ switchingTo: 'client-acme' });
+  assert.equal(switching.text, '$(sync~spin) Switching to client-acme…');
+  assert.equal(switching.command, undefined);
+
+  const installing = deriveViewState({ installing: true });
+  assert.equal(installing.text, '$(sync~spin) Installing aisw…');
+  assert.equal(installing.command, 'workbench.action.terminal.focus');
+});
+
+test('rejects invalid and duplicate profile names before opening the terminal', () => {
+  assert.equal(profileNameError('not valid', []), 'Use 1–32 letters, numbers, hyphens, or underscores.');
+  assert.equal(profileNameError('work', ['work']), 'That profile already exists for this tool.');
+  assert.equal(profileNameError('client-work', ['work']), undefined);
+});

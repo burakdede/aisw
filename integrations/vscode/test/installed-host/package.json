@@ -1,0 +1,8 @@
+{
+  "name": "aisw-vscode-installed-test-host",
+  "version": "0.0.0",
+  "publisher": "aisw",
+  "engines": {"vscode": "^1.93.0"},
+  "activationEvents": ["*"],
+  "main": "./extension.js"
+}

@@ -1,0 +1,47 @@
+name: VS Code Compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'integrations/vscode/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/scripts/vscode-compatibility.sh'
+      - '.github/workflows/vscode-compatibility.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'integrations/vscode/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/scripts/vscode-compatibility.sh'
+      - '.github/workflows/vscode-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: CLI and extension compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: bash .github/scripts/install-linux-dependencies.sh libdbus-1-dev pkg-config
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run hard compatibility gate
+        run: bash .github/scripts/vscode-compatibility.sh
+
+      - name: Upload compatibility report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-compatibility-report
+          path: vscode-compatibility-report.json

@@ -1,0 +1,1 @@
+{"ok":true,"command":"context use","result":{"affected_tools":["claude","codex"],"warnings":["codex profile was already active"]}}
