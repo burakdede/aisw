@@ -312,8 +312,8 @@ terminal and keeps the CLI's native prompts:
 1. Quick Pick (step 1/2): tools from `capabilities.tools`, with
    `auth_methods` as the description.
 2. Input box (step 2/2): profile name, 1–32 letters, numbers, hyphens or
-   underscores, rejected if it already exists in `list`.
-3. Terminal named `AISW` with `iconPath: ThemeIcon('account')`,
+   underscores, rejected if it already exists for the selected tool.
+3. Terminal named `AISW: <tool> profile` with `iconPath: ThemeIcon('account')`,
    `color: ThemeColor('terminal.ansiBlue')` and `isTransient: true`. Wait up to
    3 s for `onDidChangeTerminalShellIntegration`, then run
    `shellIntegration.executeCommand(binary, ['add', tool, name])`. This form
@@ -327,8 +327,9 @@ terminal and keeps the CLI's native prompts:
 
 **Remove Profile** handles no secrets, so it runs in the background:
 
-1. Quick Pick of profiles. The active profile is shown but disabled, with the
-   description "switch away first".
+1. Quick Pick of profiles. The active profile is shown with the description
+   "active · switch away first"; selecting it is rejected without invoking the
+   CLI.
 2. Modal confirmation, `showWarningMessage(..., { modal: true, detail })`:
    "Remove the Claude Code profile work?" with the detail "aisw deletes its
    stored credentials and keeps a backup you can restore." and a Remove button.

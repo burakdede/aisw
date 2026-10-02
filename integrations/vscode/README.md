@@ -10,8 +10,21 @@ CURSOR_CLI_PATH="/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
 npm run test:integration:installed
 ```
 
-The test uses separate user-data, extensions, `HOME`, and `AISW_HOME`
-directories. It never modifies the normal VS Code or Cursor installation.
+That command uses the VS Code Extension Host test protocol. Cursor does not
+implement that protocol in all releases. For a Cursor-specific installed-VSIX
+check, use the activation smoke runner:
+
+```sh
+CURSOR_EXECUTABLE_PATH="/Applications/Cursor.app/Contents/MacOS/Cursor" \
+CURSOR_CLI_PATH="/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
+npm run test:integration:cursor
+```
+
+Both tests use separate user-data, extensions, `HOME`, and `AISW_HOME`
+directories. They never modify the normal VS Code or Cursor installation. The
+Cursor runner verifies exact VSIX installation, extension listing, and AISW
+extension-host activation. UI commands and native terminal flows still require
+manual smoke testing in a functioning Cursor session.
 Both local harnesses use VS Code 1.93.1 by default, matching the minimum
 engine; set `VSCODE_VERSION` to test another VS Code release.
 

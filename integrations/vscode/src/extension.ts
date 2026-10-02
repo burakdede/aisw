@@ -4,7 +4,7 @@ import { CliAdapter, CliError } from './cliAdapter';
 import { BinaryPathError, resolveBinary } from './binaryResolver';
 import { CapabilitiesPayload, ContextEntry, JsonEnvelope, Profile, ProfileList, StatusPayload } from './contract';
 import { addProfileCommand, contextCreateCommand, importLoginsCommand, workspaceBindCommand } from './nativeFlow';
-import { deriveViewState, toolLabel, WorkspaceStatusPayload } from './state';
+import { deriveViewState, profileNameError, toolLabel, WorkspaceStatusPayload } from './state';
 
 const INSTALL_URL = 'https://github.com/burakdede/aisw#installation';
 
@@ -197,7 +197,8 @@ class AiswExtension {
     const tools = Object.entries(this.capabilities.tools ?? {});
     const tool = await vscode.window.showQuickPick(tools.map(([name, metadata]) => ({ label: toolLabel(name), description: metadata.auth_methods?.length ? `Auth: ${metadata.auth_methods.join(', ')}` : undefined, name })), { placeHolder: 'Select the tool for the new profile' });
     if (!tool) return;
-    const profile = await vscode.window.showInputBox({ prompt: 'Profile name', validateInput: (value) => /^[A-Za-z0-9_-]{1,32}$/.test(value) ? undefined : 'Use 1–32 letters, numbers, hyphens, or underscores.' });
+    const existingNames = this.profiles?.[tool.name]?.profiles.map((entry) => entry.name) ?? [];
+    const profile = await vscode.window.showInputBox({ prompt: 'Profile name', validateInput: (value) => profileNameError(value, existingNames) });
     if (profile) {
       const command = addProfileCommand(this.terminalExecutable(), tool.name, profile);
       this.openTerminal(command.executable, command.args, `Add ${toolLabel(tool.name)} profile`, async (exitCode) => {
@@ -256,8 +257,7 @@ class AiswExtension {
     const command = contextCreateCommand(this.terminalExecutable());
     const terminal = vscode.window.createTerminal({ name: 'AISW: Create Context', iconPath: new vscode.ThemeIcon('account'), color: new vscode.ThemeColor('terminal.ansiBlue'), isTransient: true });
     terminal.show();
-    if (terminal.shellIntegration) terminal.shellIntegration.executeCommand(command.executable, command.args);
-    else terminal.sendText([command.executable, ...command.args].map(shellQuote).join(' '), false);
+    terminal.sendText([command.executable, ...command.args].map(shellQuote).join(' '), false);
   }
 
   private async installCli(update = false, excludeLabel?: string): Promise<void> {
@@ -320,7 +320,11 @@ class AiswExtension {
     const selection = await vscode.window.showQuickPick(profileItems(this.profiles), { placeHolder: 'Select the profile to remove' });
     if (!selection) return;
     if (selection.active) { await vscode.window.showInformationMessage('Switch away from the active profile before removing it.'); return; }
-    const confirmed = await vscode.window.showWarningMessage(`Remove ${toolLabel(selection.tool)} profile '${selection.profile.name}'?`, { modal: true }, 'Remove');
+    const confirmed = await vscode.window.showWarningMessage(
+      `Remove ${toolLabel(selection.tool)} profile '${selection.profile.name}'?`,
+      { modal: true, detail: 'aisw deletes its stored credentials and keeps a backup you can restore.' },
+      'Remove',
+    );
     if (confirmed !== 'Remove') return;
     try {
       const result = await this.adapter.removeProfile(selection.tool, selection.profile.name);

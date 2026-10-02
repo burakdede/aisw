@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deriveViewState } from '../src/state';
+import { deriveViewState, profileNameError } from '../src/state';
 
 const profiles = {
   claude: { active: 'work', profiles: [{ name: 'work' }] },
@@ -83,4 +83,10 @@ test('derives mutation and installer progress states', () => {
   const installing = deriveViewState({ installing: true });
   assert.equal(installing.text, '$(sync~spin) Installing aisw…');
   assert.equal(installing.command, 'workbench.action.terminal.focus');
+});
+
+test('rejects invalid and duplicate profile names before opening the terminal', () => {
+  assert.equal(profileNameError('not valid', []), 'Use 1–32 letters, numbers, hyphens, or underscores.');
+  assert.equal(profileNameError('work', ['work']), 'That profile already exists for this tool.');
+  assert.equal(profileNameError('client-work', ['work']), undefined);
 });

@@ -151,3 +151,9 @@ export function contextDescription(context: ContextEntry): string {
     .map(([tool, profile]) => `${toolLabel(tool)}: ${profile}`)
     .join(' · ');
 }
+
+export function profileNameError(value: string, existingNames: string[]): string | undefined {
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(value)) return 'Use 1–32 letters, numbers, hyphens, or underscores.';
+  if (existingNames.includes(value)) return 'That profile already exists for this tool.';
+  return undefined;
+}

@@ -93,7 +93,7 @@
         "steps": [
         {"id": "install", "title": "Install aisw", "description": "Install the aisw CLI, then run AISW: Refresh.", "command": "aisw.installCli", "when": "!aisw.cliInstalled"},
         {"id": "profile", "title": "Add your first profile", "description": "Import existing logins or run AISW: Add Profile to save an account.", "command": "aisw.importLogins", "when": "!aisw.hasProfiles"},
-        {"id": "context", "title": "Create a context", "description": "Create a context with the native AISW CLI, then refresh this window.", "command": "aisw.showOutput", "when": "aisw.hasProfiles && !aisw.hasContexts"},
+        {"id": "context", "title": "Create a context", "description": "Create a context with the native AISW CLI, then refresh this window.", "command": "aisw.switchContext", "when": "aisw.hasProfiles && !aisw.hasContexts"},
         {"id": "workspace", "title": "Bind this workspace", "description": "Bind this repository to the context it should use.", "command": "aisw.bindWorkspace", "when": "aisw.hasContexts"}
         ]
       }
@@ -114,6 +114,7 @@
     "test:compat": "npm run build && tsc -p tsconfig.test.json && node --test dist-test/test/compatibility.test.js",
     "test:integration": "npm run build && tsc -p tsconfig.test.json && node dist-test/test/run-vscode.js",
     "test:integration:installed": "npm run package && tsc -p tsconfig.test.json && node dist-test/test/run-vscode-installed.js",
+    "test:integration:cursor": "npm run package && tsc -p tsconfig.test.json && node dist-test/test/run-cursor-installed.js",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
