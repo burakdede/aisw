@@ -19,6 +19,8 @@ export async function run(): Promise<void> {
     'aisw.removeProfile',
     'aisw.installCli',
     'aisw.locateCli',
+    'aisw.importLogins',
+    'aisw.bindWorkspace',
   ]) {
     assert.ok(commands.includes(command), `installed extension missing command: ${command}`);
   }

@@ -15,6 +15,8 @@ export async function run(): Promise<void> {
     'aisw.verify',
     'aisw.diagnose',
     'aisw.addProfile',
+    'aisw.importLogins',
+    'aisw.bindWorkspace',
     'aisw.removeProfile',
   ]) {
     assert.ok(commands.includes(command), `missing registered command: ${command}`);

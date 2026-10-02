@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { CliAdapter, CliError } from './cliAdapter';
 import { BinaryPathError, resolveBinary } from './binaryResolver';
 import { CapabilitiesPayload, ContextEntry, JsonEnvelope, Profile, ProfileList, StatusPayload } from './contract';
+import { addProfileCommand, importLoginsCommand, workspaceBindCommand } from './nativeFlow';
 import { deriveViewState, toolLabel, WorkspaceStatusPayload } from './state';
 
 const INSTALL_URL = 'https://github.com/burakdede/aisw#installation';
@@ -52,6 +53,8 @@ class AiswExtension {
       vscode.commands.registerCommand('aisw.locateCli', () => this.locateCli()),
       vscode.commands.registerCommand('aisw.addProfile', () => this.addProfile()),
       vscode.commands.registerCommand('aisw.removeProfile', () => this.removeProfile()),
+      vscode.commands.registerCommand('aisw.importLogins', () => this.importLogins()),
+      vscode.commands.registerCommand('aisw.bindWorkspace', () => this.bindWorkspace()),
       vscode.workspace.onDidChangeWorkspaceFolders(() => void this.refresh(false)),
       vscode.window.onDidChangeActiveTextEditor(() => this.scheduleRefresh()),
       vscode.window.onDidChangeWindowState((state) => { if (state.focused) this.scheduleRefresh(); }),
@@ -172,7 +175,53 @@ class AiswExtension {
     const tool = await vscode.window.showQuickPick(tools.map(([name, metadata]) => ({ label: toolLabel(name), description: metadata.auth_methods?.length ? `Auth: ${metadata.auth_methods.join(', ')}` : undefined, name })), { placeHolder: 'Select the tool for the new profile' });
     if (!tool) return;
     const profile = await vscode.window.showInputBox({ prompt: 'Profile name', validateInput: (value) => /^[A-Za-z0-9_-]{1,32}$/.test(value) ? undefined : 'Use 1–32 letters, numbers, hyphens, or underscores.' });
-    if (profile) this.openTerminal(this.terminalExecutable(), ['add', tool.name, profile], `Add ${toolLabel(tool.name)} profile`);
+    if (profile) {
+      const command = addProfileCommand(this.terminalExecutable(), tool.name, profile);
+      this.openTerminal(command.executable, command.args, `Add ${toolLabel(tool.name)} profile`, async (exitCode) => {
+        if (exitCode === 0) {
+          await this.refresh(false, true);
+          const report = await this.scopedVerify([tool.name]);
+          if (report.failed.length) await vscode.window.showWarningMessage(`Profile flow completed, but verification found issues: ${report.failed.join('; ')}`);
+          else await vscode.window.showInformationMessage(`${toolLabel(tool.name)} profile '${profile}' added.`);
+        } else if (exitCode !== undefined) {
+          await vscode.window.showErrorMessage(`Adding the ${toolLabel(tool.name)} profile failed (exit code ${exitCode}). The terminal shows what happened.`);
+        } else {
+          await vscode.window.showInformationMessage(`Adding the ${toolLabel(tool.name)} profile was canceled. No profile was reported as added.`);
+        }
+      });
+    }
+  }
+
+  private async importLogins(): Promise<void> {
+    if (!this.adapter) return this.requireRefresh();
+    const command = importLoginsCommand(this.terminalExecutable());
+    this.openTerminal(command.executable, command.args, 'Import existing logins', async (exitCode) => {
+      if (exitCode === 0) {
+        await this.refresh(false, true);
+        await vscode.window.showInformationMessage('AISW imported the available logins.');
+      } else if (exitCode !== undefined) {
+        await vscode.window.showErrorMessage(`Importing existing logins failed (exit code ${exitCode}). The terminal shows what happened.`);
+      } else {
+        await vscode.window.showInformationMessage('Importing existing logins was canceled.');
+      }
+    });
+  }
+
+  private async bindWorkspace(): Promise<void> {
+    if (!this.adapter || !this.contexts?.length) return this.requireRefresh();
+    const selection = await vscode.window.showQuickPick(this.contexts.map((entry) => ({ label: entry.name, entry })), { placeHolder: 'Select the context for this workspace' });
+    if (!selection) return;
+    const command = workspaceBindCommand(this.terminalExecutable(), this.workspaceCwd(), selection.entry.name);
+    this.openTerminal(command.executable, command.args, 'Bind workspace', async (exitCode) => {
+      if (exitCode === 0) {
+        await this.refresh(false, true);
+        await vscode.window.showInformationMessage(`Workspace bound to '${selection.entry.name}'.`);
+      } else if (exitCode !== undefined) {
+        await vscode.window.showErrorMessage(`Binding the workspace failed (exit code ${exitCode}). The terminal shows what happened.`);
+      } else {
+        await vscode.window.showInformationMessage('Binding the workspace was canceled.');
+      }
+    });
   }
 
   private async installCli(): Promise<void> {
@@ -214,10 +263,28 @@ class AiswExtension {
     } catch (error) { await this.showError(error); }
   }
 
-  private openTerminal(executable: string, args: string[], label = args.join(' ')): void {
+  private openTerminal(executable: string, args: string[], label = args.join(' '), onComplete?: (exitCode?: number) => Promise<void>): void {
     const terminal = vscode.window.createTerminal({ name: `AISW: ${label}` });
     terminal.show();
     let executed = false;
+    let completed = false;
+    const finish = (exitCode?: number) => {
+      if (completed) return;
+      completed = true;
+      completion.dispose();
+      closed.dispose();
+      void onComplete?.(exitCode);
+    };
+    const completion = vscode.window.onDidEndTerminalShellExecution((event) => {
+      if (event.terminal !== terminal) return;
+      finish(event.exitCode);
+      void this.refresh(false, false);
+    });
+    const closed = vscode.window.onDidCloseTerminal((event) => {
+      if (event === terminal) finish();
+    });
+    this.extensionContext.subscriptions.push(completion);
+    this.extensionContext.subscriptions.push(closed);
     const execute = () => { if (!executed && terminal.shellIntegration) { executed = true; terminal.shellIntegration.executeCommand(executable, args); } };
     if (terminal.shellIntegration) execute();
     else {

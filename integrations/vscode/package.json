@@ -56,6 +56,8 @@
       {"command": "aisw.installCli", "title": "AISW: Install or Update aisw…", "category": "AISW", "icon": "$(cloud-download)"},
       {"command": "aisw.locateCli", "title": "AISW: Locate aisw…", "category": "AISW", "icon": "$(folder-opened)"},
       {"command": "aisw.addProfile", "title": "AISW: Add Profile…", "category": "AISW", "icon": "$(add)"},
+      {"command": "aisw.importLogins", "title": "AISW: Import Existing Logins", "category": "AISW", "icon": "$(cloud-download)"},
+      {"command": "aisw.bindWorkspace", "title": "AISW: Bind Workspace…", "category": "AISW", "icon": "$(repo)"},
       {"command": "aisw.removeProfile", "title": "AISW: Remove Profile…", "category": "AISW", "icon": "$(trash)"}
     ],
     "menus": {
@@ -71,6 +73,8 @@
         {"command": "aisw.installCli", "when": "!aisw.isRemote"},
         {"command": "aisw.locateCli", "when": "!aisw.isRemote"},
         {"command": "aisw.addProfile"},
+        {"command": "aisw.importLogins", "when": "!aisw.isRemote"},
+        {"command": "aisw.bindWorkspace", "when": "!aisw.isRemote"},
         {"command": "aisw.removeProfile", "when": "aisw.hasProfiles"}
       ]
     },
@@ -85,10 +89,10 @@
         "title": "Get started with AISW",
         "description": "Keep the right AI coding account active for this workspace.",
         "steps": [
-        {"id": "install", "title": "Install aisw", "description": "Install the aisw CLI, then run AISW: Refresh.", "when": "aisw.state != cliMissing"},
-        {"id": "profile", "title": "Add your first profile", "description": "Run AISW: Add Profile to save an account.", "when": "aisw.hasProfiles"},
-        {"id": "context", "title": "Create a context", "description": "Group profiles that belong together.", "when": "aisw.hasContexts"},
-        {"id": "workspace", "title": "Bind this workspace", "description": "Bind this repository to the context it should use."}
+        {"id": "install", "title": "Install aisw", "description": "Install the aisw CLI, then run AISW: Refresh.", "command": "aisw.installCli", "when": "!aisw.cliInstalled"},
+        {"id": "profile", "title": "Add your first profile", "description": "Import existing logins or run AISW: Add Profile to save an account.", "command": "aisw.importLogins", "when": "!aisw.hasProfiles"},
+        {"id": "context", "title": "Create a context", "description": "Create a context with the native AISW CLI, then refresh this window.", "command": "aisw.showOutput", "when": "aisw.hasProfiles && !aisw.hasContexts"},
+        {"id": "workspace", "title": "Bind this workspace", "description": "Bind this repository to the context it should use.", "command": "aisw.bindWorkspace", "when": "aisw.hasContexts"}
         ]
       }
     ]

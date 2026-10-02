@@ -400,14 +400,16 @@ not clicks:
 
 1. Install the aisw CLI: "AISW uses the aisw command-line tool to store and
    switch your accounts. Your credentials never pass through the editor."
-   Buttons run `aisw.installCli` and `aisw.locateCli`. Completes on
-   `onContext:aisw.cliInstalled`.
-2. Import the accounts you're signed into: runs `aisw init --no-shell-hook` in
-   the AISW terminal, with Add Profile as the alternative.
-   `onContext:aisw.hasProfiles`.
-3. Group profiles into a context: `onContext:aisw.hasContexts`.
-4. Bind this repository: types `aisw workspace bind . --context ` into the
-   AISW terminal.
+   The step invokes `aisw.installCli`; `aisw.locateCli` remains available from
+   the command palette. It disappears on `onContext:aisw.cliInstalled`.
+2. Import the accounts you're signed into: invokes `aisw.importLogins`, which
+   runs `aisw init --no-shell-hook` in the AISW terminal. Add Profile remains
+   the alternative. The step disappears on `onContext:aisw.hasProfiles`.
+3. Group profiles into a context with the native AISW CLI, then use Show
+   Output or Refresh to inspect the result. The step disappears on
+   `onContext:aisw.hasContexts`.
+4. Bind this repository: invokes `aisw.bindWorkspace`, which runs
+   `aisw workspace bind <workspace> --context <name>` in the AISW terminal.
 
 ### Assets
 
