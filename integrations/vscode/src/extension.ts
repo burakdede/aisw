@@ -231,7 +231,22 @@ class AiswExtension {
     if (!selection) return;
     if (selection.methodKind === 'docs') { await vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL)); return; }
     if (selection.methodKind === 'locate') { await this.locateCli(); return; }
-    this.openTerminal(selection.executable, selection.args, selection.label);
+    this.openTerminal(selection.executable, selection.args, selection.label, async (exitCode) => {
+      if (exitCode !== 0) {
+        if (exitCode !== undefined) await vscode.window.showErrorMessage(`Installing aisw failed (exit code ${exitCode}). The terminal shows what happened.`);
+        else await vscode.window.showInformationMessage('Installing aisw was canceled.');
+        return;
+      }
+      this.handshake = undefined;
+      await this.refresh(false, true);
+      if (!this.adapter) {
+        await vscode.window.showWarningMessage('The install command finished, but aisw was not found. Check the terminal or locate an existing binary.');
+        return;
+      }
+      const action = await vscode.window.showInformationMessage('aisw is installed. Import accounts already signed in on this machine?', 'Import Logins', 'Add Profile Manually');
+      if (action === 'Import Logins') await this.importLogins();
+      if (action === 'Add Profile Manually') await this.addProfile();
+    });
   }
 
   private async locateCli(): Promise<void> {
@@ -297,7 +312,8 @@ class AiswExtension {
 
   private async getStarted(): Promise<void> {
     if (!this.adapter) { await this.installCli(); return; }
-    const action = await vscode.window.showInformationMessage('Add a profile in the AISW terminal, then refresh this window.', 'Add Profile', 'Set binary path');
+    const action = await vscode.window.showInformationMessage('Set up AISW for this workspace.', 'Import Logins', 'Add Profile', 'Set binary path');
+    if (action === 'Import Logins') await this.importLogins();
     if (action === 'Add Profile') await vscode.commands.executeCommand('aisw.addProfile');
     if (action === 'Set binary path') await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:aisw.aisw-vscode aisw.binaryPath');
   }
