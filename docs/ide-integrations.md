@@ -544,13 +544,15 @@ installed-extension smoke runner accepts `VSCODE_EXECUTABLE_PATH` and
 ```sh
 CURSOR_EXECUTABLE_PATH="/Applications/Cursor.app/Contents/MacOS/Cursor" \
 CURSOR_CLI_PATH="/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
-npm run test:integration:installed
+npm run test:integration:cursor
 ```
 
 The runner creates separate user-data, extensions, `HOME`, and `AISW_HOME`
-directories, so the smoke test does not modify the normal editor install or
-local AISW state. Cursor's marketplace and extension availability are not
-identical to VS Code's, so distribution is a release concern, not a code fork.
+directories, uses in-memory secret storage, and exercises activation, refresh,
+verification, and the native `aisw init --no-shell-hook` terminal flow against
+a fake CLI. It does not modify the normal editor install or local AISW state.
+Cursor's marketplace and extension availability are not identical to VS
+Code's, so distribution is a release concern, not a code fork.
 
 Cursor also has a separate Plugin Marketplace. It does not publish VSIX files:
 submissions are public Git repositories containing a root `plugin.json` or

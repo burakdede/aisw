@@ -22,7 +22,9 @@ npm run test:integration:cursor
 
 The Cursor runner uses a normal isolated editor window with GPU disabled and
 in-memory secret storage. This avoids the host machine's keychain and verifies
-exact VSIX installation, extension listing, and AISW extension-host activation.
+exact VSIX installation, extension listing, AISW extension-host activation,
+`aisw.refresh`, `aisw.verify`, and the native `aisw init --no-shell-hook`
+terminal flow against a fake CLI.
 Both tests use separate user-data, extensions, `HOME`, and `AISW_HOME`
 directories, and never modify the normal VS Code or Cursor installation. UI
 commands and native terminal flows still require manual smoke testing in a
