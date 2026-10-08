@@ -397,15 +397,14 @@ not clicks:
 
 ### Assets
 
-- `integrations/vscode/media/icon.png`: 256 × 256 RGBA, cut from
-  `website/public/aisw-logo.png` with transparent corners and a 16% navy
-  hairline so the white tile reads on light pages. The manifest requires at
-  least 128 px; 256 px covers Retina screens.
-- `galleryBanner`: `{ "color": "#001436", "theme": "dark" }`, the logo's
-  prompt navy.
-- Brand colors from the logo: arrow blue `#077FFE`, arrow cyan `#02CDFD`,
-  prompt navy `#001436`. They appear only in the Marketplace listing and the
-  walkthrough.
+- `integrations/vscode/media/icon.png`: 256 × 256 RGBA, the AI Switcher mark
+  from `assets/brand/png/aisw-mark-256.png`: a periwinkle rounded tile with
+  transparent corners, which reads on both light and dark Marketplace pages.
+  The manifest requires at least 128 px; 256 px covers Retina screens.
+- `galleryBanner`: `{ "color": "#0b0d10", "theme": "dark" }`, the mark's
+  near-black ink, so the periwinkle tile stands out on the banner.
+- Brand colors from the mark: tile periwinkle `#7c8cff` and ink `#0b0d10`.
+  See `assets/brand/README.md` for every logo format.
 - Workbench surfaces use codicons only, following the VS Code status bar
   guidelines. No custom icon font.
 - `website/public/design/vscode-extension-spec.html`: the visual

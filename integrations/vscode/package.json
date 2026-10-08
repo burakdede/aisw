@@ -6,7 +6,7 @@
   "publisher": "aisw",
   "license": "MIT",
   "icon": "media/icon.png",
-  "galleryBanner": {"color": "#001436", "theme": "dark"},
+  "galleryBanner": {"color": "#0b0d10", "theme": "dark"},
   "homepage": "https://aiswitcher.dev",
   "bugs": {
     "url": "https://github.com/burakdede/aisw/issues"

@@ -1,13 +1,10 @@
-# aisw
-
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-logo.png">
-    <img src="https://raw.githubusercontent.com/burakdede/aisw/main/website/public/aisw-logo.png" alt="aisw" width="140" />
-  </picture>
+  <img src="https://raw.githubusercontent.com/burakdede/aisw/main/assets/brand/png/aisw-mark-256.png" alt="aisw logo" width="96" height="96" />
 </p>
 
-<p align="center"><strong>AI Switcher (`aisw`) for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.</strong></p>
+<h1 align="center">aisw</h1>
+
+<p align="center"><strong>AI Switcher (<code>aisw</code>) for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.</strong></p>
 
 <p align="center">Switch between work, personal, and client accounts without copying auth files, editing hidden config, or logging in again every time.</p>
 
@@ -24,7 +21,7 @@
     <img src="https://img.shields.io/github/v/release/burakdede/aisw?style=flat-square&label=release" alt="Latest release" />
   </a>
   <a href="https://burakdede.github.io/aisw/">
-    <img src="https://img.shields.io/badge/docs-website-4c6fff?style=flat-square" alt="Documentation" />
+    <img src="https://img.shields.io/badge/docs-website-7c8cff?style=flat-square" alt="Documentation" />
   </a>
 </p>
 
