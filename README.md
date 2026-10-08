@@ -4,454 +4,128 @@
 
 <h1 align="center">aisw</h1>
 
-<p align="center"><strong>AI Switcher (<code>aisw</code>) for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI.</strong></p>
-
-<p align="center">Switch between work, personal, and client accounts without copying auth files, editing hidden config, or logging in again every time.</p>
-
-<p align="center"><em>The answer to "how do I switch between two Claude Code accounts?" and "how do I keep the right coding agent profile active per repo?"</em></p>
+<p align="center"><strong>Switch Claude Code, Codex CLI, Gemini CLI and Antigravity CLI accounts in one command.</strong></p>
 
 <p align="center">
-  <a href="https://crates.io/crates/aisw">
-    <img src="https://img.shields.io/crates/v/aisw?style=flat-square" alt="Crates.io version" />
-  </a>
-  <a href="https://github.com/burakdede/aisw/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/burakdede/aisw/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status" />
-  </a>
-  <a href="https://github.com/burakdede/aisw/releases">
-    <img src="https://img.shields.io/github/v/release/burakdede/aisw?style=flat-square&label=release" alt="Latest release" />
-  </a>
-  <a href="https://burakdede.github.io/aisw/">
-    <img src="https://img.shields.io/badge/docs-website-7c8cff?style=flat-square" alt="Documentation" />
-  </a>
+  <a href="https://crates.io/crates/aisw"><img src="https://img.shields.io/crates/v/aisw?style=flat-square" alt="Crates.io version" /></a>
+  <a href="https://github.com/burakdede/aisw/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/burakdede/aisw/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status" /></a>
+  <a href="https://github.com/burakdede/aisw/releases"><img src="https://img.shields.io/github/v/release/burakdede/aisw?style=flat-square&label=release" alt="Latest release" /></a>
+  <a href="https://aiswitcher.dev/docs/"><img src="https://img.shields.io/badge/docs-aiswitcher.dev-7c8cff?style=flat-square" alt="Documentation" /></a>
 </p>
 
----
+`aisw` (AI Switcher) saves each coding-agent login as a named profile and switches
+between them without logging out, copying `auth.json` or editing hidden config. It
+can switch all four agents together and refuse to start an agent in a repository
+while the wrong account is active. It runs locally, with no account, telemetry or
+proxy.
 
-> **New:** [AI Switcher for Coding Agents](https://marketplace.visualstudio.com/items?itemName=aisw.aisw-vscode) brings `aisw` account switching and verification to VS Code and Cursor.
+## The problem it solves
 
-## Why people use AI Switcher
+- **Two accounts, one machine.** A work and a personal Claude Code or Codex login
+  overwrite each other, and switching means signing out and back in.
+- **Every agent stores auth differently.** Claude Code uses the macOS Keychain or
+  `.credentials.json`, Codex CLI uses `CODEX_HOME/auth.json`, Gemini CLI uses
+  `~/.gemini`. Hand-copying these files breaks token refresh.
+- **The wrong account in the wrong repository.** Nothing stops a personal login from
+  running in a client repository.
 
-AI Switcher (`aisw`) exists for a very specific kind of mess:
+## Features
 
-- You use one Claude Code account for work and another for personal projects.
-- Codex CLI should use one OpenAI account for client A and a different one for client B, without relying on copied shared ChatGPT session files.
-- Gemini CLI or Antigravity CLI is already logged in, but you want to capture that state safely and switch back to it later.
-- Your repo should open with the right coding agent account active, not whatever happened to be left over from the last project.
+### Save and switch accounts
 
-The underlying problem is not just "multiple accounts." It is that each upstream CLI stores auth differently, in different places, with different side effects. Manual switching usually means editing hidden files, copying `auth.json`, juggling `CLAUDE_CONFIG_DIR`, or hoping the shell session you are in still has the right environment.
+Import the login you already have, add others by OAuth sign-in or API key, and
+switch with a backup taken first. Each switch rolls back if any write fails.
+[Adding profiles →](https://aiswitcher.dev/docs/adding-profiles/)
 
-`aisw` turns that into a named workflow:
+<img src="website/public/demos/aisw-switch-accounts.gif" alt="aisw saves the current Claude Code login, adds a work API key, lists both profiles and switches to work" width="100%" />
 
-- Save each account as a profile.
-- Group mixed per-tool profiles into a context when real-world names do not line up.
-- Switch in one command with rollback if something fails.
-- Bind repos to expected contexts so the wrong account does not silently launch in the wrong workspace.
+### Switch every agent at once
 
-If you have ever searched for "AI account switcher for Claude Code", "multiple Codex CLI accounts", "Gemini CLI work and personal profiles", or "coding agent profile switch per repo", AI Switcher addresses that workflow directly.
+A context maps one profile per agent under a single name, even when the profile
+names differ. `aisw context use` moves all of them together, or none.
+[Profiles, contexts and workspace rules →](https://aiswitcher.dev/guides/workflows/profiles-vs-contexts/)
 
-## Common situations
+<img src="website/public/demos/aisw-switch-contexts.gif" alt="aisw creates a work context across four agents, activates it and shows the exact match" width="100%" />
 
-### I need separate work and personal accounts
+### Guard a repository
 
-Store both once, then switch explicitly instead of logging out and back in:
+Bind a folder, repository or GitHub org to a context. With the shell hook, the
+guard warns or refuses to launch `claude`, `codex`, `gemini` or `agy` on a
+mismatch and prints the command that fixes it.
+[Workspace guardrails →](https://aiswitcher.dev/docs/workspace/)
 
-```sh
-aisw add claude work --api-key "$ANTHROPIC_API_KEY"
-aisw add claude personal
-aisw use claude work
-```
-
-The same pattern works for Codex CLI and Gemini CLI. For Codex ChatGPT-managed auth, the durable model is one isolated `CODEX_HOME` per profile.
-
-### I work across multiple clients
-
-Each client can have its own Claude, Codex, Gemini, and Antigravity profiles, even when the names differ:
-
-```sh
-aisw context create client-acme \
-  --claude acme-claude \
-  --codex acme-codex \
-  --gemini acme-gemini
-
-aisw context use client-acme
-```
-
-That gives you one switch for the actual work mode instead of forcing fake naming symmetry across tools.
-
-### I want the right profile active in the right repo
-
-Bind the repo to a context and let the shell hook warn or block when the wrong account is active:
-
-```sh
-aisw workspace bind . --context client-acme
-aisw workspace guard --mode strict
-```
-
-This is the practical answer to "how do I avoid opening a client repository with my personal coding agent account?"
-
-## Demo
-
-These are short, recorded command-line workflows generated from isolated demo environments, so the commands and output show real aisw behavior without exposing credentials. Use them as a visual companion to the written guides:
-
-- **Profiles and recovery** — initialize aisw, add work and personal profiles, switch, inspect status, then remove and restore a profile. Start with [Quickstart](https://burakdede.github.io/aisw/quickstart/).
-
-![aisw CLI demo](website/public/demos/aisw-important-workflows.gif)
-
-- **Mixed-tool contexts** — keep different Claude, Codex, and Gemini profile names behind one client context, then activate and verify it. Read [Common switching situations](https://burakdede.github.io/aisw/common-situations/).
-
-![aisw context demo](website/public/demos/aisw-context-workflow.gif)
-
-- **Repo guardrails** — bind a client repository to its expected context and see the shell guard detect a mismatch before an agent launch. Follow [Workspace guardrails](https://burakdede.github.io/aisw/workspace/).
-
-![aisw workspace guardrails demo](website/public/demos/aisw-workspace-workflow.gif)
+<img src="website/public/demos/aisw-guard-repository.gif" alt="aisw binds a repository to the work context, refuses to start Claude Code with personal accounts, then matches after switching" width="100%" />
 
 ## Install
 
 ```sh
-# Homebrew tap (macOS and Linux; until Homebrew Core accepts aisw)
+# Homebrew (macOS, Linux)
 brew install burakdede/tap/aisw
 
-# After aisw is accepted into Homebrew Core
-# brew install aisw
-
-# Shell installer (Linux/macOS)
+# Shell installer (macOS, Linux)
 curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
 
-# Cargo
+# Cargo (any platform)
 cargo install aisw
 ```
 
-You can install the current tap formula without manually adding the tap first:
-`brew install burakdede/tap/aisw`. Homebrew automatically taps the repository
-for this form of installation. See the [Homebrew tap documentation](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap).
+Windows binaries and checksums are on the [releases page](https://github.com/burakdede/aisw/releases).
+[AI Switcher Desktop](https://aiswitcher.dev/desktop/) and the
+[VS Code and Cursor extension](https://marketplace.visualstudio.com/items?itemName=aisw.aisw-vscode)
+use the same profiles.
 
 ## Quick start
 
-The easiest mental model is:
-
-1. `aisw init` captures whatever accounts are live right now.
-2. `aisw add ...` introduces another account directly under `aisw`.
-3. `aisw use ...` restores the saved credentials for the selected profile.
-4. After switching, start a fresh agent process.
-
-If you are setting up work and personal accounts, follow this order instead of logging out and back in repeatedly at the upstream CLI first.
-
-The top-level commands most people need are:
-
-- `aisw init`
-- `aisw add <tool> <profile>`
-- `aisw use <tool> <profile>`
-- `aisw use --all --profile <name>`
-- `aisw list`
-- `aisw status`
-
-### First account: import what is already live
-
 ```sh
-# Bootstrap ~/.aisw/, install shell integration, and import
-# the accounts that are already live right now
+# Install the shell hook and import the logins you already have
 aisw init
 
-# Verify what got imported and marked active
-aisw list
-aisw status
-```
+# Add accounts by OAuth sign-in or API key
+aisw add claude work
+aisw add codex work-api-key --api-key "$OPENAI_API_KEY"
 
-If a tool was already logged in when you ran `aisw init`, you do not need to re-add that same first account with `--from-live`.
-
-### Second account: add it directly
-
-```sh
-# Preferred path for a second Claude account
-aisw add claude account-2 --label account-2@gmail.com
-
-# Preferred path for a second Codex account
-aisw add codex account-2 --label account-2@gmail.com
-
-# If you also use Gemini
-aisw add gemini account-2 --label account-2@gmail.com
-```
-
-This is the recommended path because AI Switcher drives the login flow itself instead of depending on whatever account happens to be live upstream at that moment.
-
-For Codex specifically, this distinction matters:
-
-- Durable: `aisw add codex <name>` for ChatGPT-managed auth, because login happens inside that profile's isolated `CODEX_HOME`.
-- Bootstrap only: `aisw add codex <name> --from-live` when you intentionally want to import the currently live ChatGPT-managed session.
-
-### Switch between saved accounts
-
-```sh
-aisw use claude account-1
-aisw use claude account-2
-
-# If profile names line up across tools
-aisw use --all --profile account-1
-aisw use --all --profile account-2
-```
-
-After `aisw use ...`, start a fresh agent process. You should not need to log out and log back in manually after every switch, but you should not rely on reusing an already running or resumable session from the previous account.
-
-### When to use `--from-live`
-
-Use `--from-live` when you intentionally want to capture whichever account is currently live in the upstream CLI.
-
-```sh
-# Example: import the account that is currently live upstream
-aisw add claude account-2 --from-live --label account-2@gmail.com
-```
-
-That workflow is:
-
-1. Exit the upstream CLI.
-2. Log out upstream.
-3. Log back in upstream as the account you want to capture.
-4. Run `aisw add ... --from-live`.
-
-That is a valid import path, but it is not the best default recommendation when AI Switcher can run the login flow directly.
-
-<details>
-<summary>Common variants</summary>
-
-Use these when your setup is a little different from the normal two-account OAuth flow above.
-
-```sh
-# API-key-backed profiles
-aisw add claude work --api-key "$ANTHROPIC_API_KEY"
-aisw add codex work --api-key "$OPENAI_API_KEY"
-aisw add gemini work --api-key "$GEMINI_API_KEY"
-
-# Switch every tool when the profile names line up
-aisw use --all --profile work
-
-# Create one mixed-tool context when names do not line up
-aisw context create acme \
-  --claude acme-claude \
-  --codex acme-codex \
-  --gemini acme-gemini
-
-aisw context use acme
-```
-</details>
-
-<details>
-<summary>Important tool-specific limits</summary>
-
-- Claude: after switching, start a fresh Claude process instead of relying on a resumed session from the previous account.
-- Codex: ChatGPT-managed `aisw add codex <name> --from-live` is bootstrap-only. The durable path is direct per-profile login with `aisw add codex <name>`.
-- Codex: personal access token sessions imported from live state are treated separately from ChatGPT-managed refresh-token auth, so the shared-mode ChatGPT block does not apply to them.
-- Codex: shared-mode ChatGPT auth switching is explicitly unsupported.
-- Gemini: upstream stopped serving Google AI Pro, Ultra, and free-tier individual accounts through Gemini CLI on June 18, 2026; those users should migrate to Antigravity. Gemini CLI enterprise and API-key / Vertex AI paths remain supported. See the [upstream transition announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
-- Gemini: `aisw init` and `aisw add gemini ...` can still capture the currently live Gemini state for supported upstream auth modes, but you should start a fresh process after switching.
-- Antigravity: OAuth uses shared keyring state; API-key profiles use `GEMINI_API_KEY` with `--emit-env` or shell integration, and aisw selects `modelProvider: gemini`.
-- Antigravity: no documented per-profile auth root exists, so switching replaces the shared live session and `--state-mode` does not apply.
-
-</details>
-
-### Generic command examples
-
-Once the two-account flow above makes sense, these are the shorter building blocks:
-
-```sh
-# Bootstrap: creates ~/.aisw/, offers shell-hook setup,
-# and can import already logged-in accounts
-aisw init
-
-# Store profiles for each tool
-aisw add claude work --api-key "$ANTHROPIC_API_KEY"
-aisw add claude personal
-aisw add codex work --api-key "$OPENAI_API_KEY"
-aisw add gemini work --api-key "$GEMINI_API_KEY"
-
-# Save a cross-tool context when profile names differ
-aisw context create acme \
-  --claude acme-claude \
-  --codex acme-codex \
-  --gemini acme-gemini
-
-# Switch
+# Switch one agent, or every agent in a context
 aisw use claude work
-aisw use --all --profile personal    # switch all tools at once
-aisw context use acme
+aisw context create work --claude work --codex work-api-key
+aisw context use work
 
-# Inspect
+# See what each agent is using now
 aisw status
-aisw status --context
-aisw list
 ```
 
-For GUI or other subprocess-driven clients, `aisw` also exposes machine-oriented commands such as:
+Start a new agent session after switching; a running process keeps the account it
+started with. The [quickstart](https://aiswitcher.dev/docs/quickstart/) walks
+through each step.
 
-```sh
-aisw version --json
-aisw capabilities --json
-aisw add claude work --api-key-stdin --json
-aisw add claude personal --progress-json
-aisw verify --json
-```
+## Supported tools
 
-## Profiles vs contexts
+| Tool | Binary | Auth | Platforms |
+| --- | --- | --- | --- |
+| Claude Code | `claude` | OAuth, API key | macOS, Linux, Windows |
+| Codex CLI | `codex` | ChatGPT sign-in, API key | macOS, Linux, Windows |
+| Gemini CLI | `gemini` | Enterprise Google sign-in, Vertex AI, API key | macOS, Linux, Windows |
+| Antigravity CLI | `agy` | OAuth, API key | macOS, Linux, Windows |
 
-**Profile** means one saved account for one tool.
+Per-tool storage, state modes and limits are in
+[Supported tools](https://aiswitcher.dev/docs/supported-tools/).
 
-Use a profile when the problem is:
-- "I need two Claude accounts and I want to switch between them safely."
-- "I want a named Codex API key for CI."
-- "I need to capture the Gemini account I am already logged into."
+## How it works
 
-What you get from a profile:
-- A stable name for one tool's auth state.
-- Atomic switching and rollback for that tool.
-- Clear per-tool status and backup behavior.
-
-What you do not get from a profile alone:
-- A cross-tool work mode when profile names differ across Claude, Codex, Gemini, and Antigravity.
-
-**Context** means one saved multi-tool work mode built from profiles.
-
-Use a context when the problem is:
-- "My acme workspace uses one Claude account, a different OpenAI/Codex account, and a different Gemini account."
-- "I want one command for work, personal, client-acme, or oss even when the per-tool profile names do not match."
-
-What you get from a context:
-- One user-facing name for a real mixed-account setup.
-- Transactional multi-tool activation across the mapped tools.
-- A clearer status view for whether your current tool state still matches a saved work mode.
-
-What you do not get from a context:
-- New credential storage or vendor auth behavior. Contexts only point at existing profiles.
-
-The practical value is simple: `aisw use --all --profile personal` works when names line up, and `aisw context use acme` works when the real world does not.
-
-## Why AI Switcher works better than manual switching
-
-- It writes the native upstream credential locations that Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI already use.
-- It snapshots live state before switching and rolls back on failure instead of leaving you mid-edit.
-- It keeps stored profile data under `~/.aisw/` and uses the OS keyring where the platform supports it.
-- It gives you one place to inspect active profile state, drift, warnings, backups, and workspace expectations.
-- It stays local. No daemon, no remote control plane, no credential proxy.
-
-## What it supports
-
-| Tool | Binary | Auth methods | macOS | Linux | Windows |
-|---|---|---|---|---|---|
-| Claude Code | `claude` | OAuth, API key | Full | Full | Full |
-| Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
-| Gemini CLI | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
-| Antigravity CLI | `agy` | OAuth | Full | Full | Full |
-
-Credentials are stored in the native OS keyring where available (macOS Keychain, Linux Secret Service, Windows Credential Manager) and fall back to local files with `0600` permissions.
-
-Antigravity supports shared OAuth keyring sign-in and Gemini API-key auth. API-key profiles use `GEMINI_API_KEY` with `--emit-env` or the shell hook; aisw selects the required `modelProvider: gemini` setting. It has no documented per-profile auth root like `CODEX_HOME`, so OAuth switching remains shared and `--state-mode` does not apply.
-
-\* Gemini CLI no longer serves Google AI Pro, Ultra, or free-tier individual accounts; those users should use Antigravity instead. Gemini CLI enterprise and API-key / Vertex AI users remain supported.
-
-For Codex specifically:
-- Durable: API-key profiles.
-- Durable: ChatGPT-managed profiles authenticated directly inside their own isolated `CODEX_HOME`.
-- Bootstrap only: `aisw add codex <name> --from-live` for ChatGPT-managed auth.
-- Unsupported: shared-mode ChatGPT auth switching.
-
-## Command reference
-
-`<tool>` is one of `claude`, `codex`, `gemini`, or `antigravity`.
-
-These global flags work on every command: `--no-color`, `--quiet`, `--non-interactive`.
-
-```text
-# Setup and teardown
-aisw init [--yes] [--json] [--no-shell-hook] [--detect-live]
-aisw uninstall [--dry-run] [--remove-data] [--yes]
-aisw shell-hook <bash|zsh|fish|pwsh>
-
-# Profiles
-aisw add <tool> <profile> [--api-key KEY | --api-key-stdin | --from-env | --from-live]
-                          [--label TEXT] [--credential-backend file|system-keyring]
-                          [--set-active] [--yes] [--json] [--progress-json]
-aisw list [tool] [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
-aisw status [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--context] [--json]
-aisw rename <tool> <old> <new> [--json]
-aisw remove <tool> <profile> [--yes] [--force] [--json]
-
-# Switching
-aisw use <tool> <profile> [--state-mode isolated|shared] [--json]
-aisw use --all --profile <profile> [--state-mode isolated|shared] [--json]
-
-# Contexts (one name for a mixed-tool work mode)
-aisw context create <name> [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
-aisw context set <name>    [--claude <profile>] [--codex <profile>] [--gemini <profile>] [--antigravity <profile>] [--json]
-aisw context unset <name>  [--claude] [--codex] [--gemini] [--antigravity] [--json]
-aisw context list [--search TEXT] [--json]
-aisw context use <name> [--state-mode isolated|shared] [--json]
-aisw context rename <old> <new> [--json]
-aisw context remove <name> [--yes] [--json]
-
-# Workspace guardrails
-aisw workspace bind [PATH] --context <name> [--json]
-aisw workspace bind --git-remote <PATTERN> --context <name> [--json]
-aisw workspace bind --default --context <name> [--json]
-aisw workspace unbind [PATH] [--json]
-aisw workspace unbind --git-remote <PATTERN> [--json]
-aisw workspace unbind --default [--json]
-aisw workspace status [--json]
-aisw workspace doctor [--json]
-aisw workspace guard --mode warn|strict [--json]
-aisw project-bindings list [--json]
-
-# Backups (created automatically before each switch)
-aisw backup list [--tool <tool>] [--search TEXT] [--sort name|recent] [--active-only] [--json]
-aisw backup restore <backup_id> [--yes] [--json]
-
-# Diagnostics
-aisw doctor [--json]
-aisw verify [--json]
-aisw repair [--dry-run|--apply] [--fix home,permissions] [--json]
-aisw version [--json]
-aisw capabilities [--json]
-```
-
-`aisw use --all` switches every tool that has a profile with the given name. Tools without one are skipped; if a tool has that profile but fails to switch, the command reports the failure and exits non-zero.
-
-## Scripting and exit codes
-
-Every command exits `0` on success and non-zero on failure. Two codes are meaningful to scripts:
-
-| Code | Meaning |
-|---|---|
-| `0` | Success |
-| `2` | Profile not found — distinguishes a wrong name from a real failure |
-| `1` | Everything else |
-
-`aisw doctor` and `aisw verify` exit non-zero when a check fails, so they work directly as CI gates.
-
-Add `--json` for machine-readable output. On success it prints only to stdout; on failure it prints a `{"ok": false, "error": {...}}` envelope with a stable `kind` string and, where one exists, a suggested remediation command. Use `--non-interactive` to make any command that would prompt fail instead.
-
-```sh
-aisw use claude work --json || echo "switch failed"
-aisw verify --json > state.json
-```
-
-See [Automation and scripting](https://burakdede.github.io/aisw/automation/) for the full contract.
-
-## Security
-
-Credentials never leave the local machine. There is no remote service, no telemetry, and no credential proxy. All profile files are written with `0600` permissions. OS keyring integration uses the platform-native API directly. See [Security](https://burakdede.github.io/aisw/security/) for the full posture.
+- Profiles live under `~/.aisw/`, with secrets in the OS keyring (Keychain, Secret
+  Service, Credential Manager) or `0600` files.
+- A switch writes the credentials to where each agent already reads them, after a
+  backup, as one transaction. [How it works →](https://aiswitcher.dev/docs/how-it-works/)
+- Every command takes `--json` and uses stable exit codes, so `aisw verify` works as a
+  CI gate. [Automation →](https://aiswitcher.dev/docs/automation/)
+- Nothing leaves the machine. [Security →](https://aiswitcher.dev/docs/security/)
 
 ## Documentation
 
-Most users should be able to get productive from this README. For deeper workflows, edge cases, and tool-specific behavior, use the docs below.
-
-- [Common switching situations](https://burakdede.github.io/aisw/common-situations/)
-- [Frequently asked questions](https://burakdede.github.io/aisw/faq/) - direct answers for common account-switching workflows
-- [Quickstart](https://burakdede.github.io/aisw/quickstart/)
-- [Commands](https://burakdede.github.io/aisw/commands/)
-- [Why AI Switcher](https://burakdede.github.io/aisw/why-aisw/)
-- [Workspace guardrails](https://burakdede.github.io/aisw/workspace/)
-- [How it works](https://burakdede.github.io/aisw/how-it-works/)
-- [Security](https://burakdede.github.io/aisw/security/)
-- [Automation and scripting](https://burakdede.github.io/aisw/automation/)
-- [IDE integrations](https://burakdede.github.io/aisw/ide-integrations/)
-- [Troubleshooting](https://burakdede.github.io/aisw/troubleshooting/)
+[Docs](https://aiswitcher.dev/docs/) ·
+[Commands](https://aiswitcher.dev/docs/commands/) ·
+[Guides](https://aiswitcher.dev/guides/) ·
+[FAQ](https://aiswitcher.dev/docs/faq/) ·
+[Troubleshooting](https://aiswitcher.dev/docs/troubleshooting/)
 
 ## Community projects
 
