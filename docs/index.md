@@ -80,21 +80,21 @@ For the mechanics behind profiles, contexts, and rollback, see [How aisw works](
 
 These recordings walk through actual commands in isolated demo environments. They are useful for seeing the shape of the workflow before you install; the linked guides explain every decision and edge case.
 
-**Switch, inspect, and recover a profile**
+**Save and switch accounts**
 
-![Profile lifecycle demo](https://burakdede.github.io/aisw/demos/aisw-important-workflows.gif)
+![aisw saves the current Claude Code login, adds a work API key and switches to it](https://raw.githubusercontent.com/burakdede/aisw/main/website/public/demos/aisw-switch-accounts.gif)
 
 [Follow the Quickstart](quickstart.md) for the shortest path, or read [Adding profiles](adding-profiles.md) when you need to choose between OAuth, API keys, environment variables, and live imports.
 
-**Group differently named accounts into one client context**
+**Switch every agent at once**
 
-![Context workflow demo](https://burakdede.github.io/aisw/demos/aisw-context-workflow.gif)
+![aisw creates a work context across four agents and activates it](https://raw.githubusercontent.com/burakdede/aisw/main/website/public/demos/aisw-switch-contexts.gif)
 
 [Learn about contexts](common-situations.md) when one work mode spans multiple providers.
 
-**Prevent a wrong-account launch in a repository**
+**Guard a repository**
 
-![Workspace guardrails demo](https://burakdede.github.io/aisw/demos/aisw-workspace-workflow.gif)
+![aisw refuses to start Claude Code in a repository bound to the work context until it is active](https://raw.githubusercontent.com/burakdede/aisw/main/website/public/demos/aisw-guard-repository.gif)
 
 [Set up workspace guardrails](workspace.md) when the account associated with a repository matters as much as the code itself.
 
