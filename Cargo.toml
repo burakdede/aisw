@@ -46,6 +46,7 @@ indicatif = "0.18"
 comfy-table = "7"
 semver = "1"
 sha2 = "0.10"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }

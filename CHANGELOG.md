@@ -4,6 +4,10 @@
 
 ### Added
 
+- `aisw usage` shows the rate-limit windows Claude Code and Codex CLI report
+  for each OAuth profile, with `--json` output, so you can pick the account
+  with headroom before switching. It is the only command that connects to the
+  network: it sends each profile's own token to the vendor that issued it.
 - `aisw status` and `aisw doctor` now identify agent releases outside the
   audited compatibility baseline without exposing credentials or blocking
   solely on version drift.

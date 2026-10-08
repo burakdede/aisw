@@ -32,7 +32,7 @@ use keychain::{
 
 pub(super) const CREDENTIALS_FILE: &str = ".credentials.json";
 pub(super) const ACCOUNT_METADATA_FILE: &str = ".claude.json";
-pub(super) const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
+pub(crate) const OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
 pub(super) const OAUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 pub(super) const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
 pub(super) const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
@@ -293,7 +293,7 @@ pub fn live_credentials_match(
     }
 }
 
-pub(super) fn read_stored_credentials(
+pub(crate) fn read_stored_credentials(
     profile_store: &ProfileStore,
     name: &str,
     backend: CredentialBackend,

@@ -67,6 +67,8 @@ aisw workspace guard --mode strict --json
 aisw project-bindings list --json
 aisw status --json
 aisw status --context --json
+aisw usage --json
+aisw usage claude --json
 aisw list --json
 aisw list claude --json
 aisw context list --json

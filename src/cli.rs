@@ -99,6 +99,9 @@ pub enum Command {
     /// Show current active profiles and credential status
     Status(StatusArgs),
 
+    /// Show vendor rate-limit usage for Claude Code and Codex CLI OAuth profiles
+    Usage(UsageArgs),
+
     /// First-run setup: shell integration and import of current live upstream credentials
     Init(InitArgs),
 
@@ -142,6 +145,7 @@ impl Command {
             Self::Remove(_) => "remove",
             Self::Rename(_) => "rename",
             Self::Status(_) => "status",
+            Self::Usage(_) => "usage",
             Self::Init(_) => "init",
             Self::Uninstall(_) => "uninstall",
             Self::ShellHook(_) => "shell_hook",
@@ -642,6 +646,24 @@ pub struct ListArgs {
     pub sort: Option<SortBy>,
 
     /// Show only active profiles
+    #[arg(long)]
+    pub active_only: bool,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct UsageArgs {
+    /// Tool to query: claude or codex (omit for both)
+    pub tool: Option<Tool>,
+
+    /// Profile to query (omit for every profile of the tool)
+    #[arg(requires = "tool")]
+    pub profile: Option<String>,
+
+    /// Show only each tool's active profile
     #[arg(long)]
     pub active_only: bool,
 
