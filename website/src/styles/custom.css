@@ -31,6 +31,13 @@
   margin-bottom: 0.75rem;
 }
 
+.sl-markdown-content .tool-logo {
+  width: 1.05em;
+  height: 1.05em;
+  margin-right: 0.25em;
+  vertical-align: -0.14em;
+}
+
 #aisw-home-demo .ap-wrapper,
 #aisw-home-demo .ap-player {
   width: 100% !important;

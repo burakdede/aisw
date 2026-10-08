@@ -9,10 +9,13 @@ description: Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI support mat
 
 | Tool | Binary | Auth methods | macOS | Linux | Windows |
 |---|---|---|---|---|---|
-| Claude Code | `claude` | OAuth, API key | Full | Full | Full |
+| <a href="https://www.anthropic.com/claude/code"><img class="tool-logo" src="https://cdn.simpleicons.org/anthropic/DA7756" alt="" aria-hidden="true"> Claude Code</a> | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
-| Gemini CLI | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
+| <a href="https://github.com/google-gemini/gemini-cli"><img class="tool-logo" src="https://cdn.simpleicons.org/googlegemini/8E75B2" alt="" aria-hidden="true"> Gemini CLI</a> | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
 | Antigravity CLI | `agy` | OAuth, API key | Full | Full | Full |
+
+The colored marks identify the upstream products; the links point to their
+official product or project pages.
 
 `aisw status` reports whether the detected release matches the audited
 compatibility baseline. A non-verified release is a warning, not an automatic

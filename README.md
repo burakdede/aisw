@@ -111,11 +111,11 @@ These are short, recorded command-line workflows generated from isolated demo en
 ## Install
 
 ```sh
-# Homebrew (macOS and Linux)
-# If Homebrew asks you to trust the tap first
-brew trust burakdede/tap
-brew tap burakdede/tap
-brew install aisw
+# Homebrew tap (macOS and Linux; until Homebrew Core accepts aisw)
+brew install burakdede/tap/aisw
+
+# After aisw is accepted into Homebrew Core
+# brew install aisw
 
 # Shell installer (Linux/macOS)
 curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
@@ -123,6 +123,10 @@ curl -fsSL https://raw.githubusercontent.com/burakdede/aisw/main/install.sh | sh
 # Cargo
 cargo install aisw
 ```
+
+You can install the current tap formula without manually adding the tap first:
+`brew install burakdede/tap/aisw`. Homebrew automatically taps the repository
+for this form of installation. See the [Homebrew tap documentation](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap).
 
 ## Quick start
 
