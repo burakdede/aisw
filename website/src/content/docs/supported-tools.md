@@ -26,7 +26,7 @@ head:
 
 | Tool | Binary | Auth methods | macOS | Linux | Windows |
 |---|---|---|---|---|---|
-| <a href="https://www.anthropic.com/claude/code"><img class="tool-logo" src="https://cdn.simpleicons.org/anthropic/DA7756" alt="" aria-hidden="true"> Claude Code</a> | `claude` | OAuth, API key | Full | Full | Full |
+| <a href="https://claude.com/product/claude-code"><img class="tool-logo" src="https://cdn.simpleicons.org/anthropic/DA7756" alt="" aria-hidden="true"> Claude Code</a> | `claude` | OAuth, API key | Full | Full | Full |
 | Codex CLI | `codex` | OAuth, API key | Full | Full | Full |
 | <a href="https://github.com/google-gemini/gemini-cli"><img class="tool-logo" src="https://cdn.simpleicons.org/googlegemini/8E75B2" alt="" aria-hidden="true"> Gemini CLI</a> | `gemini` | Enterprise auth, Vertex AI, API key | Full* | Full* | Full* |
 | Antigravity CLI | `agy` | OAuth, API key | Full | Full | Full |
