@@ -36,12 +36,14 @@ impl CanaryCleanup {
         account: impl Into<String>,
     ) -> Result<Option<String>, keyring::Error> {
         let account = account.into();
+        eprintln!("canary: inspect native entry {service}/{account}");
         let entry = keyring::Entry::new(service, &account)?;
         let previous = match entry.get_password() {
             Ok(password) => Some(password),
             Err(keyring::Error::NoEntry) => None,
             Err(error) => return Err(error),
         };
+        eprintln!("canary: inspected native entry {service}/{account}");
         self.entries.push(CanaryEntry {
             service: service.to_owned(),
             account,
@@ -150,6 +152,7 @@ fn write_fake_tool(bin_dir: &Path, name: &str, version: &str) {
 }
 
 fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Output {
+    eprintln!("canary: run aisw {}", args.join(" "));
     let mut cmd = Command::cargo_bin("aisw").expect("aisw binary not found");
     cmd.args(args)
         .env("AISW_HOME", &env.aisw_home)
@@ -277,6 +280,12 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         return;
     }
 
+    #[cfg(target_os = "macos")]
+    let _interaction_lock = std::env::var_os("GITHUB_ACTIONS").map(|_| {
+        security_framework::os::macos::keychain::SecKeychain::disable_user_interaction()
+            .expect("hosted canary must fail instead of waiting for Keychain UI")
+    });
+
     let env = TestEnv::new();
     let bin_dir = env.dir.path().join("canary-bin");
     fs::create_dir_all(&bin_dir).unwrap();
@@ -391,6 +400,7 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         preauthorize_ci_keychain_entry("gemini", "antigravity");
     }
 
+    eprintln!("canary: seed native credentials");
     keyring::Entry::new(KEYRING_SERVICE, &claude_oauth_account)
         .unwrap()
         .set_password(r#"{"claudeAiOauth":{"accessToken":"real-claude-oauth-token"}}"#)
@@ -412,6 +422,7 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .set_password(r#"{"email":"real-antigravity@example.com"}"#)
         .unwrap();
 
+    eprintln!("canary: native credentials seeded");
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "claude", &claude_oauth]),
         "claude oauth use",
