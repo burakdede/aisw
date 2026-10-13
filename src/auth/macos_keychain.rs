@@ -632,6 +632,72 @@ mod tests {
             "decoding the hex form must recover the payload without the newline"
         );
 
+        use crate::config::CredentialBackend;
+        use crate::profile::ProfileStore;
+        use crate::types::Tool;
+        use base64::{engine::general_purpose::STANDARD, Engine};
+
+        let encoded = format!(
+            "go-keyring-base64:{}",
+            STANDARD.encode(br#"{"email":"work@example.com","token":"synthetic"}"#)
+        );
+        let profiles = ProfileStore::new(&dir.path().join("managed"));
+        profiles.create(Tool::Antigravity, "work").unwrap();
+        for suffix in ["", "\n"] {
+            store_exact(
+                &keychain,
+                "antigravity-fixture",
+                format!("{encoded}{suffix}").as_bytes(),
+            );
+            let captured = read_generic_password("antigravity-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            crate::auth::antigravity::persist_managed_secret(
+                &profiles,
+                "work",
+                CredentialBackend::File,
+                &captured,
+            )
+            .unwrap();
+            let restored = crate::auth::antigravity::read_managed_secret(
+                &profiles,
+                "work",
+                CredentialBackend::File,
+            )
+            .unwrap()
+            .unwrap();
+            store_exact(&keychain, "antigravity-fixture", &restored);
+            let upstream = read_generic_password("antigravity-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(upstream, encoded.as_bytes());
+            assert_eq!(
+                STANDARD
+                    .decode(upstream.strip_prefix(b"go-keyring-base64:").unwrap())
+                    .unwrap(),
+                br#"{"email":"work@example.com","token":"synthetic"}"#
+            );
+        }
+
+        for payload in [
+            b"{\n  \"oauthToken\": \"synthetic\"\n}".as_slice(),
+            "{\"oauthToken\":\"synthetic\",\"name\":\"Gödel 👋\"}".as_bytes(),
+        ] {
+            store_exact(&keychain, "claude-format-fixture", payload);
+            let captured = read_generic_password("claude-format-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            let restored = crate::auth::claude::normalize_credentials_bytes(&captured).unwrap();
+            store_exact(&keychain, "claude-format-fixture", &restored);
+            let upstream = read_generic_password("claude-format-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&upstream).unwrap(),
+                serde_json::from_slice::<serde_json::Value>(payload).unwrap()
+            );
+        }
+
         // An empty stored value must stay distinguishable from a missing item.
         assert!(read_generic_password("absent", Some("tester"))
             .unwrap()

@@ -50,7 +50,7 @@ before relying on changed upstream auth/storage behavior.
 | Claude Code | `CLAUDE_CONFIG_DIR` set to profile directory when the install supports profile-owned auth | `CLAUDE_CONFIG_DIR` unset |
 | Codex CLI | `CODEX_HOME` set to profile directory | `CODEX_HOME` unset for API-key profiles only |
 | Gemini CLI | Profile files applied to `~/.gemini/` | Not supported |
-| Antigravity CLI | Not supported | Shared live keyring-backed auth and `~/.gemini` config roots restored transactionally |
+| Antigravity CLI | Not supported | Shared live keyring-backed auth and provider selection restored transactionally |
 
 In `isolated` mode, the tool reads config, history, and extensions from the profile-specific directory. In `shared` mode, the tool reads its standard config directory. Credentials are applied to the live location in both modes; state mode only controls which config directory the tool reads.
 
@@ -58,9 +58,9 @@ For Codex ChatGPT-managed auth, shared mode is intentionally unsupported. Use on
 
 For Claude OAuth, isolated mode is intentionally blocked only when Claude is using its legacy shared live Keychain credential. `CLAUDE_CONFIG_DIR` still isolates config/history in that case, but not the underlying OAuth credential owner. Use shared mode for that profile, or prefer API key / long-lived token flows for repeatable switching.
 
-Gemini does not support `shared` mode because its auth state and broader local state (settings, session history, MCP configs) are tightly coupled under `~/.gemini/`. Separating them is not safely possible without risking session corruption.
+Gemini does not support `shared` mode because its auth state and broader local state (settings, session history, MCP configs) are tightly coupled under `~/.gemini/`. aisw retains the existing file-backed switching model, with Antigravity-owned subtrees excluded.
 
-Antigravity does not currently expose a documented per-profile auth/data root like `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. `aisw` therefore supports Antigravity through shared live switching: it restores the live OS keyring credential plus the documented `~/.gemini/antigravity-cli/` and `~/.gemini/config/` trees for the selected profile.
+Antigravity does not currently expose a documented per-profile auth/data root like `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. `aisw` therefore supports Antigravity through shared live switching: it restores the live OS keyring credential and removes `modelProvider` from `~/.gemini/antigravity-cli/settings.json` for OAuth. Other settings and the global config/runtime trees remain shared.
 
 ## Credential storage by tool and platform
 
@@ -101,7 +101,7 @@ Supported Codex auth models in `aisw`:
 - Unsupported for import: `ephemeral` credentials are process-local and cannot produce a durable aisw profile.
 - Unsupported: shared-mode ChatGPT auth switching for ChatGPT-managed refresh-token auth.
 
-Codex's keyring account identifier is an opaque string, not the system username. `aisw` discovers the identifier from the live keyring entry during import and stores it so subsequent switches write to the correct account. `aisw` will not fabricate a keyring account name if it cannot read the live identifier.
+Codex supports native `file`, `keyring`, `auto`, and `ephemeral` storage. aisw imports readable `auth.json` and uses upstream file storage for its supported profiles. A managed aisw profile may keep its own secret in the system keyring, but that is separate from Codex's native keyring. Native keyring-only and ephemeral sessions are not imported; `auto` is importable only when it has produced the file fallback.
 
 ### Gemini CLI
 
@@ -111,7 +111,7 @@ Codex's keyring account identifier is an opaque string, not the system username.
 | Linux | `~/.gemini/` | Not supported |
 | Windows | `~/.gemini/` | Not supported |
 
-Gemini stores all auth and local state under `~/.gemini/`. `aisw` captures and restores the complete regular-file tree for that directory and removes stale live files from the previously active Gemini profile. This includes OAuth tokens, settings, and any MCP OAuth token files stored as regular files under the Gemini state root.
+Gemini stores all auth and local state under `~/.gemini/`. `aisw` captures and restores Gemini-owned regular files, excluding Antigravity's `antigravity-cli/`, `antigravity/`, `antigravity-ide/`, and `config/` trees and removes stale live files from the previously active Gemini profile. This includes OAuth tokens, settings, and any MCP OAuth token files stored as regular files under the Gemini state root.
 
 Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accounts on June 18, 2026; those users should migrate to Antigravity. Gemini CLI enterprise and API-key / Vertex AI paths remain supported. See the [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017). `aisw` can manage:
 
@@ -121,14 +121,14 @@ Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accoun
 
 For interactive Google-account / OAuth-style capture, `aisw` uses `GEMINI_CLI_HOME` to redirect Gemini's config root to a scratch directory during the login flow, then copies the resulting files into the profile. This was introduced in Gemini CLI as the clean way to redirect config storage without overriding `HOME`.
 
-API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is the format Gemini reads natively from `~/.gemini/.env`.
+API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. Switching also selects `security.auth.selectedType: gemini-api-key` in `~/.gemini/settings.json`; writing a key alone does not override a saved OAuth provider. Imported Vertex key profiles retain the Vertex provider choice. OAuth switching selects `oauth-personal`. Verification checks credentials and provider selection while ignoring mutable runtime files.
 
 ### Antigravity CLI
 
 - Live auth: OS-native keyring entry (`service=gemini`, `account=antigravity`) as observed in upstream issue reports and docs-aligned behavior.
-- Live config/state: `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
-- `--from-live`: captures the current live keyring-backed session plus both documented config roots.
-- Interactive OAuth: launches `agy`, captures the resulting live keyring/config state, and restores the prior live state unless `--set-active` is requested.
+- Provider selection: `modelProvider` in `~/.gemini/antigravity-cli/settings.json`; other config/runtime files remain shared.
+- `--from-live`: captures the current live keyring-backed session without copying global configuration or runtime files.
+- Interactive OAuth: launches `agy`, captures the resulting live keyring session, and restores the prior live state unless `--set-active` is requested.
 - API-key path: `GEMINI_API_KEY` with `modelProvider: gemini` in `~/.gemini/antigravity-cli/settings.json`; use the shell hook or `--emit-env` so the key reaches `agy`.
 - No `--state-mode` support because upstream does not currently document an isolated per-profile auth or data root.
 
@@ -139,15 +139,15 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 | Claude Code | File credentials | Supported | Supported | Standard on Linux/Windows |
 | Claude Code | System keyring | Supported | Supported | Standard on macOS |
 | Codex CLI | File `auth.json` | Supported | Supported | Available on all platforms |
-| Codex CLI | System keyring (discoverable) | Supported | Supported | Requires readable live keyring entry |
-| Codex CLI | System keyring (not discoverable) | Not supported | Fail-closed | `aisw` will not fabricate an account identifier |
-| Gemini CLI | File-backed `~/.gemini/` state | Supported | Supported | Full directory capture and restore |
-| Gemini CLI | System keyring | Not supported | Not supported | Gemini does not use keyring for credentials |
+| Codex CLI | aisw-managed system-keyring secret | Not imported from native keyring | Supported | Applies the managed credential through Codex file storage |
+| Codex CLI | Native keyring-only or ephemeral session | Not supported | Not imported | No readable `auth.json` to capture |
+| Gemini CLI | File-backed `~/.gemini/` state | Supported | Supported | Gemini-owned file capture and restore; preserves Antigravity subtrees |
+| Gemini CLI | System keyring | Not supported | Not supported | aisw supports file credentials; upstream encrypted credential storage is not imported |
 | Antigravity CLI | File-backed managed profile + live OS keyring apply | Supported | Supported | Stores captured secret in the profile, then restores it into the live keyring on switch |
 | Antigravity CLI | System keyring-backed managed profile | Supported | Supported | Stores the captured live keyring secret in `aisw`'s managed keyring backend |
 | Antigravity CLI | API-key profile via `GEMINI_API_KEY` | Supported | Supported with `--emit-env` or shell hook | Stores the key using the selected profile backend and selects the Gemini API-key provider |
 
-**Fail-closed** means `aisw` refuses the operation rather than guessing. This applies specifically to Codex when the keyring account identifier cannot be read from the live credential store.
+**Fail-closed** means `aisw` refuses the operation rather than guessing. For example, Codex keyring-only or ephemeral auth is diagnosed rather than synthesized into an importable profile.
 
 `aisw add --credential-backend ...` sets the managed profile backend only. It does not force the upstream CLI's live auth backend.
 
@@ -156,3 +156,8 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. This is 
 - [Auth Storage Matrix](https://github.com/burakdede/aisw/blob/main/AUTH_STORAGE_MATRIX.md)  -  detailed research on credential file locations and storage models per tool and platform
 - [How it works](/aisw/how-it-works/)  -  implementation details and design decisions
 - [Security](/aisw/security/)  -  keyring integration, file permissions, and storage safety
+
+Gemini's `GEMINI_FORCE_ENCRYPTED_FILE_STORAGE=true` mode bypasses the OAuth
+credential file in current upstream code. aisw does not manage that mode; use
+the supported file-auth path or an API-key profile. It does not decrypt or
+import upstream encrypted storage.

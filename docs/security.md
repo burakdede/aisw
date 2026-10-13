@@ -142,7 +142,7 @@ For Claude Code, `aisw` uses the most reliable auth target the installed Claude 
 `aisw` reads and writes only:
 
 1. Files under `~/.aisw/` (profiles, backups, config).
-2. The tool's live credential locations (`~/.claude/`, `~/.codex/`, `~/.gemini/`  -  which also holds Antigravity's config roots  -  and their respective keychain entries).
+2. The tool's live credential locations (`~/.claude/`, `~/.codex/`, `~/.gemini/`  -  which also holds Antigravity's provider settings  -  and their respective keychain entries).
 3. Shell config files (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`)  -  only when you explicitly run `aisw shell-hook` and redirect its output there yourself, or when `aisw uninstall` removes managed hook blocks you previously added.
 
 It does not access any other files or system resources.

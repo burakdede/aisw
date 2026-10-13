@@ -112,7 +112,8 @@ impl TestEnv {
             .env_remove("AISW_SECURITY_BIN")
             .env_remove("AISW_SECURITY_KEYCHAIN")
             .env_remove("AISW_CLAUDE_AUTH_STORAGE")
-            .env_remove("AISW_CODEX_AUTH_STORAGE");
+            .env_remove("AISW_CODEX_AUTH_STORAGE")
+            .env_remove("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE");
         #[cfg(windows)]
         {
             let roaming = self.fake_home.join("AppData").join("Roaming");
@@ -163,6 +164,7 @@ impl TestEnv {
         cmd.env_remove("AISW_SECURITY_KEYCHAIN");
         cmd.env_remove("AISW_CLAUDE_AUTH_STORAGE");
         cmd.env_remove("AISW_CODEX_AUTH_STORAGE");
+        cmd.env_remove("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE");
 
         let mut child = pair
             .slave
@@ -245,7 +247,8 @@ impl TestEnv {
             .env_remove("AISW_SECURITY_BIN")
             .env_remove("AISW_SECURITY_KEYCHAIN")
             .env_remove("AISW_CLAUDE_AUTH_STORAGE")
-            .env_remove("AISW_CODEX_AUTH_STORAGE");
+            .env_remove("AISW_CODEX_AUTH_STORAGE")
+            .env_remove("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE");
 
         Some(cmd)
     }

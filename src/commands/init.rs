@@ -886,8 +886,11 @@ fn detect_live_gemini(
         existing_profile,
         local_state,
         note: selection.has_both_sources.then_some(
-            "Both Gemini API key (.env) and OAuth cache were found. Detection follows .env precedence."
-                .to_owned(),
+            if auth_method == "oauth" {
+                "Both Gemini API key (.env) and OAuth cache were found. Detection follows the selected OAuth provider."
+            } else {
+                "Both Gemini API key (.env) and OAuth cache were found. Detection follows .env precedence."
+            }.to_owned(),
         ),
     })
 }
@@ -919,6 +922,19 @@ fn detect_live_antigravity(
             note: None,
         });
     };
+
+    if !auth::antigravity::uses_oauth_provider(snapshot.settings.as_deref())? {
+        return Ok(LiveAccountStatus {
+            tool: Tool::Antigravity.binary_name(),
+            detected: detected.is_some(),
+            outcome: "local_state_without_importable_auth",
+            auth_method: None,
+            source_description: None,
+            existing_profile: None,
+            local_state,
+            note: Some("Antigravity uses the API-key provider; use --from-env to capture GEMINI_API_KEY instead of its cached OAuth credential.".to_owned()),
+        });
+    }
 
     let Some(secret) = snapshot.keyring_secret.as_deref() else {
         return Ok(LiveAccountStatus {
@@ -1454,7 +1470,7 @@ fn import_gemini(
                 CredentialBackend::File,
             )?;
         } else {
-            profile_store.copy_file_into(Tool::Gemini, &profile_name, &env_file, ".env")?;
+            auth::gemini::copy_live_env_into_profile(&profile_store, &profile_name, &env_file)?;
         }
         config_store.add_profile(
             Tool::Gemini,

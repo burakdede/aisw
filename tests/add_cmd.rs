@@ -808,8 +808,14 @@ fn add_antigravity_oauth_succeeds_with_mocked_binary() {
     );
     env.assert_home_file_exists("profiles/antigravity/work/keyring-secret.json");
     env.assert_home_file_exists("profiles/antigravity/work/keyring.json");
-    env.assert_home_file_exists("profiles/antigravity/work/app/settings.json");
-    env.assert_home_file_exists("profiles/antigravity/work/shared/hooks.json");
+    assert!(!env
+        .aisw_home
+        .join("profiles/antigravity/work/app/settings.json")
+        .exists());
+    assert!(!env
+        .aisw_home
+        .join("profiles/antigravity/work/shared/hooks.json")
+        .exists());
 }
 
 #[test]
@@ -874,7 +880,7 @@ fn add_antigravity_oauth_restores_prior_live_state_when_profile_save_fails() {
                 .join("projects.json")
         )
         .unwrap(),
-        "{\"current\":\"repo\"}"
+        "{\"current\":\"other\"}"
     );
     assert_eq!(
         fs::read_to_string(
@@ -884,7 +890,7 @@ fn add_antigravity_oauth_restores_prior_live_state_when_profile_save_fails() {
                 .join("hooks.json")
         )
         .unwrap(),
-        "{\"hooks\":[]}"
+        "{\"hooks\":[\"x\"]}"
     );
     assert_eq!(
         fs::read_to_string(
@@ -895,7 +901,7 @@ fn add_antigravity_oauth_restores_prior_live_state_when_profile_save_fails() {
                 .join("repo.json")
         )
         .unwrap(),
-        "{\"mode\":\"plan\"}"
+        "{\"mode\":\"chat\"}"
     );
 }
 

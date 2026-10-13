@@ -621,20 +621,33 @@ pub fn sync_profile_from_active_state_if_same_identity(
         return Ok(false);
     };
 
-    let Some(stored_identity) = resolve_profile_oauth_identity(profile_store, name, backend)?
-    else {
-        return Ok(false);
+    let stored = read_stored_credentials(profile_store, name, backend)?;
+    let metadata_path = profile_store
+        .validated_profile_dir(Tool::Claude, name)?
+        .join(super::OAUTH_ACCOUNT_FILE);
+    let stored_metadata = if metadata_path.exists() {
+        Some(profile_store.read_file(Tool::Claude, name, super::OAUTH_ACCOUNT_FILE)?)
+    } else {
+        None
     };
-    let Some(live_identity) = resolve_live_oauth_identity(&snapshot, user_home)? else {
-        return Ok(false);
+    let live_metadata_path = match state_mode {
+        crate::types::StateMode::Shared => live_account_metadata_path(user_home),
+        crate::types::StateMode::Isolated => profile_store
+            .validated_profile_dir(Tool::Claude, name)?
+            .join(super::ACCOUNT_METADATA_FILE),
     };
-
-    if stored_identity != live_identity {
+    let live_metadata = read_oauth_account_metadata(&live_metadata_path)?;
+    if !identity::claude_oauth_identity_matches(
+        &stored,
+        stored_metadata.as_deref(),
+        &snapshot.bytes,
+        live_metadata.as_deref(),
+    )? {
         return Ok(false);
     }
 
     persist_oauth_storage(profile_store, name, backend, &snapshot.bytes)?;
-    persist_live_oauth_account_metadata(profile_store, name, user_home)?;
+    persist_oauth_account_metadata(profile_store, name, &live_metadata_path)?;
     Ok(true)
 }
 
@@ -668,44 +681,6 @@ fn active_credentials_snapshot_for_sync(
             }))
         }
     }
-}
-
-fn resolve_profile_oauth_identity(
-    profile_store: &ProfileStore,
-    name: &str,
-    backend: CredentialBackend,
-) -> Result<Option<String>> {
-    // 1. Try credentials file/keychain
-    let cred_bytes = match read_stored_credentials(profile_store, name, backend) {
-        Ok(b) => b,
-        Err(_) => return Ok(None),
-    };
-    if let Some(id) = identity::resolve_identity_from_json_bytes(&cred_bytes)? {
-        return Ok(Some(id));
-    }
-
-    // 2. Fallback to metadata file
-    let Ok(meta_bytes) = profile_store.read_file(Tool::Claude, name, super::OAUTH_ACCOUNT_FILE)
-    else {
-        return Ok(None);
-    };
-    identity::resolve_identity_from_json_bytes(&meta_bytes)
-}
-
-fn resolve_live_oauth_identity(
-    snapshot: &LiveCredentialSnapshot,
-    user_home: &Path,
-) -> Result<Option<String>> {
-    // 1. Try live credentials snapshot
-    if let Some(id) = identity::resolve_identity_from_json_bytes(&snapshot.bytes)? {
-        return Ok(Some(id));
-    }
-
-    // 2. Fallback to live metadata file
-    let Some(metadata) = read_live_oauth_account_metadata_for_import(user_home)? else {
-        return Ok(None);
-    };
-    identity::resolve_identity_from_json_bytes(&metadata)
 }
 
 #[cfg(test)]

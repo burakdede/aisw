@@ -380,7 +380,7 @@ fn backup_restore_yes_restores_antigravity_live_state() {
                 .join("settings.json")
         )
         .unwrap(),
-        r#"{"theme":"terminal"}"#
+        r#"{"theme":"light"}"#
     );
 }
 

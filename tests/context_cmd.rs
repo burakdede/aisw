@@ -392,7 +392,7 @@ fn context_use_with_antigravity_updates_live_state_and_active_profile() {
                 .join("settings.json")
         )
         .unwrap(),
-        r#"{"theme":"terminal"}"#
+        r#"{"theme":"light"}"#
     );
     assert_eq!(
         std::fs::read_to_string(

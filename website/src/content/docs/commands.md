@@ -142,7 +142,7 @@ Notes:
 - `--from-live` always activates the profile because those credentials are already live.
 - `--from-live --yes` overwrites an existing profile in place; the existing entry is not removed until capture succeeds.
 - For Codex ChatGPT-managed auth, `--from-live` is a bootstrap import, not a durable interchangeable account bundle.
-- For Antigravity, `--from-live` captures the current shared live keyring-backed session plus the documented Antigravity config roots.
+- For Antigravity, `--from-live` captures the current shared live keyring-backed session. Preferences, global integrations, and runtime files remain shared.
 - `add` refuses to store the same account twice. For OAuth it compares the resolved account identity; for API keys it compares the key itself. The error names the existing profile, so re-running `add` with a key you already stored fails rather than creating a second name for it.
 - `--credential-backend` affects the managed `aisw` profile only. It does not force the upstream CLI's live auth backend.
 - Gemini supports only `file`. Claude, Codex, and Antigravity support `file` and `system-keyring`. Stored config and status output use `system_keyring`.
@@ -190,7 +190,7 @@ Notes:
 - Switching is atomic: the previous live state is snapshotted before any write. A failed write triggers a full rollback.
 - With `--all`, every matching tool is resolved before any live state changes. If a switch fails, all live states are restored and the command exits non-zero; a tool without the profile is skipped.
 - With shell hook active, `aisw use` also emits the environment variable exports into the current shell session.
-- `--emit-env` is used internally by the shell hook. You can use it directly to apply exports in a subshell: `eval "$(aisw use claude work --emit-env)"`.
+- `--emit-env` emits environment changes; it does not apply live credential files or keyring/provider settings. Without the hook, run `aisw use <tool> <profile>` first, then evaluate its `--emit-env` output. It is used internally by the shell hook. You can use it directly to apply exports in a subshell: `eval "$(aisw use claude work --emit-env)"`.
 - Codex shared mode remains supported for API-key profiles.
 - Codex shared mode is blocked for ChatGPT-managed auth. Use `--state-mode isolated` instead; this is an expected upstream limitation, not `aisw` corruption.
 

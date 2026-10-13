@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
 
 use super::files;
@@ -18,8 +18,6 @@ use crate::types::Tool;
 pub(crate) const KEYRING_METADATA_FILE: &str = "keyring.json";
 const SECRET_FILE: &str = "keyring-secret.json";
 const API_KEY_FILE: &str = "api-key.json";
-const APP_PREFIX: &str = "app";
-const SHARED_PREFIX: &str = "shared";
 const OAUTH_TIMEOUT: Duration = Duration::from_secs(180);
 const KEYRING_SERVICE: &str = "gemini";
 const KEYRING_ACCOUNT: &str = "antigravity";
@@ -56,8 +54,7 @@ pub struct KeyringRef {
 pub struct LiveSnapshot {
     pub keyring_ref: KeyringRef,
     pub keyring_secret: Option<Vec<u8>>,
-    pub app_files: BTreeMap<String, Vec<u8>>,
-    pub shared_files: BTreeMap<String, Vec<u8>>,
+    pub settings: Option<Vec<u8>>,
 }
 
 pub fn live_app_dir(user_home: &Path) -> PathBuf {
@@ -175,11 +172,9 @@ pub fn read_api_key(
 
 /// Reads the managed keyring secret for a profile.
 ///
-/// The payload is trimmed on the way out, and `persist_managed_secret` trims on
-/// the way in, so a profile captured before #250 — when the `security` CLI's
-/// output terminator was stored along with the secret — stops reporting drift
-/// against a live value that no longer carries it, and is repaired by the next
-/// switch instead of needing a migration.
+/// Normalize legacy output framing on read and persist, so switching also
+/// repairs profiles captured with a newline or security CLI hex wrapping.
+/// The upstream envelope remains intact; decoding for identity is separate.
 pub fn read_managed_secret(
     profile_store: &ProfileStore,
     profile_name: &str,
@@ -202,7 +197,7 @@ pub fn read_managed_secret(
         }
     }?;
 
-    Ok(secret.map(|bytes| super::trim_credential_payload(&bytes).to_vec()))
+    secret.map(|bytes| normalize_secret(&bytes)).transpose()
 }
 
 pub fn persist_managed_secret(
@@ -211,23 +206,20 @@ pub fn persist_managed_secret(
     backend: CredentialBackend,
     secret: &[u8],
 ) -> Result<()> {
-    let secret = super::trim_credential_payload(secret);
+    let secret = normalize_secret(secret)?;
     match backend {
         CredentialBackend::File => {
-            profile_store.write_file(Tool::Antigravity, profile_name, SECRET_FILE, secret)
+            profile_store.write_file(Tool::Antigravity, profile_name, SECRET_FILE, &secret)
         }
         CredentialBackend::SystemKeyring => {
-            secure_store::write_profile_secret(Tool::Antigravity, profile_name, secret)
+            secure_store::write_profile_secret(Tool::Antigravity, profile_name, &secret)
         }
     }
 }
 
 pub fn live_credentials_snapshot_for_import(user_home: &Path) -> Result<Option<LiveSnapshot>> {
     let snapshot = capture_live_snapshot(user_home)?;
-    if snapshot.keyring_secret.is_none()
-        && snapshot.app_files.is_empty()
-        && snapshot.shared_files.is_empty()
-    {
+    if snapshot.keyring_secret.is_none() {
         return Ok(None);
     }
     Ok(Some(snapshot))
@@ -239,25 +231,96 @@ pub fn capture_live_snapshot(user_home: &Path) -> Result<LiveSnapshot> {
         keyring_secret: super::system_keyring::read_generic_password(
             &keyring_ref.service,
             Some(&keyring_ref.account),
-        )?,
+        )?
+        .map(|bytes| normalize_secret(&bytes))
+        .transpose()?,
         keyring_ref,
-        app_files: read_live_dir(&live_app_dir(user_home))?,
-        shared_files: read_live_dir(&live_shared_dir(user_home))?,
+        settings: read_settings_file(user_home)?,
     })
 }
 
-fn read_live_dir(dir: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
-    if !dir.exists() {
-        return Ok(BTreeMap::new());
+fn read_settings_file(user_home: &Path) -> Result<Option<Vec<u8>>> {
+    let path = live_app_dir(user_home).join("settings.json");
+    crate::live_apply::validate_live_path(user_home, &path)?;
+    if !path.exists() {
+        return Ok(None);
     }
-    let mut files_map = BTreeMap::new();
-    for file in files::list_regular_files_recursive(dir)? {
-        let relative = file.file_name.to_string_lossy().into_owned();
-        let bytes = fs::read(&file.path)
-            .with_context(|| format!("could not read {}", file.path.display()))?;
-        files_map.insert(relative, bytes);
+    fs::read(&path)
+        .map(Some)
+        .with_context(|| format!("could not read {}", path.display()))
+}
+
+pub(crate) fn uses_oauth_provider(settings: Option<&[u8]>) -> Result<bool> {
+    let Some(bytes) = settings else {
+        return Ok(true);
+    };
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).context("could not parse Antigravity settings")?;
+    let object = value
+        .as_object()
+        .context("Antigravity settings must be a JSON object")?;
+    Ok(object
+        .get("modelProvider")
+        .and_then(serde_json::Value::as_str)
+        != Some("gemini"))
+}
+
+/// Preserve the upstream envelope while repairing recognizable legacy CLI hex output.
+fn normalize_secret(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut candidate = super::trim_credential_payload(bytes).to_vec();
+    for _ in 0..=3 {
+        if decode_secret_value(&candidate)?.is_some() {
+            if let Some(json) = super::normalize_keychain_json(&candidate) {
+                return Ok(json);
+            }
+            return Ok(candidate);
+        }
+        let Some(decoded) = decode_hex(&candidate) else {
+            break;
+        };
+        candidate = super::trim_credential_payload(&decoded).to_vec();
     }
-    Ok(files_map)
+    Ok(super::trim_credential_payload(bytes).to_vec())
+}
+
+fn decode_hex(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.is_empty() || bytes.len() % 2 != 0 {
+        return None;
+    }
+    bytes
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = char::from(pair[0]).to_digit(16)?;
+            let low = char::from(pair[1]).to_digit(16)?;
+            Some(((high << 4) | low) as u8)
+        })
+        .collect()
+}
+
+fn decode_secret_value(bytes: &[u8]) -> Result<Option<serde_json::Value>> {
+    let decoded;
+    let json = if let Some(encoded) = bytes.strip_prefix(b"go-keyring-base64:") {
+        decoded = STANDARD
+            .decode(encoded)
+            .context("invalid Antigravity keyring base64 envelope")?;
+        decoded.as_slice()
+    } else if let Some(encoded) = bytes.strip_prefix(b"go-keyring-encoded:") {
+        decoded = decode_hex(encoded).context("invalid Antigravity keyring hex envelope")?;
+        decoded.as_slice()
+    } else {
+        bytes
+    };
+    let value = serde_json::from_slice::<serde_json::Value>(json).ok();
+    if bytes.starts_with(b"go-keyring-")
+        && !value.as_ref().is_some_and(serde_json::Value::is_object)
+    {
+        bail!("Antigravity keyring envelope does not contain a JSON credential object");
+    }
+    Ok(value.filter(serde_json::Value::is_object))
+}
+
+pub(crate) fn credential_json_value(bytes: &[u8]) -> Result<Option<serde_json::Value>> {
+    decode_secret_value(&normalize_secret(bytes)?)
 }
 
 pub fn write_profile_snapshot(
@@ -310,6 +373,10 @@ fn write_profile_snapshot_inner(
         bail!("no Antigravity keyring credential found. Sign in with 'agy' first, then retry.");
     }
 
+    if !uses_oauth_provider(snapshot.settings.as_deref())? {
+        bail!("Antigravity is using an API-key provider. Remove modelProvider and sign in with agy before capturing an OAuth profile.");
+    }
+
     if let Some(existing) = identity::existing_antigravity_oauth_profile_for_live_secret(
         profile_store,
         config_store,
@@ -328,16 +395,6 @@ fn write_profile_snapshot_inner(
     if let Some(secret) = snapshot.keyring_secret.as_deref() {
         persist_managed_secret(profile_store, profile_name, backend, secret)?;
     }
-
-    clear_profile_subtree(profile_store, profile_name, APP_PREFIX)?;
-    clear_profile_subtree(profile_store, profile_name, SHARED_PREFIX)?;
-    persist_profile_tree(profile_store, profile_name, APP_PREFIX, &snapshot.app_files)?;
-    persist_profile_tree(
-        profile_store,
-        profile_name,
-        SHARED_PREFIX,
-        &snapshot.shared_files,
-    )?;
 
     identity::ensure_unique_oauth_identity(
         profile_store,
@@ -361,33 +418,6 @@ fn write_profile_snapshot_inner(
     Ok(())
 }
 
-fn clear_profile_subtree(
-    profile_store: &ProfileStore,
-    profile_name: &str,
-    prefix: &str,
-) -> Result<()> {
-    let dir = profile_store
-        .validated_profile_dir(Tool::Antigravity, profile_name)?
-        .join(prefix);
-    if dir.exists() {
-        fs::remove_dir_all(&dir).with_context(|| format!("could not delete {}", dir.display()))?;
-    }
-    Ok(())
-}
-
-fn persist_profile_tree(
-    profile_store: &ProfileStore,
-    profile_name: &str,
-    prefix: &str,
-    files_map: &BTreeMap<String, Vec<u8>>,
-) -> Result<()> {
-    for (relative, bytes) in files_map {
-        let stored = format!("{prefix}/{relative}");
-        profile_store.write_file(Tool::Antigravity, profile_name, &stored, bytes)?;
-    }
-    Ok(())
-}
-
 pub fn apply_live_credentials(
     profile_store: &ProfileStore,
     profile_name: &str,
@@ -402,8 +432,7 @@ pub fn apply_live_credentials(
         );
     };
 
-    let changes = build_apply_transaction(profile_store, profile_name, user_home)?;
-    crate::live_apply::apply_transaction(user_home, changes)?;
+    apply_provider_settings(user_home, None)?;
     super::system_keyring::upsert_generic_password(
         &keyring_ref.service,
         &keyring_ref.account,
@@ -412,10 +441,12 @@ pub fn apply_live_credentials(
 }
 
 pub fn apply_api_key_settings(user_home: &Path) -> Result<()> {
+    apply_provider_settings(user_home, Some("gemini"))
+}
+
+fn apply_provider_settings(user_home: &Path, provider: Option<&str>) -> Result<()> {
     let path = live_app_dir(user_home).join("settings.json");
-    let mut settings = if path.exists() {
-        let bytes =
-            fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
+    let mut settings = if let Some(bytes) = read_settings_file(user_home)? {
         serde_json::from_slice::<serde_json::Value>(&bytes)
             .with_context(|| format!("could not parse {}", path.display()))?
     } else {
@@ -424,75 +455,19 @@ pub fn apply_api_key_settings(user_home: &Path) -> Result<()> {
     let object = settings
         .as_object_mut()
         .context("Antigravity settings must be a JSON object")?;
-    object.insert("modelProvider".to_owned(), serde_json::json!("gemini"));
+    let changed = match provider {
+        Some(value) => {
+            object.insert("modelProvider".to_owned(), serde_json::json!(value))
+                != Some(serde_json::json!(value))
+        }
+        None => object.remove("modelProvider").is_some(),
+    };
+    if !changed {
+        return Ok(());
+    }
     let bytes =
         serde_json::to_vec_pretty(&settings).context("could not serialize Antigravity settings")?;
     crate::live_apply::apply_transaction(user_home, vec![LiveFileChange::write(path, bytes)])
-}
-
-fn build_apply_transaction(
-    profile_store: &ProfileStore,
-    profile_name: &str,
-    user_home: &Path,
-) -> Result<Vec<LiveFileChange>> {
-    let stored_app = profile_tree_map(profile_store, profile_name, APP_PREFIX)?;
-    let stored_shared = profile_tree_map(profile_store, profile_name, SHARED_PREFIX)?;
-    let mut changes = Vec::new();
-    changes.extend(sync_dir_to_live(
-        &stored_app,
-        &live_app_dir(user_home),
-        &read_live_dir(&live_app_dir(user_home))?,
-    ));
-    changes.extend(sync_dir_to_live(
-        &stored_shared,
-        &live_shared_dir(user_home),
-        &read_live_dir(&live_shared_dir(user_home))?,
-    ));
-    Ok(changes)
-}
-
-fn sync_dir_to_live(
-    stored: &BTreeMap<String, Vec<u8>>,
-    live_root: &Path,
-    live: &BTreeMap<String, Vec<u8>>,
-) -> Vec<LiveFileChange> {
-    let mut changes = Vec::new();
-    for (relative, bytes) in stored {
-        let live_bytes = live.get(relative);
-        if live_bytes != Some(bytes) {
-            changes.push(LiveFileChange::write(
-                live_root.join(relative),
-                bytes.clone(),
-            ));
-        }
-    }
-    for relative in live.keys() {
-        if !stored.contains_key(relative) {
-            changes.push(LiveFileChange::delete(live_root.join(relative)));
-        }
-    }
-    changes
-}
-
-fn profile_tree_map(
-    profile_store: &ProfileStore,
-    profile_name: &str,
-    prefix: &str,
-) -> Result<BTreeMap<String, Vec<u8>>> {
-    let root = profile_store
-        .validated_profile_dir(Tool::Antigravity, profile_name)?
-        .join(prefix);
-    if !root.exists() {
-        return Ok(BTreeMap::new());
-    }
-    let mut files_map = BTreeMap::new();
-    for file in files::list_regular_files_recursive(&root)? {
-        let relative = file.file_name.to_string_lossy().into_owned();
-        let stored = format!("{prefix}/{relative}");
-        let bytes = profile_store.read_file(Tool::Antigravity, profile_name, &stored)?;
-        files_map.insert(relative, bytes);
-    }
-    Ok(files_map)
 }
 
 pub fn live_state_matches(
@@ -505,13 +480,14 @@ pub fn live_state_matches(
     if auth_method == AuthMethod::ApiKey {
         let managed = read_api_key(profile_store, profile_name, backend)?;
         let live = std::env::var("GEMINI_API_KEY").unwrap_or_default();
-        let settings_path = live_app_dir(user_home).join("settings.json");
-        let provider_is_gemini = settings_path.exists()
-            && serde_json::from_slice::<serde_json::Value>(&fs::read(&settings_path)?)
+        let settings = read_settings_file(user_home)?;
+        let provider_is_gemini = settings.as_deref().is_some_and(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(bytes)
                 .ok()
                 .and_then(|value| value.get("modelProvider").cloned())
                 .and_then(|value| value.as_str().map(|value| value == "gemini"))
-                .unwrap_or(false);
+                .unwrap_or(false)
+        });
         return Ok(!live.is_empty() && managed == live && provider_is_gemini);
     }
     let keyring_ref = read_profile_keyring_ref(profile_store, profile_name)?;
@@ -520,13 +496,18 @@ pub fn live_state_matches(
         &keyring_ref.service,
         Some(&keyring_ref.account),
     )?;
-    if managed_secret != live_secret {
-        return Ok(false);
-    }
-    Ok(profile_tree_map(profile_store, profile_name, APP_PREFIX)?
-        == read_live_dir(&live_app_dir(user_home))?
-        && profile_tree_map(profile_store, profile_name, SHARED_PREFIX)?
-            == read_live_dir(&live_shared_dir(user_home))?)
+    let live_secret = live_secret
+        .map(|bytes| normalize_secret(&bytes))
+        .transpose()?;
+    let secrets_match = match (managed_secret.as_deref(), live_secret.as_deref()) {
+        (Some(managed), Some(live)) if managed == live => true,
+        (Some(managed), Some(live)) => {
+            identity::oauth_identity_matches(Tool::Antigravity, managed, live)?
+        }
+        _ => false,
+    };
+    let oauth_provider = uses_oauth_provider(read_settings_file(user_home)?.as_deref())?;
+    Ok(secrets_match && oauth_provider)
 }
 
 pub fn sync_profile_from_live_if_same_identity(
@@ -544,22 +525,11 @@ pub fn sync_profile_from_live_if_same_identity(
     let Some(managed_secret) = read_managed_secret(profile_store, profile_name, backend)? else {
         return Ok(false);
     };
-    let managed_identity = identity::resolve_identity_from_json_bytes(&managed_secret)?;
-    let live_identity = identity::resolve_identity_from_json_bytes(secret)?;
-    if managed_identity.is_none() || managed_identity != live_identity {
+    if !identity::oauth_identity_matches(Tool::Antigravity, &managed_secret, secret)? {
         return Ok(false);
     }
     persist_profile_keyring_ref(profile_store, profile_name, &snapshot.keyring_ref)?;
     persist_managed_secret(profile_store, profile_name, backend, secret)?;
-    clear_profile_subtree(profile_store, profile_name, APP_PREFIX)?;
-    clear_profile_subtree(profile_store, profile_name, SHARED_PREFIX)?;
-    persist_profile_tree(profile_store, profile_name, APP_PREFIX, &snapshot.app_files)?;
-    persist_profile_tree(
-        profile_store,
-        profile_name,
-        SHARED_PREFIX,
-        &snapshot.shared_files,
-    )?;
     Ok(true)
 }
 
@@ -589,10 +559,7 @@ pub fn add_oauth_with_backend(
         );
     }
     let after = capture_live_snapshot(&user_home)?;
-    if before.keyring_secret == after.keyring_secret
-        && before.app_files == after.app_files
-        && before.shared_files == after.shared_files
-    {
+    if before.keyring_secret == after.keyring_secret && before.settings == after.settings {
         bail!(
             "Antigravity login did not produce any new managed state.\n  \
              If agy already signed into the desired account, use 'aisw add antigravity {} --from-live' instead.",
@@ -630,21 +597,12 @@ pub fn restore_live_state_after_oauth_add(
 }
 
 pub fn restore_snapshot_to_live(snapshot: &LiveSnapshot, user_home: &Path) -> Result<()> {
-    let changes = {
-        let mut changes = Vec::new();
-        changes.extend(sync_dir_to_live(
-            &snapshot.app_files,
-            &live_app_dir(user_home),
-            &read_live_dir(&live_app_dir(user_home))?,
-        ));
-        changes.extend(sync_dir_to_live(
-            &snapshot.shared_files,
-            &live_shared_dir(user_home),
-            &read_live_dir(&live_shared_dir(user_home))?,
-        ));
-        changes
+    let path = live_app_dir(user_home).join("settings.json");
+    let change = match &snapshot.settings {
+        Some(bytes) => LiveFileChange::write(path, bytes.clone()),
+        None => LiveFileChange::delete(path),
     };
-    crate::live_apply::apply_transaction(user_home, changes)?;
+    crate::live_apply::apply_transaction(user_home, vec![change])?;
     match snapshot.keyring_secret.as_deref() {
         Some(secret) => super::system_keyring::upsert_generic_password(
             &snapshot.keyring_ref.service,
@@ -1036,16 +994,18 @@ mod tests {
                 .unwrap(),
             br#"{"email":"work@example.com","token":"new-live"}"#
         );
+        assert!(!profile_store
+            .profile_dir(Tool::Antigravity, "work")
+            .join("app")
+            .exists());
         assert_eq!(
-            profile_store
-                .read_file(Tool::Antigravity, "work", "app/settings.json")
-                .unwrap(),
+            fs::read(live_app_dir(&user_home).join("settings.json")).unwrap(),
             br#"{"theme":"light"}"#
         );
     }
 
     #[test]
-    fn restore_snapshot_to_live_removes_stale_files_and_deletes_secret() {
+    fn restore_snapshot_to_live_restores_settings_and_secret_without_deleting_runtime_state() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempdir().unwrap();
         let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
@@ -1057,17 +1017,17 @@ mod tests {
             &LiveSnapshot {
                 keyring_ref: default_live_keyring_ref(),
                 keyring_secret: None,
-                app_files: BTreeMap::new(),
-                shared_files: BTreeMap::new(),
+                settings: None,
             },
             &user_home,
         )
         .unwrap();
 
-        assert!(read_live_dir(&live_app_dir(&user_home)).unwrap().is_empty());
-        assert!(read_live_dir(&live_shared_dir(&user_home))
-            .unwrap()
-            .is_empty());
+        assert!(!live_app_dir(&user_home).join("settings.json").exists());
+        assert!(live_app_dir(&user_home)
+            .join("cache/projects.json")
+            .exists());
+        assert!(live_shared_dir(&user_home).join("hooks.json").exists());
         assert!(super::super::system_keyring::read_generic_password(
             KEYRING_SERVICE,
             Some(KEYRING_ACCOUNT),
@@ -1199,93 +1159,61 @@ mod tests {
             identity::resolve_identity_from_json_bytes(br#"{"email":"work@example.com"}"#).unwrap()
         );
     }
-
     #[test]
-    fn capture_live_snapshot_preserves_nested_relative_paths() {
+    fn capture_live_snapshot_excludes_nested_runtime_and_shared_files() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let temp = tempdir().unwrap();
         let _keyring = EnvVarGuard::set("AISW_KEYRING_TEST_DIR", temp.path());
         let user_home = temp.path().join("user");
+        write_live_state(&user_home, br#"{"email":"work@example.com"}"#);
         fs::create_dir_all(live_app_dir(&user_home).join("profiles/work")).unwrap();
-        fs::create_dir_all(live_shared_dir(&user_home).join("repos/work")).unwrap();
-
         fs::write(
             live_app_dir(&user_home).join("profiles/work/settings.json"),
-            br#"{"theme":"dark"}"#,
+            b"unrelated",
         )
         .unwrap();
-        fs::write(
-            live_shared_dir(&user_home).join("repos/work/settings.json"),
-            br#"{"mode":"plan"}"#,
-        )
-        .unwrap();
-        super::super::system_keyring::upsert_generic_password(
-            KEYRING_SERVICE,
-            KEYRING_ACCOUNT,
-            br#"{"email":"work@example.com"}"#,
-        )
-        .unwrap();
-
         let snapshot = capture_live_snapshot(&user_home).unwrap();
-        let app_files = snapshot
-            .app_files
-            .iter()
-            .map(|(path, bytes)| (path.replace('\\', "/"), bytes.as_slice()))
-            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(snapshot.settings.unwrap(), br#"{"theme":"terminal"}"#);
         assert_eq!(
-            app_files.get("profiles/work/settings.json").copied(),
-            Some(br#"{"theme":"dark"}"#.as_slice())
+            fs::read(live_app_dir(&user_home).join("profiles/work/settings.json")).unwrap(),
+            b"unrelated"
         );
-        let shared_files = snapshot
-            .shared_files
-            .iter()
-            .map(|(path, bytes)| (path.replace('\\', "/"), bytes.as_slice()))
-            .collect::<std::collections::HashMap<_, _>>();
-        assert_eq!(
-            shared_files.get("repos/work/settings.json").copied(),
-            Some(br#"{"mode":"plan"}"#.as_slice())
-        );
+        assert!(live_shared_dir(&user_home)
+            .join("projects/repo.json")
+            .exists());
     }
 
     #[test]
-    fn profile_tree_map_preserves_nested_duplicate_basenames() {
-        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let temp = tempdir().unwrap();
-        let home = temp.path().join("home");
-        fs::create_dir_all(&home).unwrap();
-        let profile_store = ProfileStore::new(&home);
-        profile_store.create(Tool::Antigravity, "work").unwrap();
-
-        profile_store
-            .write_file(
-                Tool::Antigravity,
-                "work",
-                "app/profiles/work/settings.json",
-                br#"{"theme":"dark"}"#,
+    fn normalize_secret_preserves_envelopes_and_repairs_only_recognizable_hex() {
+        let json = br#"{"email":"work@example.com","token":"synthetic"}"#;
+        for clean in [
+            json.to_vec(),
+            format!("go-keyring-base64:{}", STANDARD.encode(json)).into_bytes(),
+            format!(
+                "go-keyring-encoded:{}",
+                json.iter().map(|b| format!("{b:02x}")).collect::<String>()
             )
-            .unwrap();
-        profile_store
-            .write_file(
-                Tool::Antigravity,
-                "work",
-                "app/profiles/personal/settings.json",
-                br#"{"theme":"light"}"#,
-            )
-            .unwrap();
-
-        let stored = profile_tree_map(&profile_store, "work", APP_PREFIX).unwrap();
-        assert_eq!(stored.len(), 2);
-        let stored = stored
-            .iter()
-            .map(|(path, bytes)| (path.replace('\\', "/"), bytes.as_slice()))
-            .collect::<std::collections::HashMap<_, _>>();
-        assert_eq!(
-            stored.get("profiles/work/settings.json").copied(),
-            Some(br#"{"theme":"dark"}"#.as_slice())
-        );
-        assert_eq!(
-            stored.get("profiles/personal/settings.json").copied(),
-            Some(br#"{"theme":"light"}"#.as_slice())
-        );
+            .into_bytes(),
+        ] {
+            let mut legacy = clean.clone();
+            legacy.push(b'\n');
+            for _ in 0..3 {
+                legacy = legacy
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+                    .into_bytes();
+                let normalized = normalize_secret(&legacy).unwrap();
+                assert_eq!(normalized, clean);
+                assert_eq!(normalize_secret(&normalized).unwrap(), clean);
+                assert_eq!(
+                    credential_json_value(&normalized).unwrap(),
+                    Some(serde_json::from_slice(json).unwrap())
+                );
+            }
+        }
+        assert_eq!(normalize_secret(b"deadbeef").unwrap(), b"deadbeef");
+        assert!(normalize_secret(b"go-keyring-base64:not-base64").is_err());
+        assert!(normalize_secret(b"go-keyring-encoded:7b").is_err());
     }
 }

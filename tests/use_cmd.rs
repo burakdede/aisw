@@ -1179,15 +1179,18 @@ fn use_gemini_oauth_removes_stale_live_files() {
         std::fs::read_to_string(gemini_dir.join("oauth_creds.json")).unwrap(),
         r#"{"token":"work"}"#
     );
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(gemini_dir.join("settings.json")).unwrap()).unwrap();
+    assert_eq!(settings["account"], "work");
     assert_eq!(
-        std::fs::read_to_string(gemini_dir.join("settings.json")).unwrap(),
-        r#"{"account":"work"}"#
+        settings.pointer("/security/auth/selectedType").unwrap(),
+        "oauth-personal"
     );
     assert!(!gemini_dir.join("stale.json").exists());
 }
 
 #[test]
-fn use_antigravity_restores_live_keyring_and_config_roots() {
+fn use_antigravity_restores_credentials_and_preserves_global_state() {
     let env = TestEnv::new();
     add_antigravity_profile_from_live(
         &env,
@@ -1227,7 +1230,7 @@ fn use_antigravity_restores_live_keyring_and_config_roots() {
                 .join("settings.json")
         )
         .unwrap(),
-        r#"{"theme":"terminal"}"#
+        r#"{"theme":"light"}"#
     );
     assert_eq!(
         std::fs::read_to_string(
@@ -1238,9 +1241,9 @@ fn use_antigravity_restores_live_keyring_and_config_roots() {
                 .join("repo.json")
         )
         .unwrap(),
-        r#"{"mode":"plan"}"#
+        r#"{"mode":"chat"}"#
     );
-    assert!(!env
+    assert!(env
         .fake_home
         .join(".gemini")
         .join("antigravity-cli")
@@ -1287,12 +1290,17 @@ fn failed_antigravity_switch_rolls_back_partial_live_writes() {
         .join("config")
         .join("hooks.json");
     let keyring_path = antigravity_live_keyring_secret_path(&env);
+    std::fs::write(
+        &settings_path,
+        br#"{"theme":"light","modelProvider":"gemini"}"#,
+    )
+    .unwrap();
     let settings_before = std::fs::read(&settings_path).unwrap();
     let hooks_before = std::fs::read(&hooks_path).unwrap();
     let keyring_before = std::fs::read(&keyring_path).unwrap();
 
     env.cmd()
-        .env("AISW_FAULT_INJECTION", "live_apply.commit_write:2")
+        .env("AISW_FAULT_INJECTION", "live_apply.commit_write:1")
         .args(["use", "antigravity", "new"])
         .assert()
         .failure()

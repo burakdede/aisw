@@ -93,6 +93,10 @@ aisw context use work
 aisw status
 ```
 
+Antigravity switches its keyring credential and authentication provider while
+preserving preferences, global integrations, and runtime files. Gemini switching
+preserves Antigravity's directories under their shared `~/.gemini` parent.
+
 Start a new agent session after switching; a running process keeps the account it
 started with. The [quickstart](https://aiswitcher.dev/docs/quickstart/) walks
 through each step.

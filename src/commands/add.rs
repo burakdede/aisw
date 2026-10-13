@@ -958,7 +958,7 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
             &oauth_files,
         )
     } else {
-        profile_store.copy_file_into(Tool::Gemini, &args.profile_name, &env_file, ".env")
+        auth::gemini::copy_live_env_into_profile(&profile_store, &args.profile_name, &env_file)
     };
 
     if let Err(e) = copy_result {
@@ -1075,7 +1075,10 @@ fn from_live_gemini(args: AddArgs, home: &Path, user_home: &Path) -> Result<()> 
 
     if selection.has_both_sources {
         output::print_info(
-            "Both Gemini API key (.env) and OAuth cache were found. Imported .env by precedence.",
+            match auth_method {
+                AuthMethod::OAuth => "Both Gemini API key (.env) and OAuth cache were found. Imported the selected OAuth provider.",
+                AuthMethod::ApiKey => "Both Gemini API key (.env) and OAuth cache were found. Imported .env by precedence.",
+            },
         );
     }
     finalize_from_live(
@@ -1262,7 +1265,7 @@ fn finalize_from_live(
     }
     if tool == Tool::Antigravity {
         output::print_effect(
-            "Antigravity restores the shared live OS keyring credential and the documented ~/.gemini config roots when you switch profiles.",
+            "Antigravity restores the shared live OS keyring credential and selects the account provider when you switch profiles; global configuration and runtime files stay shared.",
         );
     }
     if let Some(warning) = add_warnings(tool, auth_method, user_home).first() {
@@ -1356,7 +1359,7 @@ fn print_add_summary(
             );
         } else {
             output::print_effect(
-                "Antigravity OAuth is restored through the shared live OS keyring entry and the documented ~/.gemini config roots.",
+                "Antigravity OAuth is restored through the shared live OS keyring entry; global configuration and runtime files stay shared.",
             );
             output::print_effect(
                 "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",
@@ -1492,7 +1495,7 @@ fn claude_add_classification(
 fn add_warnings(tool: Tool, auth_method: AuthMethod, user_home: Option<&Path>) -> Vec<String> {
     if tool == Tool::Antigravity && auth_method == AuthMethod::OAuth {
         return vec![
-            "Antigravity currently documents shared live OS-keyring auth, not an isolated per-profile auth root. aisw switches the live keyring-backed session and Antigravity config roots transactionally.".to_owned(),
+            "Antigravity currently documents shared live OS-keyring auth, not an isolated per-profile auth root. aisw switches the live keyring-backed session and provider selection transactionally.".to_owned(),
         ];
     }
     if tool == Tool::Antigravity && auth_method == AuthMethod::ApiKey {
@@ -3043,11 +3046,11 @@ mod tests {
                 .unwrap(),
                 "{\"session\":\"live-secret\"}"
             );
-            assert!(ps
+            assert!(!ps
                 .profile_dir(Tool::Antigravity, "work")
                 .join("app/settings.json")
                 .exists());
-            assert!(ps
+            assert!(!ps
                 .profile_dir(Tool::Antigravity, "work")
                 .join("shared/hooks.json")
                 .exists());

@@ -140,24 +140,25 @@ On Linux, if the Secret Service daemon is not available at runtime (e.g. headles
 
 **How `aisw` captures credentials:**
 - `--api-key` / `--from-env`: stores the key in a profile `.env` file.
-- `--from-live`: copies the live Gemini regular-file tree under `~/.gemini/` into the profile directory.
-- Interactive OAuth: sets `GEMINI_CLI_HOME` to a temporary scratch directory, spawns `gemini` so it writes its OAuth cache there, then copies all resulting regular files from `<scratch>/.gemini/` into the profile directory. The scratch directory is always cleaned up, regardless of success or failure.
+- `--from-live`: copies Gemini regular files under `~/.gemini/` into the profile directory when an OAuth credential file is present. Antigravity-owned subtrees are excluded.
+- Interactive OAuth: sets `GEMINI_CLI_HOME` to a temporary scratch directory, spawns `gemini` so it writes its OAuth cache there, then copies Gemini-owned regular files from `<scratch>/.gemini/` into the profile directory. The scratch directory is always cleaned up, regardless of success or failure.
 
   `GEMINI_CLI_HOME` was introduced in Gemini CLI to override the home directory used for config storage. It is cleaner than overriding `HOME` because it does not affect other processes or macOS Keychain lookups that depend on the real home directory.
 
 **How `aisw use` applies credentials:**
-- Restores the managed Gemini regular-file tree into `~/.gemini/` and removes stale live files from the previously active Gemini profile.
-- There is no configurable shared mode because Gemini's auth and broader local state are tightly coupled under `~/.gemini/`. Separating them would risk corrupting the tool's session state.
+- Restores Gemini-owned profile files into `~/.gemini/`, selects the OAuth provider, and removes stale owned files. API-key activation updates its env file and the provider setting in one transaction.
+- Verification checks the primary credential identity and provider selection rather than runtime-file equality.
+- There is no state-mode selector for Gemini. aisw retains its file-backed switching model and excludes Antigravity-owned subtrees.
 
-**State mode:** Gemini is always `isolated`. Each profile carries its own complete `~/.gemini/` state.
+**State mode:** Gemini is always `isolated`. Each profile carries its own Gemini state. Antigravity-owned `antigravity-cli/`, `antigravity/`, `antigravity-ide/`, and `config/` subtrees are excluded from capture, switching, verification, and rollback, including legacy profile copies.
 
 ### Antigravity CLI
 
 - Live auth: shared OS-native keyring entry documented by upstream behavior
-- Live state: `~/.gemini/antigravity-cli/` and `~/.gemini/config/`
-- `--from-live`: captures the current live keyring-backed session plus both documented config roots.
-- Interactive OAuth: launches `agy`, captures the resulting live keyring/config state, and restores the prior live state unless `--set-active` is requested.
-- `use`: restores the managed keyring secret into Antigravity's live keyring entry, then transactionally syncs the documented config roots.
+- Provider selection: `modelProvider` in `~/.gemini/antigravity-cli/settings.json`; other config/runtime files remain shared.
+- `--from-live`: captures the current live keyring-backed session without copying global configuration or runtime files.
+- Interactive OAuth: launches `agy`, captures the resulting live keyring session, and restores the prior live state unless `--set-active` is requested.
+- `use`: restores the managed keyring secret into Antigravity's live keyring entry and selects the account provider. Encoded credentials are decoded separately for account identity and token-refresh preservation; their upstream envelope stays intact.
 
 **Important Antigravity limitation:** upstream does not currently document an isolated per-profile auth/data root or profile selector. `aisw` therefore supports Antigravity through shared live switching rather than profile-owned isolated auth. This is a product limitation upstream, not `aisw` corruption.
 
@@ -177,8 +178,10 @@ This ensures that your profiles stay fresh without manual intervention. Synchron
 When OAuth credentials are captured or synchronized, `aisw` extracts the authenticated account identity using a unified canonical logic. This logic:
 - Decodes JWT payloads (Codex and Gemini) to find `email` or `sub` claims.
 - Parses nested metadata (Claude) to find `emailAddress`.
-- Normalizes identifiers (lowercase, trim) and handles subject fallbacks.
+- Normalizes email labels and UUID scopes while preserving opaque subject identifiers exactly.
 - Recursively searches JSON structures to find identity fields in varied schemas.
+- Preserves Claude organization and Codex workspace identifiers in refresh matching; an email is a display label, not the complete account boundary.
+- Decodes Antigravity keyring envelopes separately from the stored credential representation.
 
 If you attempt to add a second profile for an account that is already stored under a different name, `aisw` rejects it. During synchronization, this same logic ensures that tokens are only updated if they belong to the same account.
 

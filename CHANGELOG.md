@@ -15,12 +15,35 @@
 
 ### Security
 
+- Preserve organization/workspace identity during Claude and Codex token
+  synchronization; matching email addresses alone no longer authorize
+  overwriting credentials from a different organization or workspace.
+
 - Rejected API keys containing control characters. Gemini stores keys as `GEMINI_API_KEY=<key>` in a `.env` file the CLI sources, so a key containing a newline injected additional environment variables (for example `GOOGLE_CLOUD_PROJECT`) into that file. The same rule now applies to Claude and Codex.
 - Hardened profile file handling against path traversal, and switched the symlink guard to `symlink_metadata` so a dangling symlink can no longer redirect a credential write to its target.
 - `uninstall --remove-data` now purges the system-keyring secrets it created instead of stranding them, and refuses to run when `AISW_HOME` is the user's home directory.
 - Unit tests no longer resolve tool binaries from the developer's real `PATH`. Detection spawns whatever it finds to read `--version`, and running the real `claude`/`codex`/`gemini` CLIs from the test suite could rotate and invalidate live OAuth tokens.
 
 ### Fixed
+
+- Repair Antigravity's encoded OAuth captures, including recognizable legacy
+  hex wrapping, and preserve refreshed tokens before switching accounts.
+- Keep Antigravity preferences, global integrations, caches and updater locks
+  shared; verification checks account/provider state instead of runtime files.
+- Keep subject identifiers case-sensitive and enforce organization/workspace
+  boundaries even when email claims are absent.
+- Select Gemini's persisted authentication provider when activating OAuth,
+  Gemini API-key or imported Vertex key profiles; verify authentication state
+  instead of mutable runtime files and preserve nested cache files on capture.
+- Reject Gemini file-OAuth activation when upstream encrypted storage is enabled.
+- Prevent Gemini capture, switching, verification and rollback from touching
+  Antigravity directories under their shared `~/.gemini` parent.
+- Normalize multiline and Unicode credential JSON before native Keychain
+  writes so upstream CLI readers receive usable JSON.
+- Read Claude's isolated account metadata from its own profile during refresh
+  synchronization rather than borrowing the shared account metadata.
+- Reject stale OAuth captures while Antigravity uses its API-key provider and
+  restore the correct provider when switching between OAuth and API-key profiles.
 
 - Claude Code no longer reports "Not logged in" after `aisw use` or
   `aisw add claude --from-live` on macOS. `security find-generic-password -w`

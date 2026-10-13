@@ -650,7 +650,7 @@ fn snapshot_regular_files(dir: &Path) -> Result<Vec<NamedFileSnapshot>> {
     }
 
     let mut files = Vec::new();
-    for file in auth::files::list_regular_files(dir)? {
+    for file in auth::gemini::state_files(dir)? {
         files.push(NamedFileSnapshot {
             file_name: file.file_name,
             bytes: std::fs::read(&file.path)
@@ -679,7 +679,7 @@ fn restore_regular_files(root: &Path, dir: &Path, files: &[NamedFileSnapshot]) -
         .collect::<HashSet<_>>();
 
     if dir.exists() {
-        for current in auth::files::list_regular_files(dir)? {
+        for current in auth::gemini::state_files(dir)? {
             if !expected.contains(&current.file_name) {
                 changes.push(LiveFileChange::delete(current.path));
             }

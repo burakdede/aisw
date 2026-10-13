@@ -464,14 +464,14 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     assert_eq!(antigravity_row["active_profile"], antigravity);
     assert_eq!(antigravity_row["credential_backend"], "system_keyring");
     assert_eq!(antigravity_row["credentials_present"], true);
-    assert_eq!(
-        fs::read(env.fake_home.join(".gemini/antigravity-cli/settings.json")).unwrap(),
-        br#"{"modelProvider":"gemini"}"#
-    );
-    assert_eq!(
-        fs::read(env.fake_home.join(".gemini/config/projects/repo.json")).unwrap(),
-        br#"{"mode":"plan"}"#
-    );
+    assert!(!env
+        .fake_home
+        .join(".gemini/antigravity-cli/settings.json")
+        .exists());
+    assert!(!env
+        .fake_home
+        .join(".gemini/config/projects/repo.json")
+        .exists());
 
     let list = json_output(&env, &bin_dir, &["list", "--json"]);
     assert_eq!(list["claude"]["active"], claude_api);

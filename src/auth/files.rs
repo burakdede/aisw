@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::live_apply::LiveFileChange;
 use crate::profile::ProfileStore;
 use crate::types::Tool;
 
@@ -26,23 +25,6 @@ pub fn cleanup_profile_on_error<T>(
     result.inspect_err(|_| cleanup_profile(profile_store, tool, name))
 }
 
-pub fn apply_profile_file(
-    profile_store: &ProfileStore,
-    tool: Tool,
-    name: &str,
-    stored_filename: &str,
-    dest: PathBuf,
-) -> Result<()> {
-    let bytes = profile_store.read_file(tool, name, stored_filename)?;
-    let root = dest
-        .parent()
-        .and_then(Path::parent)
-        .or_else(|| dest.parent())
-        .unwrap_or_else(|| Path::new("."))
-        .to_owned();
-    crate::live_apply::apply_transaction(&root, vec![LiveFileChange::write(dest, bytes)])
-}
-
 pub fn stored_profile_file_matches_live(
     profile_store: &ProfileStore,
     tool: Tool,
@@ -58,27 +40,16 @@ pub fn stored_profile_file_matches_live(
     Ok(live == stored)
 }
 
-pub fn list_regular_files(dir: &Path) -> Result<Vec<RegularFile>> {
-    let mut files = Vec::new();
-    for entry in
-        std::fs::read_dir(dir).with_context(|| format!("could not read {}", dir.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_symlink() || !path.is_file() {
-            continue;
-        }
-        files.push(RegularFile {
-            file_name: entry.file_name(),
-            path,
-        });
-    }
-    Ok(files)
+pub fn list_regular_files_recursive(dir: &Path) -> Result<Vec<RegularFile>> {
+    list_regular_files_recursive_excluding(dir, &[])
 }
 
-pub fn list_regular_files_recursive(dir: &Path) -> Result<Vec<RegularFile>> {
+pub(crate) fn list_regular_files_recursive_excluding(
+    dir: &Path,
+    excluded_roots: &[&str],
+) -> Result<Vec<RegularFile>> {
     let mut files = Vec::new();
-    list_regular_files_recursive_inner(dir, dir, &mut files)?;
+    list_regular_files_recursive_inner(dir, dir, excluded_roots, &mut files)?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
 }
@@ -86,6 +57,7 @@ pub fn list_regular_files_recursive(dir: &Path) -> Result<Vec<RegularFile>> {
 fn list_regular_files_recursive_inner(
     root: &Path,
     current: &Path,
+    excluded_roots: &[&str],
     files: &mut Vec<RegularFile>,
 ) -> Result<()> {
     for entry in std::fs::read_dir(current)
@@ -93,12 +65,15 @@ fn list_regular_files_recursive_inner(
     {
         let entry = entry?;
         let path = entry.path();
+        if current == root && excluded_roots.iter().any(|name| entry.file_name() == *name) {
+            continue;
+        }
         let file_type = entry.file_type()?;
         if file_type.is_symlink() {
             continue;
         }
         if file_type.is_dir() {
-            list_regular_files_recursive_inner(root, &path, files)?;
+            list_regular_files_recursive_inner(root, &path, excluded_roots, files)?;
             continue;
         }
         if !file_type.is_file() {
@@ -226,7 +201,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn list_regular_files_skips_directories_and_symlinks() {
+    fn list_regular_files_recursive_skips_symlink_entries() {
         use std::os::unix::fs::symlink;
 
         let dir = tempdir().unwrap();
@@ -238,7 +213,7 @@ mod tests {
         std::fs::create_dir(&nested).unwrap();
         symlink(&file, &link).unwrap();
 
-        let files = list_regular_files(dir.path()).unwrap();
+        let files = list_regular_files_recursive(dir.path()).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_name, OsString::from("real.txt"));
         assert_eq!(files[0].path, file);
@@ -272,12 +247,14 @@ mod tests {
             .unwrap();
 
         let live = dir.path().join("live-auth.json");
-        apply_profile_file(
-            &profile_store,
-            Tool::Codex,
-            "work",
-            "auth.json",
-            live.clone(),
+        crate::live_apply::apply_transaction(
+            dir.path(),
+            vec![crate::live_apply::LiveFileChange::write(
+                live.clone(),
+                profile_store
+                    .read_file(Tool::Codex, "work", "auth.json")
+                    .unwrap(),
+            )],
         )
         .unwrap();
 

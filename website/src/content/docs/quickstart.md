@@ -107,7 +107,7 @@ For Codex ChatGPT-managed auth, this interactive path is the durable setup becau
 
 Gemini CLI stopped serving Google AI Pro, Ultra, and free-tier individual accounts on June 18, 2026; those users should migrate to Antigravity. Enterprise Google-account setups may require `GOOGLE_CLOUD_PROJECT`. For headless or automation use, prefer `GEMINI_API_KEY` or Vertex AI. See the [upstream announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
 
-For Antigravity, `aisw add antigravity <name>` captures the shared live keyring-backed OAuth session that `agy` creates and stores the documented Antigravity config roots alongside it. Upstream does not currently document an isolated per-profile auth root.
+For Antigravity, `aisw add antigravity <name>` captures the shared live keyring-backed OAuth session that `agy` creates. Switching restores the credential and selects the account provider while preserving global configuration and runtime files. Upstream does not currently document an isolated per-profile auth root.
 
 For complete flag behavior, duplicate-account rules, and storage details, see [Adding profiles](/aisw/adding-profiles/).
 

@@ -735,14 +735,7 @@ pub fn sync_profile_from_live_if_same_identity(
     };
 
     let stored_bytes = read_stored_credentials(profile_store, name, backend)?;
-    let Some(stored_identity) = identity::resolve_identity_from_json_bytes(&stored_bytes)? else {
-        return Ok(false);
-    };
-    let Some(live_identity) = identity::resolve_identity_from_json_bytes(&snapshot.bytes)? else {
-        return Ok(false);
-    };
-
-    if stored_identity != live_identity {
+    if !identity::oauth_identity_matches(Tool::Codex, &stored_bytes, &snapshot.bytes)? {
         return Ok(false);
     }
 
@@ -799,6 +792,30 @@ mod sync_tests {
         assert!(result, "sync should have returned true");
         let stored = ps.read_file(Tool::Codex, name, AUTH_FILE).unwrap();
         assert_eq!(stored, new_auth);
+    }
+
+    #[test]
+    fn sync_rejects_same_email_from_a_different_account() {
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("user");
+        fs::create_dir_all(user_home.join(".codex")).unwrap();
+        let (ps, _) = stores(dir.path());
+        ps.create(Tool::Codex, "work").unwrap();
+        let stored = br#"{"account":{"email":"work@example.com"},"tokens":{"account_id":"work-account","refresh_token":"stored"}}"#;
+        ps.write_file(Tool::Codex, "work", AUTH_FILE, stored)
+            .unwrap();
+        fs::write(user_home.join(".codex/auth.json"), br#"{"account":{"email":"work@example.com"},"tokens":{"account_id":"other-account","refresh_token":"other"}}"#).unwrap();
+        assert!(!sync_profile_from_live_if_same_identity(
+            &ps,
+            "work",
+            CredentialBackend::File,
+            &user_home
+        )
+        .unwrap());
+        assert_eq!(
+            ps.read_file(Tool::Codex, "work", AUTH_FILE).unwrap(),
+            stored
+        );
     }
 
     #[test]
