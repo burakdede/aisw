@@ -103,6 +103,7 @@ impl TestEnv {
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("PATH", &self.bin_dir)
             .env("HOME", &self.fake_home)
+            .env("AISW_TEST_USER_HOME", &self.fake_home)
             .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"))
             // Prevent ambient developer env from redirecting writes into real homes/config.
             .env_remove("CLAUDE_CONFIG_DIR")
@@ -155,6 +156,7 @@ impl TestEnv {
         cmd.env("AISW_HOME", &self.aisw_home);
         cmd.env("PATH", &self.bin_dir);
         cmd.env("HOME", &self.fake_home);
+        cmd.env("AISW_TEST_USER_HOME", &self.fake_home);
         cmd.env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"));
         cmd.env_remove("CLAUDE_CONFIG_DIR");
         cmd.env_remove("CODEX_HOME");
@@ -238,6 +240,7 @@ impl TestEnv {
 
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("HOME", &self.fake_home)
+            .env("AISW_TEST_USER_HOME", &self.fake_home)
             .env("PATH", self.shell_path())
             .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"))
             .env_remove("CLAUDE_CONFIG_DIR")
