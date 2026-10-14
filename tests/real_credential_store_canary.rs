@@ -101,99 +101,28 @@ fn assert_entry_absent(service: &str, account: &str) {
 }
 
 #[cfg(target_os = "macos")]
-fn authorize_ci_keychain_entry(service: &str, account: &str, secret: &str) {
+fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_none() {
         return;
-    }
-    let test_binary = std::env::current_exe().unwrap();
-    let cli_binary = Command::cargo_bin("aisw").unwrap();
-    let cli_path = cli_binary.get_program();
-    let mut partitions = vec!["apple-tool:".to_owned(), "apple:".to_owned()];
-    for path in [test_binary.as_os_str(), cli_path] {
-        let signature = std::process::Command::new("codesign")
-            .args(["-dv", "--verbose=4"])
-            .arg(path)
-            .output()
-            .unwrap();
-        assert!(
-            signature.status.success(),
-            "canary executable {path:?} must be signed: {}",
-            String::from_utf8_lossy(&signature.stderr)
-        );
-        let metadata = String::from_utf8_lossy(&signature.stderr);
-        let hash = metadata
-            .lines()
-            .find_map(|line| line.strip_prefix("CDHash="))
-            .expect("signed executable must have a CodeDirectory hash");
-        partitions.push(format!("cdhash:{hash}"));
-    }
-    let keychain_path =
-        std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
-    let authorize_partitions = || {
-        let output = std::process::Command::new("security")
-            .args([
-                "set-generic-password-partition-list",
-                "-s",
-                service,
-                "-a",
-                account,
-                "-S",
-                &partitions.join(","),
-                "-k",
-                "aisw-ci-canary",
-                &keychain_path,
-            ])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "could not authorize canary code identities: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    };
-    let existing = std::process::Command::new("security")
-        .args([
-            "find-generic-password",
-            "-s",
-            service,
-            "-a",
-            account,
-            &keychain_path,
-        ])
-        .output()
-        .unwrap();
-    if existing.status.success() {
-        authorize_partitions();
-    } else {
-        assert_eq!(
-            existing.status.code(),
-            Some(44),
-            "could not inspect fixture entry"
-        );
     }
     let output = std::process::Command::new("security")
         .args([
             "add-generic-password",
-            "-U",
+            "-A",
             "-s",
             service,
             "-a",
             account,
-            "-T",
+            "-w",
+            "aisw-canary-placeholder",
         ])
-        .arg(&test_binary)
-        .arg("-T")
-        .arg(cli_path)
-        .args(["-w", secret])
-        .arg(&keychain_path)
         .output()
         .expect("security should be available on macOS");
     assert!(
         output.status.success(),
-        "could not preauthorize disposable entry: {}",
+        "could not preauthorize disposable keychain entry {service}/{account}: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    authorize_partitions();
 }
 
 fn canary_suffix() -> String {
@@ -472,9 +401,9 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
             &codex_api_account,
             &antigravity_account,
         ] {
-            authorize_ci_keychain_entry(KEYRING_SERVICE, account, "aisw-canary-placeholder");
+            preauthorize_ci_keychain_entry(KEYRING_SERVICE, account);
         }
-        authorize_ci_keychain_entry("gemini", "antigravity", "aisw-canary-placeholder");
+        preauthorize_ci_keychain_entry("gemini", "antigravity");
     }
 
     eprintln!("canary: seed native credentials");
@@ -500,22 +429,6 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .unwrap();
 
     eprintln!("canary: native credentials seeded");
-    #[cfg(target_os = "macos")]
-    if std::env::var_os("GITHUB_ACTIONS").is_some() {
-        for account in [
-            &claude_oauth_account,
-            &claude_api_account,
-            &codex_oauth_account,
-            &codex_api_account,
-            &antigravity_account,
-        ] {
-            let secret = keyring::Entry::new(KEYRING_SERVICE, account)
-                .unwrap()
-                .get_password()
-                .unwrap();
-            authorize_ci_keychain_entry(KEYRING_SERVICE, account, &secret);
-        }
-    }
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "claude", &claude_oauth]),
         "claude oauth use",

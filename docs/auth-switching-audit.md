@@ -90,6 +90,11 @@ credentials or real Google-account sessions were used.
   The required Linux CI coverage gate remains the release gate.
 - Remote CI and native-store canary runs are required before release; consult
   the linked pull request checks for the result at the current commit.
+- Required Linux/macOS/Windows CI, Linux coverage gates and extension
+  compatibility passed. Linux and Windows native-store canaries also passed.
+  The hosted macOS native-store canary remains blocked by cross-process
+  Keychain authorization in its fixture ([#282](https://github.com/burakdede/aisw/issues/282)).
+  Bounded diagnostics report the failure; they do not convert it to success.
 
 ## Limits
 
