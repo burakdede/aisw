@@ -16,7 +16,8 @@ struct CanaryCleanup {
 struct CanaryEntry {
     service: String,
     account: String,
-    previous: Option<String>,
+    entry: keyring::Entry,
+    previous: Option<Vec<u8>>,
 }
 
 impl CanaryCleanup {
@@ -34,19 +35,29 @@ impl CanaryCleanup {
         &mut self,
         service: &str,
         account: impl Into<String>,
-    ) -> Result<Option<String>, keyring::Error> {
+    ) -> Result<Option<Vec<u8>>, keyring::Error> {
         let account = account.into();
-        eprintln!("canary: inspect native entry {service}/{account}");
         let entry = keyring::Entry::new(service, &account)?;
-        let previous = match entry.get_password() {
-            Ok(password) => Some(password),
+        self.track_native_entry(service, &account, entry)
+    }
+
+    fn track_native_entry(
+        &mut self,
+        service: &str,
+        account: &str,
+        entry: keyring::Entry,
+    ) -> Result<Option<Vec<u8>>, keyring::Error> {
+        eprintln!("canary: inspect native entry {service}/{account}");
+        let previous = match entry.get_secret() {
+            Ok(secret) => Some(secret),
             Err(keyring::Error::NoEntry) => None,
             Err(error) => return Err(error),
         };
         eprintln!("canary: inspected native entry {service}/{account}");
         self.entries.push(CanaryEntry {
             service: service.to_owned(),
-            account,
+            account: account.to_owned(),
+            entry,
             previous: previous.clone(),
         });
         Ok(previous)
@@ -56,18 +67,13 @@ impl CanaryCleanup {
         let mut failures = Vec::new();
 
         for tracked in &self.entries {
-            let result = match keyring::Entry::new(&tracked.service, &tracked.account) {
-                Ok(entry) => {
-                    if let Some(previous) = &tracked.previous {
-                        entry.set_password(previous)
-                    } else {
-                        match entry.delete_credential() {
-                            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-                            Err(error) => Err(error),
-                        }
-                    }
+            let result = if let Some(previous) = &tracked.previous {
+                tracked.entry.set_secret(previous)
+            } else {
+                match tracked.entry.delete_credential() {
+                    Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                    Err(error) => Err(error),
                 }
-                Err(error) => Err(error),
             };
 
             if let Err(error) = result {
@@ -390,7 +396,22 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     cleanup.track(codex_oauth_account.clone()).unwrap();
     cleanup.track(codex_api_account.clone()).unwrap();
     cleanup.track(antigravity_account.clone()).unwrap();
-    let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity").unwrap();
+    #[cfg(windows)]
+    let go_live_entry =
+        keyring::Entry::new_with_target("gemini:antigravity", "gemini", "antigravity").unwrap();
+    #[cfg(not(windows))]
+    let go_live_entry = keyring::Entry::new("gemini", "antigravity").unwrap();
+    let previous_antigravity_live_secret = cleanup
+        .track_native_entry("gemini", "antigravity", go_live_entry)
+        .unwrap();
+
+    #[cfg(windows)]
+    {
+        let shadow = keyring::Entry::new("gemini", "antigravity").unwrap();
+        cleanup
+            .track_native_entry("Rust shadow", "antigravity", shadow)
+            .unwrap();
+    }
 
     #[cfg(target_os = "macos")]
     {
@@ -429,6 +450,54 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .unwrap();
 
     eprintln!("canary: native credentials seeded");
+    #[cfg(windows)]
+    {
+        let shadow = keyring::Entry::new("gemini", "antigravity").unwrap();
+        shadow
+            .set_password(r#"{"email":"rust-shadow@example.com"}"#)
+            .unwrap();
+        let go_entry =
+            keyring::Entry::new_with_target("gemini:antigravity", "gemini", "antigravity").unwrap();
+        go_entry
+            .set_secret("{\"email\":\"go-live@example.com\",\"name\":\"Gödel 👋\"}".as_bytes())
+            .unwrap();
+        let imported = format!("go-import-{suffix}");
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &[
+                    "add",
+                    "antigravity",
+                    &imported,
+                    "--from-live",
+                    "--credential-backend",
+                    "file",
+                ],
+            ),
+            "capture Go Windows credential",
+        );
+        let captured: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                env.aisw_home
+                    .join("profiles/antigravity")
+                    .join(&imported)
+                    .join("keyring-secret.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(captured["email"], "go-live@example.com");
+        assert_eq!(captured["name"], "Gödel 👋");
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &["remove", "antigravity", &imported, "--yes"],
+            ),
+            "remove imported Go fixture",
+        );
+    }
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "claude", &claude_oauth]),
         "claude oauth use",
@@ -449,6 +518,22 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
         "antigravity use",
     );
+    #[cfg(windows)]
+    {
+        let go_entry =
+            keyring::Entry::new_with_target("gemini:antigravity", "gemini", "antigravity").unwrap();
+        assert_eq!(
+            go_entry.get_secret().unwrap(),
+            br#"{"email":"real-antigravity@example.com"}"#
+        );
+        assert_eq!(
+            keyring::Entry::new("gemini", "antigravity")
+                .unwrap()
+                .get_password()
+                .unwrap(),
+            r#"{"email":"rust-shadow@example.com"}"#
+        );
+    }
 
     assert!(
         env.fake_home.join(".codex").join("auth.json").is_file(),
@@ -539,10 +624,7 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     cleanup
         .restore()
         .unwrap_or_else(|error| panic!("credential-store canary cleanup failed: {error}"));
-    let restored_live_secret = match keyring::Entry::new("gemini", "antigravity")
-        .unwrap()
-        .get_password()
-    {
+    let restored_live_secret = match cleanup.entries[5].entry.get_secret() {
         Ok(secret) => Some(secret),
         Err(keyring::Error::NoEntry) => None,
         Err(error) => panic!("could not verify restored canary entry: {error}"),
