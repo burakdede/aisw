@@ -119,10 +119,43 @@ fn assert_entry_absent(service: &str, account: &str) {
 }
 
 #[cfg(target_os = "macos")]
+fn ci_keychain_path() -> String {
+    std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db"
+}
+
+#[cfg(target_os = "macos")]
 fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_none() {
         return;
     }
+    let output = std::process::Command::new("/usr/bin/security")
+        .args([
+            "add-generic-password",
+            "-A",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-w",
+            "aisw-canary-placeholder",
+            &ci_keychain_path(),
+        ])
+        .output()
+        .expect("security should be available on macOS");
+    assert!(
+        output.status.success(),
+        "could not preauthorize disposable keychain entry {service}/{account}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    authorize_ci_keychain_entry(service, account);
+}
+
+#[cfg(target_os = "macos")]
+fn authorize_ci_keychain_entry(service: &str, account: &str) {
+    if std::env::var_os("GITHUB_ACTIONS").is_none() {
+        return;
+    }
+    eprintln!("canary: authorize fixture actors {service}/{account}");
     let mut partitions = vec!["apple-tool:".to_owned(), "apple:".to_owned()];
     let test_binary = std::env::current_exe().unwrap();
     let cli_binary = Command::cargo_bin("aisw").unwrap();
@@ -143,27 +176,7 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
             .expect("signed executable must have a CodeDirectory hash");
         partitions.push(format!("cdhash:{hash}"));
     }
-    let keychain_path =
-        std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
-    let output = std::process::Command::new("security")
-        .args([
-            "add-generic-password",
-            "-A",
-            "-s",
-            service,
-            "-a",
-            account,
-            "-w",
-            "aisw-canary-placeholder",
-        ])
-        .arg(&keychain_path)
-        .output()
-        .expect("security should be available on macOS");
-    assert!(
-        output.status.success(),
-        "could not preauthorize disposable keychain entry {service}/{account}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // Native updates replace the partition list with the writer's identity.
     let output = std::process::Command::new("/usr/bin/security")
         .args([
             "set-generic-password-partition-list",
@@ -175,7 +188,7 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
             &partitions.join(","),
             "-k",
             "",
-            &keychain_path,
+            &ci_keychain_path(),
         ])
         .output()
         .unwrap();
@@ -510,18 +523,8 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
 
     eprintln!("canary: native credentials seeded");
     #[cfg(target_os = "macos")]
-    if std::env::var_os("GITHUB_ACTIONS").is_some() {
-        let keychain_path =
-            std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
-        let output = std::process::Command::new("/usr/bin/security")
-            .args(["dump-keychain", "-a", &keychain_path])
-            .output()
-            .unwrap();
-        eprintln!(
-            "canary: fixture ACLs after native writes\n{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+    for tracked in &cleanup.entries[..5] {
+        authorize_ci_keychain_entry(&tracked.service, &tracked.account);
     }
     #[cfg(target_os = "linux")]
     {
@@ -797,6 +800,9 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     for tracked in &cleanup.entries[..5] {
         assert_entry_absent(&tracked.service, &tracked.account);
     }
+
+    #[cfg(target_os = "macos")]
+    authorize_ci_keychain_entry("gemini", "antigravity");
 
     cleanup
         .restore()
