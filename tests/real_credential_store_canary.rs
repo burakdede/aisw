@@ -9,6 +9,18 @@ use common::TestEnv;
 
 const KEYRING_SERVICE: &str = "aisw";
 
+#[cfg(target_os = "linux")]
+struct SecretServiceFixtureItem<'a>(dbus_secret_service::Item<'a>);
+
+#[cfg(target_os = "linux")]
+impl Drop for SecretServiceFixtureItem<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.delete() {
+            eprintln!("could not delete Secret Service fixture item: {error}");
+        }
+    }
+}
+
 struct CanaryCleanup {
     entries: Vec<CanaryEntry>,
 }
@@ -477,6 +489,24 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
                 "text/plain; charset=utf-8",
             )
             .unwrap();
+        let session = ss.get_collection_by_alias("session").unwrap();
+        assert_ne!(session.path, collection.path);
+        session.ensure_unlocked().unwrap();
+        let shadow = SecretServiceFixtureItem(
+            session
+                .create_item(
+                    "Rust collection shadow",
+                    HashMap::from([
+                        ("service", "gemini"),
+                        ("username", "antigravity"),
+                        ("target", "default"),
+                    ]),
+                    br#"{"email":"session-shadow@example.com"}"#,
+                    true,
+                    "text/plain; charset=utf-8",
+                )
+                .unwrap(),
+        );
         let imported = format!("go-import-{suffix}");
         assert_success(
             &canary_cmd(
@@ -493,6 +523,18 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
             ),
             "capture Go Linux credential",
         );
+        let captured: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                env.aisw_home
+                    .join("profiles/antigravity")
+                    .join(&imported)
+                    .join("keyring-secret.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(captured["email"], "go-live@example.com");
+        drop(shadow);
         assert_success(
             &canary_cmd(&env, &bin_dir, &["use", "antigravity", &imported]),
             "activate Go Linux fixture",
