@@ -59,3 +59,18 @@ The baseline below records the upstream releases checked against `aisw` `0.3.8` 
 - `Fail-closed` means `aisw` intentionally refuses to guess or synthesize a live secure-store identity when doing so could write an unusable or misleading credential entry.
 - For secure-backed profiles, `aisw` stores the managed secret in the system keyring rather than downgrading it into `AISW_HOME`.
 - The real credential-store canary runs the secure-profile lifecycle for Claude, Codex, and Antigravity on macOS, Linux, and Windows. It runs weekly and can be launched manually, with a ten-minute timeout per platform; its Antigravity coverage also preserves and restores the shared `gemini` / `antigravity` live keyring entry. The workflow deliberately fails when a native credential store cannot be initialized or the canary times out rather than treating that platform as a pass.
+
+## Antigravity real-account acceptance
+
+On 2026-10-14, Antigravity `1.3.5` on macOS 27.0.1/Apple Silicon passed a real
+Google-account A → B → A cycle for both file-backed and Keychain-backed profiles
+with the authentication audit candidate. Every step verified the upstream
+account header, healthy aisw status and a successful provider response. The
+other integrations' checked auth/settings files stayed unchanged during the
+cycles. Native Keychain-only switching also passed with stale file copies
+removed. A real legacy newline/hex-damaged capture also restored without login
+and passed provider response, status and Antigravity verification checks.
+This supplements the historical baseline above; it does not claim
+real provider-session acceptance for the other tools or every operating system.
+See [the audit](auth-switching-audit.md) for workflow evidence and the separate
+pre-existing secure-overwrite retention issue #287.

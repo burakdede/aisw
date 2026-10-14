@@ -3,8 +3,9 @@
 Reviewed 2026-10-14 against `origin/main` at `3557253` and the reported release
 `v0.3.10`. This audit covers credential capture, serialization, identity matching,
 refresh preservation, activation, rollback, backup restoration, and verification
-across all four integrations. It is an offline contract audit with isolated
-runtime tests, not a claim that provider-issued sessions never expire or revoke.
+across all four integrations. It combines a contract audit, isolated workflow
+regressions and real Antigravity account acceptance. Provider sessions can still
+expire or be revoked.
 
 ## Plan and dependencies
 
@@ -83,8 +84,10 @@ and envelope-contract tests.
 Local results are recorded below. Remote results are tracked by the pull request
 that closes #279. Reproductions used
 synthetic secrets, temporary HOME/AISW_HOME, fake secure stores, and a disposable
-macOS keychain that was never added to the user's search list. No developer
-credentials or real Google-account sessions were used.
+macOS keychain that was never added to the user's search list. Separately,
+user-authorized real Antigravity sessions were captured in a private acceptance
+store and exercised with the installed CLI. Credential data was not committed
+or included in evidence reports.
 
 - `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
   `cargo test --locked --no-fail-fast`, `cargo build --release --locked`, completion
@@ -110,16 +113,55 @@ credentials or real Google-account sessions were used.
   passes macOS, Linux and Windows lifecycle assertions, including Antigravity
   status after activation without intervening fixture reauthorization.
   Required CI, coverage and extension checks also pass at that source revision.
-  Two real Google-account sessions have not yet been tested.
+  Real Antigravity account acceptance subsequently passed as recorded below.
+
+## Workflow and real-account acceptance
+
+On 2026-10-14, installed Antigravity `1.3.5` accepted A → B → A for both file
+and macOS Keychain managed profiles using the candidate production code at
+`70bc8e2`. All six steps produced a successful real model response, a matching
+upstream account header in a fresh process, and a healthy aisw status. After
+removing the private legacy file copies, Keychain-only B → A switching also
+passed. A real account-A capture deliberately damaged with the legacy newline/hex
+wrapping while inactive also restored without a new login and produced a
+successful provider response. Its post-request status and Antigravity `verify`
+row passed. Account A was left active. Across each provider cycle, all 39 checked
+Claude/Codex/Gemini credential/settings files and default profile metadata
+remained byte-identical.
+
+The focused workflow suite passed 143 tests: audit cases, backup/restore,
+contexts, workspace guards, secure backends, lifecycle, shell hooks, GUI
+contracts and the state-mode/noninteractive matrix. Bash/Zsh/Fish `4.9.3` and
+PowerShell `7.6.7` runtime hook checks passed without missing-runtime skips.
+The local VS Code extension suite passed all 19 tests with the real candidate,
+including its actual CLI handshake/read contract; no tests were skipped.
+
+The added Gemini/Antigravity context case (#286) injects a failure after Gemini
+activation, checks recursive state/provider/credential rollback, then checks a
+successful combined activation preserves changed Antigravity preferences,
+MCP settings, cache and config siblings. It fails on main at `3557253` because
+activation restores the old Antigravity theme; it passes with the audit repair.
+The Windows integration gate now includes the context suite.
+
+A separate pre-existing issue was observed while changing the private test
+profiles from file to Keychain: overwrite retains the old plaintext credential
+file ([#287](https://github.com/burakdede/aisw/issues/287)). The same persistence
+behavior exists on main and is not introduced by this patch. It is tracked
+separately; private stale source copies were removed after acceptance. No
+backend-migration cleanup is silently included in the authentication repair.
 
 ## Limits
 
 Local OS: macOS 27.0.1 on Apple Silicon, rather than the reporter's exact 26.6.2
 build. Tests establish credential serialization, account boundaries, provider
-selection and transactional behavior. They do not authenticate two real Google
-accounts with provider-issued tokens, or prove native cross-application ACLs
-for every installed upstream binary. Dedicated credential-store canaries cover
-native-store lifecycle separately on disposable CI hosts.
+selection and transactional behavior. Real Google-account acceptance covers
+Antigravity `1.3.5` on this macOS machine, not provider sessions for the other
+three tools or Antigravity on every OS. Dedicated credential-store canaries
+cover native-store lifecycle separately on disposable CI hosts.
+The isolated acceptance store contains only Antigravity profiles. Overall
+`verify` reports missing shell integration in this machine's `.zshrc`; the
+Antigravity tool row passes. The shell profile was not changed; generated hooks
+were instead verified in isolated real shells.
 
 The reporter's literal `Status: fail` corresponds to `aisw verify`; the inspected
 `status` command prints a descriptive `State`. The independently failing

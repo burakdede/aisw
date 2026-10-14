@@ -100,7 +100,7 @@ URL: https://burakdede.github.io/aisw/acceptance-matrix/
 Section: reference
 Summary: Versioned compatibility and acceptance baseline for aisw-supported Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI auth paths.
 Source: https://github.com/burakdede/aisw/blob/main/docs/acceptance-matrix.md
-Headings: Versioned compatibility baseline | Status | Notes
+Headings: Versioned compatibility baseline | Status | Notes | Antigravity real-account acceptance
 Common queries: aisw compatibility matrix | aisw supported versions | aisw acceptance baseline | Claude Code aisw compatibility | Codex CLI aisw compatibility | Gemini CLI aisw compatibility
 
 ## Configuration

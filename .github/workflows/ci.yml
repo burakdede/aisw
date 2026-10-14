@@ -88,7 +88,7 @@ jobs:
         run: cargo test --locked --lib
 
       - name: Windows integration smoke tests
-        run: cargo test --locked --test windows_integration_smoke --test windows_secure_backend_parity --test auth_switching_audit
+        run: cargo test --locked --test windows_integration_smoke --test windows_secure_backend_parity --test auth_switching_audit --test context_cmd
 
   coverage:
     name: Coverage
