@@ -117,7 +117,8 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
             .unwrap();
         assert!(
             signature.status.success(),
-            "canary executable must be signed"
+            "canary executable {path:?} must be signed: {}",
+            String::from_utf8_lossy(&signature.stderr)
         );
         let metadata = String::from_utf8_lossy(&signature.stderr);
         let hash = metadata
