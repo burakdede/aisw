@@ -123,6 +123,28 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_none() {
         return;
     }
+    let mut partitions = vec!["apple-tool:".to_owned(), "apple:".to_owned()];
+    let test_binary = std::env::current_exe().unwrap();
+    let cli_binary = Command::cargo_bin("aisw").unwrap();
+    for path in [test_binary.as_os_str(), cli_binary.get_program()] {
+        let signature = std::process::Command::new("/usr/bin/codesign")
+            .args(["-dv", "--verbose=4"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(
+            signature.status.success(),
+            "canary executables must be signed"
+        );
+        let metadata = String::from_utf8_lossy(&signature.stderr);
+        let hash = metadata
+            .lines()
+            .find_map(|line| line.strip_prefix("CDHash="))
+            .expect("signed executable must have a CodeDirectory hash");
+        partitions.push(format!("cdhash:{hash}"));
+    }
+    let keychain_path =
+        std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
     let output = std::process::Command::new("security")
         .args([
             "add-generic-password",
@@ -134,11 +156,32 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
             "-w",
             "aisw-canary-placeholder",
         ])
+        .arg(&keychain_path)
         .output()
         .expect("security should be available on macOS");
     assert!(
         output.status.success(),
         "could not preauthorize disposable keychain entry {service}/{account}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = std::process::Command::new("/usr/bin/security")
+        .args([
+            "set-generic-password-partition-list",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-S",
+            &partitions.join(","),
+            "-k",
+            "",
+            &keychain_path,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "could not authorize fixture partitions: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
