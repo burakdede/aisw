@@ -44,6 +44,22 @@ fn setup_profiles(env: &TestEnv) {
         .success();
 }
 
+fn antigravity_live_secret_path(env: &TestEnv) -> std::path::PathBuf {
+    let account = if cfg!(windows) {
+        let encoded: String = b"antigravity"
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("h_{encoded}")
+    } else {
+        "antigravity".to_owned()
+    };
+    env.fake_home
+        .join("keychain/gemini")
+        .join(account)
+        .join("secret")
+}
+
 fn write_antigravity_live_state(env: &TestEnv, secret: &str, theme: &str) {
     let app_dir = env.fake_home.join(".gemini").join("antigravity-cli");
     let shared_dir = env.fake_home.join(".gemini").join("config");
@@ -65,12 +81,7 @@ fn write_antigravity_live_state(env: &TestEnv, secret: &str, theme: &str) {
         br#"{"mode":"plan"}"#,
     )
     .unwrap();
-    let secret_path = env
-        .fake_home
-        .join("keychain")
-        .join("gemini")
-        .join("antigravity")
-        .join("secret");
+    let secret_path = antigravity_live_secret_path(env);
     std::fs::create_dir_all(secret_path.parent().unwrap()).unwrap();
     std::fs::write(secret_path.parent().unwrap().join("account"), "antigravity").unwrap();
     std::fs::write(secret_path, secret).unwrap();
@@ -392,17 +403,10 @@ fn context_use_with_antigravity_updates_live_state_and_active_profile() {
                 .join("settings.json")
         )
         .unwrap(),
-        r#"{"theme":"terminal"}"#
+        r#"{"theme":"light"}"#
     );
     assert_eq!(
-        std::fs::read_to_string(
-            env.fake_home
-                .join("keychain")
-                .join("gemini")
-                .join("antigravity")
-                .join("secret")
-        )
-        .unwrap(),
+        std::fs::read_to_string(antigravity_live_secret_path(&env)).unwrap(),
         ANTIGRAVITY_SECRET
     );
 
@@ -510,4 +514,163 @@ fn failed_context_use_rolls_back_live_state_and_active_profiles() {
         !env.fake_home.join(".codex").join("auth.json").exists(),
         "codex auth should be rolled back on failure"
     );
+}
+
+#[test]
+fn gemini_and_antigravity_context_restores_shared_root_after_late_failure() {
+    let env = TestEnv::new();
+    setup_profiles(&env);
+    let gemini = env.fake_home.join(".gemini");
+    std::fs::create_dir_all(&gemini).unwrap();
+
+    std::fs::write(
+        gemini.join("oauth_creds.json"),
+        br#"{"email":"work-gemini@example.com","token":"work"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        gemini.join("settings.json"),
+        br#"{"security":{"auth":{"selectedType":"oauth-personal"}},"theme":"work"}"#,
+    )
+    .unwrap();
+
+    env.cmd()
+        .args(["add", "gemini", "work-oauth", "--from-live"])
+        .assert()
+        .success();
+    for root in [
+        gemini.clone(),
+        env.aisw_home.join("profiles/gemini/work-oauth"),
+    ] {
+        std::fs::create_dir_all(root.join("cache/nested")).unwrap();
+        std::fs::write(root.join("cache/nested/state.json"), b"work-cache").unwrap();
+    }
+    add_antigravity_profile(&env, "work-agy");
+    env.cmd()
+        .args([
+            "add",
+            "antigravity",
+            "personal-agy",
+            "--api-key",
+            "AIzapersonal1234567890ABCDEF",
+        ])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "gemini", "acme-gemini"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["use", "antigravity", "personal-agy"])
+        .assert()
+        .success();
+    std::fs::write(gemini.join("cache/nested/state.json"), b"personal-cache").unwrap();
+    std::fs::write(gemini.join("antigravity-cli/settings.json"),
+        br#"{"modelProvider":"gemini","theme":"night","mcpServers":{"local":{"command":"local-tool"}}}"#).unwrap();
+    std::fs::write(
+        gemini.join("antigravity-cli/cache/projects.json"),
+        br#"{"current":"personal-project"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        gemini.join("config/hooks.json"),
+        br#"{"hooks":["personal"]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        gemini.join("config/projects/repo.json"),
+        br#"{"mode":"act"}"#,
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(gemini.join("runtime/session")).unwrap();
+    std::fs::write(
+        gemini.join("runtime/session/current.json"),
+        b"personal-runtime",
+    )
+    .unwrap();
+    let live_secret = antigravity_live_secret_path(&env);
+    std::fs::write(
+        &live_secret,
+        br#"{"email":"personal-agy@example.com","token":"personal"}"#,
+    )
+    .unwrap();
+    env.cmd()
+        .args([
+            "context",
+            "create",
+            "work-both",
+            "--gemini",
+            "work-oauth",
+            "--antigravity",
+            "work-agy",
+        ])
+        .assert()
+        .success();
+
+    let protected_paths = [
+        gemini.join(".env"),
+        gemini.join("oauth_creds.json"),
+        gemini.join("settings.json"),
+        gemini.join("cache/nested/state.json"),
+        gemini.join("runtime/session/current.json"),
+        gemini.join("antigravity-cli/settings.json"),
+        gemini.join("antigravity-cli/cache/projects.json"),
+        gemini.join("config/hooks.json"),
+        gemini.join("config/projects/repo.json"),
+        live_secret.clone(),
+    ];
+    let before = protected_paths.map(|path| {
+        let bytes = std::fs::read(&path).unwrap();
+        (path, bytes)
+    });
+    let config_before: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+
+    env.cmd()
+        .env("AISW_FAULT_INJECTION", "live_apply.commit_write:4")
+        .args(["context", "use", "work-both"])
+        .assert()
+        .failure()
+        .stderr(contains("injected live-apply failure"));
+    for (path, bytes) in &before {
+        assert_eq!(std::fs::read(path).unwrap(), *bytes, "{}", path.display());
+    }
+    let config_after: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config_after["active"], config_before["active"]);
+
+    env.cmd()
+        .args(["context", "use", "work-both", "--json"])
+        .assert()
+        .success();
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(gemini.join("settings.json")).unwrap()).unwrap();
+    assert_eq!(
+        settings["security"]["auth"]["selectedType"],
+        "oauth-personal"
+    );
+    assert_eq!(
+        std::fs::read(gemini.join("cache/nested/state.json")).unwrap(),
+        b"work-cache"
+    );
+    assert!(!gemini.join("runtime/session/current.json").exists());
+    let agy_settings: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(gemini.join("antigravity-cli/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(agy_settings.get("modelProvider").is_none());
+    assert_eq!(agy_settings["theme"], "night");
+    assert_eq!(agy_settings["mcpServers"]["local"]["command"], "local-tool");
+    for (path, bytes) in &before[6..9] {
+        assert_eq!(std::fs::read(path).unwrap(), *bytes, "{}", path.display());
+    }
+    assert_eq!(
+        std::fs::read_to_string(live_secret).unwrap(),
+        ANTIGRAVITY_SECRET
+    );
+    let config: serde_json::Value =
+        serde_json::from_str(&env.read_home_file("config.json")).unwrap();
+    assert_eq!(config["active"]["gemini"], "work-oauth");
+    assert_eq!(config["active"]["antigravity"], "work-agy");
 }

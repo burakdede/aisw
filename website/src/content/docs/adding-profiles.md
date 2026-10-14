@@ -80,7 +80,7 @@ aisw add gemini personal
 - Claude: spawns `claude auth login`. When the installed Claude build supports profile-scoped auth, `aisw` runs login inside the profile-owned `CLAUDE_CONFIG_DIR`, waits for a non-empty credential payload, and captures account metadata from that directory; otherwise it monitors the live credential file and Keychain for changes and captures the result there.
 - Codex: sets `CODEX_HOME` to the profile directory and spawns `codex`. The device-auth flow writes credentials directly into that profile-owned isolated state. This is the durable ChatGPT-managed Codex path.
 - Gemini: sets `GEMINI_CLI_HOME` to a scratch directory, spawns `gemini`, then copies the resulting auth/state files into the profile. The scratch directory is removed after the flow regardless of outcome.
-- Antigravity: spawns `agy`, captures the resulting live keyring-backed OAuth session plus the documented `~/.gemini/antigravity-cli/` and `~/.gemini/config/` state, then restores the prior live state unless `--set-active` is requested.
+- Antigravity: spawns `agy`, captures the resulting live keyring-backed OAuth session, then restores the prior live state unless `--set-active` is requested.
 
 Claude OAuth support depends on how the installed Claude build scopes auth:
 - File-backed or profile-scoped keychain auth: the interactive login is a durable isolated profile path.
@@ -110,7 +110,7 @@ For Codex personal access token sessions, `--from-live` is the current `aisw` pa
 
 For Claude OAuth, `--from-live` captures whatever Claude is currently using, but it does not upgrade a shared live session into an independently isolated auth owner. If the install still uses Claude's legacy shared Keychain credential, treat the imported profile as a captured shared-live session rather than as a durable isolated OAuth bundle.
 
-For Antigravity OAuth, both interactive add and `--from-live` operate on the same shared live upstream model: `aisw` stores the current keyring-backed session and documented Antigravity config roots, then restores them on switch. Upstream does not currently document an isolated per-profile auth root or profile selector.
+For Antigravity OAuth, both interactive add and `--from-live` operate on the same shared live upstream model: `aisw` stores the current keyring-backed session. Switching restores that credential and selects the account provider while preserving preferences, global integrations, caches, and updater files. Upstream does not currently document an isolated per-profile auth root or profile selector.
 
 If a profile with that name already exists, use `--yes` to overwrite it:
 
@@ -160,3 +160,16 @@ If identity cannot be resolved, aisw does not claim that two profiles are differ
 - [Quickstart](/aisw/quickstart/)
 - [Commands](/aisw/commands/)
 - [Supported tools](/aisw/supported-tools/)  -  credential locations and backend details per tool
+
+## Antigravity captures made before this fix
+
+On use, recognizable trailing-newline and macOS CLI hex wrapping are repaired
+without changing the upstream credential envelope. A malformed encoded payload
+is rejected rather than written to the live keyring. If the saved credential is
+expired or revoked, sign in with `agy` and recapture it; serialization repair
+cannot renew a provider session. Legacy `app/` and `shared/` snapshots remain in
+existing profiles/backups but are no longer applied to shared runtime state.
+
+To capture OAuth, Antigravity must be using its account provider. Remove
+`modelProvider` from its settings and sign in first; an API-key session can leave
+a stale account credential in the keyring and must not be captured as OAuth.

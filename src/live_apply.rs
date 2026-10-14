@@ -52,7 +52,7 @@ pub fn apply_transaction(root: &Path, changes: Vec<LiveFileChange>) -> Result<()
     let mut seen_paths = HashSet::new();
     for change in &changes {
         let path = change.path();
-        reject_symlinked_parent_components(root, path)?;
+        validate_live_path(root, path)?;
         if !seen_paths.insert(path.to_path_buf()) {
             bail!(
                 "live apply transaction includes duplicate target '{}'",
@@ -97,6 +97,11 @@ fn snapshot_original_state(
         );
     }
     Ok(snapshots)
+}
+
+pub(crate) fn validate_live_path(root: &Path, path: &Path) -> Result<()> {
+    reject_symlinked_parent_components(root, path)?;
+    reject_symlink(path)
 }
 
 fn reject_symlinked_parent_components(root: &Path, path: &Path) -> Result<()> {

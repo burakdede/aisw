@@ -35,6 +35,7 @@ dependencies = [
  "clap_mangen",
  "comfy-table",
  "console 0.15.11",
+ "dbus-secret-service",
  "dialoguer",
  "dirs",
  "fs2",

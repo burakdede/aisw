@@ -9,7 +9,7 @@ use crate::types::Tool;
 const CLAUDE_CREDENTIALS_FILE: &str = ".credentials.json";
 const CLAUDE_OAUTH_ACCOUNT_FILE: &str = "oauth-account.json";
 const CODEX_AUTH_FILE: &str = "auth.json";
-const GEMINI_OAUTH_FILES: &[&str] = &["settings.json", "oauth_creds.json"];
+const GEMINI_OAUTH_FILES: &[&str] = &["oauth_creds.json", "settings.json"];
 const ANTIGRAVITY_SECRET_FILE: &str = "keyring-secret.json";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,7 +24,10 @@ enum OAuthIdentity {
         account_id: Option<String>,
         fallback: Option<String>,
     },
-    Generic(String),
+    Generic {
+        email: Option<String>,
+        subject: Option<String>,
+    },
 }
 
 pub fn ensure_unique_oauth_identity(
@@ -305,10 +308,31 @@ pub(crate) fn resolve_identity_from_json_bytes(bytes: &[u8]) -> Result<Option<St
     )
 }
 
+pub(crate) fn oauth_identity_matches(tool: Tool, stored: &[u8], live: &[u8]) -> Result<bool> {
+    let stored = resolve_identity_from_json_bytes_for_tool(tool, stored)?;
+    let live = resolve_identity_from_json_bytes_for_tool(tool, live)?;
+    Ok(matches!((stored, live), (Some(stored), Some(live)) if stored.matches(&live)))
+}
+
+pub(crate) fn claude_oauth_identity_matches(
+    stored: &[u8],
+    stored_metadata: Option<&[u8]>,
+    live: &[u8],
+    live_metadata: Option<&[u8]>,
+) -> Result<bool> {
+    let stored = resolve_claude_identity(Some(stored), stored_metadata)?;
+    let live = resolve_claude_identity(Some(live), live_metadata)?;
+    Ok(matches!((stored, live), (Some(stored), Some(live)) if stored.matches(&live)))
+}
+
 fn resolve_identity_from_json_bytes_for_tool(
     tool: Tool,
     bytes: &[u8],
 ) -> Result<Option<OAuthIdentity>> {
+    if tool == Tool::Antigravity {
+        return Ok(antigravity::credential_json_value(bytes)?
+            .and_then(|value| resolve_identity_from_value(tool, &value)));
+    }
     let value: Value = match serde_json::from_slice(bytes) {
         Ok(value) => value,
         Err(_) => return Ok(None),
@@ -338,12 +362,16 @@ fn resolve_claude_identity(
         .or_else(|| credential_value.as_ref().and_then(find_email));
     let organization_uuid = account_value
         .as_ref()
-        .and_then(find_claude_organization_uuid);
+        .and_then(find_claude_organization_uuid)
+        .or_else(|| {
+            credential_value
+                .as_ref()
+                .and_then(find_claude_organization_uuid)
+        });
     let fallback = credential_value
         .as_ref()
         .and_then(find_subject)
-        .or_else(|| account_value.as_ref().and_then(find_subject))
-        .map(normalize_identity);
+        .or_else(|| account_value.as_ref().and_then(find_subject));
 
     if email.is_none() && organization_uuid.is_none() && fallback.is_none() {
         return Ok(None);
@@ -361,7 +389,7 @@ fn resolve_identity_from_value(tool: Tool, value: &Value) -> Option<OAuthIdentit
         Tool::Claude => {
             let email = find_email(value).map(normalize_identity);
             let organization_uuid = find_claude_organization_uuid(value).map(normalize_identity);
-            let fallback = find_subject(value).map(normalize_identity);
+            let fallback = find_subject(value);
             if email.is_none() && organization_uuid.is_none() && fallback.is_none() {
                 return None;
             }
@@ -376,7 +404,7 @@ fn resolve_identity_from_value(tool: Tool, value: &Value) -> Option<OAuthIdentit
                 .or_else(|| find_email(value))
                 .map(normalize_identity);
             let account_id = find_codex_account_id(value).map(normalize_identity);
-            let fallback = find_codex_subject(value).map(normalize_identity);
+            let fallback = find_codex_subject(value);
 
             if email.is_none() && account_id.is_none() && fallback.is_none() {
                 return None;
@@ -388,14 +416,12 @@ fn resolve_identity_from_value(tool: Tool, value: &Value) -> Option<OAuthIdentit
                 fallback,
             })
         }
-        Tool::Gemini => find_email(value)
-            .or_else(|| find_subject(value))
-            .map(normalize_identity)
-            .map(OAuthIdentity::Generic),
-        Tool::Antigravity => find_email(value)
-            .or_else(|| find_subject(value))
-            .map(normalize_identity)
-            .map(OAuthIdentity::Generic),
+        Tool::Gemini | Tool::Antigravity => {
+            let email = find_email(value).map(normalize_identity);
+            let subject = find_subject(value);
+            (email.is_some() || subject.is_some())
+                .then_some(OAuthIdentity::Generic { email, subject })
+        }
     }
 }
 
@@ -429,7 +455,7 @@ fn find_subject(value: &Value) -> Option<String> {
             Some("sub" | "subject" | "account_id" | "accountId" | "user_id" | "userId")
         ) && !trimmed.is_empty()
         {
-            return Some(trimmed.to_owned());
+            return Some(raw.to_owned());
         }
 
         if looks_like_jwt(trimmed) {
@@ -457,7 +483,7 @@ fn find_codex_subject(value: &Value) -> Option<String> {
     walk_json(value, &|key, raw| {
         let trimmed = raw.trim();
         if matches!(key, Some("sub" | "subject" | "user_id" | "userId")) && !trimmed.is_empty() {
-            return Some(trimmed.to_owned());
+            return Some(raw.to_owned());
         }
 
         if looks_like_jwt(trimmed) {
@@ -545,6 +571,18 @@ fn decode_jwt_payload(token: &str) -> Result<Option<Value>> {
     Ok(crate::util::jwt::decode_jwt_payload(token))
 }
 
+fn principal_matches(
+    left_email: &Option<String>,
+    right_email: &Option<String>,
+    left_subject: &Option<String>,
+    right_subject: &Option<String>,
+) -> bool {
+    if let (Some(left), Some(right)) = (left_subject, right_subject) {
+        return left == right;
+    }
+    matches!((left_email, right_email), (Some(left), Some(right)) if left == right)
+}
+
 impl OAuthIdentity {
     fn matches(&self, other: &Self) -> bool {
         match (self, other) {
@@ -560,18 +598,10 @@ impl OAuthIdentity {
                     fallback: right_fallback,
                 },
             ) => {
-                if let (Some(left_email), Some(right_email)) = (left_email, right_email) {
-                    if left_email != right_email {
-                        return false;
-                    }
-
-                    return match (left_org, right_org) {
-                        (Some(left_org), Some(right_org)) => left_org == right_org,
-                        _ => true,
-                    };
+                if matches!((left_org, right_org), (Some(left), Some(right)) if left != right) {
+                    return false;
                 }
-
-                left_fallback.is_some() && left_fallback == right_fallback
+                principal_matches(left_email, right_email, left_fallback, right_fallback)
             }
             (
                 OAuthIdentity::Codex {
@@ -585,22 +615,22 @@ impl OAuthIdentity {
                     fallback: right_fallback,
                 },
             ) => {
-                if let (Some(left_email), Some(right_email)) = (left_email, right_email) {
-                    if left_email != right_email {
-                        return false;
-                    }
-
-                    return match (left_account_id, right_account_id) {
-                        (Some(left_account_id), Some(right_account_id)) => {
-                            left_account_id == right_account_id
-                        }
-                        _ => true,
-                    };
+                if matches!((left_account_id, right_account_id), (Some(left), Some(right)) if left != right)
+                {
+                    return false;
                 }
-
-                left_fallback.is_some() && left_fallback == right_fallback
+                principal_matches(left_email, right_email, left_fallback, right_fallback)
             }
-            (OAuthIdentity::Generic(left), OAuthIdentity::Generic(right)) => left == right,
+            (
+                OAuthIdentity::Generic {
+                    email: left_email,
+                    subject: left_subject,
+                },
+                OAuthIdentity::Generic {
+                    email: right_email,
+                    subject: right_subject,
+                },
+            ) => principal_matches(left_email, right_email, left_subject, right_subject),
             _ => false,
         }
     }
@@ -619,7 +649,10 @@ impl OAuthIdentity {
                 .as_deref()
                 .or(fallback.as_deref())
                 .unwrap_or("unknown account"),
-            OAuthIdentity::Generic(identity) => identity,
+            OAuthIdentity::Generic { email, subject } => email
+                .as_deref()
+                .or(subject.as_deref())
+                .unwrap_or("unknown account"),
         }
     }
 }
@@ -627,6 +660,35 @@ impl OAuthIdentity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_boundaries_do_not_depend_on_email_claims() {
+        for (tool, key) in [
+            (Tool::Claude, "organizationUuid"),
+            (Tool::Codex, "account_id"),
+        ] {
+            let first = serde_json::json!({"sub":"same-user", (key):"first"});
+            let second = serde_json::json!({"sub":"same-user", (key):"second"});
+            assert!(!oauth_identity_matches(
+                tool,
+                first.to_string().as_bytes(),
+                second.to_string().as_bytes()
+            )
+            .unwrap());
+        }
+    }
+
+    #[test]
+    fn subject_identifiers_are_case_sensitive_for_every_tool() {
+        for tool in Tool::ALL {
+            assert!(!oauth_identity_matches(
+                tool,
+                br#"{"sub":"principal-A"}"#,
+                br#"{"sub":"principal-a"}"#
+            )
+            .unwrap());
+        }
+    }
 
     #[test]
     fn resolves_direct_email_identity() {
@@ -666,7 +728,7 @@ mod tests {
             Some(OAuthIdentity::Codex {
                 email: None,
                 account_id: None,
-                fallback: Some("user-123".to_owned()),
+                fallback: Some("USER-123".to_owned()),
             })
         );
     }
@@ -692,7 +754,7 @@ mod tests {
             Some(OAuthIdentity::Codex {
                 email: None,
                 account_id: None,
-                fallback: Some("user-1234".to_owned()),
+                fallback: Some("USER-1234".to_owned()),
             })
         );
     }

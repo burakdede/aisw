@@ -31,6 +31,32 @@ pub(crate) fn trim_credential_payload(bytes: &[u8]) -> &[u8] {
     bytes.trim_ascii()
 }
 
+/// Keep credential JSON readable by upstream security CLI callers on macOS.
+pub(crate) fn normalize_keychain_json(bytes: &[u8]) -> Option<Vec<u8>> {
+    use std::fmt::Write;
+
+    let bytes = trim_credential_payload(bytes);
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if !value.is_object() {
+        return None;
+    }
+    if bytes.is_ascii() && !bytes.iter().any(u8::is_ascii_control) {
+        return Some(bytes.to_vec());
+    }
+    let json = serde_json::to_string(&value).ok()?;
+    let mut ascii = String::with_capacity(json.len());
+    for character in json.chars() {
+        if character.is_ascii() && !character.is_control() {
+            ascii.push(character);
+        } else {
+            for unit in character.encode_utf16(&mut [0; 2]) {
+                write!(&mut ascii, "\\u{unit:04x}").ok()?;
+            }
+        }
+    }
+    Some(ascii.into_bytes())
+}
+
 /// Reject an API key that is empty or contains control characters.
 ///
 /// Control characters are refused because stored credentials are later

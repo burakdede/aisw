@@ -312,7 +312,7 @@ Keys must be a single line, because a Gemini key is written into a `.env` file t
 
 ## `aisw use gemini ... --state-mode shared` fails
 
-**Cause:** Gemini does not support `shared` state mode. Its auth credentials and local state are coupled under `~/.gemini/`, making shared mode unsafe to implement.
+**Cause:** Gemini does not support `shared` state mode. aisw currently uses file-backed switching under `~/.gemini/` and excludes Antigravity-owned subtrees; it does not implement a separate shared mode.
 
 **Fix:** Remove `--state-mode` when using Gemini. Gemini profiles are always isolated.
 

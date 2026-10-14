@@ -499,7 +499,7 @@ fn antigravity_backup_restore_recovers_live_state_after_switch() {
                 .join("settings.json")
         )
         .unwrap(),
-        r#"{"theme":"terminal"}"#
+        r#"{"theme":"light"}"#
     );
 }
 

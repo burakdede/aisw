@@ -176,6 +176,71 @@ pub fn upsert_generic_password(
     );
 }
 
+#[cfg(any(target_os = "macos", all(test, unix)))]
+pub(crate) fn upsert_go_password(service: &str, account: &str, secret: &[u8]) -> Result<()> {
+    ensure_available()?;
+    let secret = std::str::from_utf8(secret).context("Go Keychain secret is not valid UTF-8")?;
+    let quote = |value: &str| -> Result<String> {
+        if value.chars().any(char::is_control) {
+            bail!("Go Keychain command values must contain no control characters");
+        }
+        Ok(format!(
+            "\"{}\"",
+            value.replace('\\', "\\\\").replace('\"', "\\\"")
+        ))
+    };
+    let mut line = format!(
+        "add-generic-password -U -s {} -a {} -w {}",
+        quote(service)?,
+        quote(account)?,
+        quote(secret)?
+    );
+    if let Some(path) = override_keychain_path() {
+        if !path.is_file() {
+            bail!("explicit Go Keychain path must name an existing file");
+        }
+        line.push(' ');
+        line.push_str(&quote(
+            path.to_str().context("Keychain path is not valid UTF-8")?,
+        )?);
+    }
+    line.push('\n');
+    if line.len() > 4096 {
+        bail!("Go Keychain credential exceeds the upstream 4096-byte command limit");
+    }
+    // Go reads through security; native updates revoke that reader's partition.
+    let mut child = Command::new(
+        test_overrides::string("AISW_SECURITY_BIN")
+            .unwrap_or_else(|| "/usr/bin/security".to_owned()),
+    )
+    .arg("-i")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .context("could not start Go Keychain update")?;
+    child
+        .stdin
+        .take()
+        .context("could not open Go Keychain update stdin")?
+        .write_all(line.as_bytes())
+        .context("could not send Go Keychain update")?;
+    let output = child
+        .wait_with_output()
+        .context("could not wait for Go Keychain update")?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if is_user_canceled(&output.status, &stderr) {
+        bail!("Keychain access was denied. Run the command again and click 'Always Allow'.");
+    }
+    bail!(
+        "could not update Go Keychain credential (exit {:?})",
+        output.status.code()
+    );
+}
+
 pub fn is_available() -> bool {
     cfg!(target_os = "macos")
         || test_overrides::var("AISW_SECURITY_BIN").is_some()
@@ -632,6 +697,81 @@ mod tests {
             "decoding the hex form must recover the payload without the newline"
         );
 
+        use crate::config::CredentialBackend;
+        use crate::profile::ProfileStore;
+        use crate::types::Tool;
+        use base64::{engine::general_purpose::STANDARD, Engine};
+
+        let encoded = format!(
+            "go-keyring-base64:{}",
+            STANDARD.encode(br#"{"email":"work@example.com","token":"synthetic"}"#)
+        );
+        let quoted = br#"{"value":"O'Reilly $(touch should-not-exist) `uname`"}"#;
+        upsert_go_password("Go's fixture", "tester", quoted).unwrap();
+        assert_eq!(
+            read_generic_password("Go's fixture", Some("tester"))
+                .unwrap()
+                .unwrap(),
+            quoted
+        );
+
+        let profiles = ProfileStore::new(&dir.path().join("managed"));
+        profiles.create(Tool::Antigravity, "work").unwrap();
+        for suffix in ["", "\n"] {
+            store_exact(
+                &keychain,
+                "antigravity-fixture",
+                format!("{encoded}{suffix}").as_bytes(),
+            );
+            let captured = read_generic_password("antigravity-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            crate::auth::antigravity::persist_managed_secret(
+                &profiles,
+                "work",
+                CredentialBackend::File,
+                &captured,
+            )
+            .unwrap();
+            let restored = crate::auth::antigravity::read_managed_secret(
+                &profiles,
+                "work",
+                CredentialBackend::File,
+            )
+            .unwrap()
+            .unwrap();
+            upsert_go_password("antigravity-fixture", "tester", &restored).unwrap();
+            let upstream = read_generic_password("antigravity-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(upstream, encoded.as_bytes());
+            assert_eq!(
+                STANDARD
+                    .decode(upstream.strip_prefix(b"go-keyring-base64:").unwrap())
+                    .unwrap(),
+                br#"{"email":"work@example.com","token":"synthetic"}"#
+            );
+        }
+
+        for payload in [
+            b"{\n  \"oauthToken\": \"synthetic\"\n}".as_slice(),
+            "{\"oauthToken\":\"synthetic\",\"name\":\"Gödel 👋\"}".as_bytes(),
+        ] {
+            store_exact(&keychain, "claude-format-fixture", payload);
+            let captured = read_generic_password("claude-format-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            let restored = crate::auth::claude::normalize_credentials_bytes(&captured).unwrap();
+            store_exact(&keychain, "claude-format-fixture", &restored);
+            let upstream = read_generic_password("claude-format-fixture", Some("tester"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&upstream).unwrap(),
+                serde_json::from_slice::<serde_json::Value>(payload).unwrap()
+            );
+        }
+
         // An empty stored value must stay distinguishable from a missing item.
         assert!(read_generic_password("absent", Some("tester"))
             .unwrap()
@@ -761,6 +901,73 @@ mod tests {
         assert_eq!(
             fs::read_to_string(stdin_capture).unwrap(),
             "{\"claudeAiOauth\":{\"accessToken\":\"tok\"}}\n"
+        );
+    }
+
+    #[test]
+    fn go_keychain_update_uses_interactive_stdin_and_redacts_errors() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("security");
+        let marker = dir.path().join("args");
+        let stdin_capture = dir.path().join("stdin");
+        write_mock_security(
+            &bin,
+            &format!(
+                "#!/bin/sh\nprintf '%s' \"$*\" > '{}'\ncat > '{}'\nexit 0\n",
+                marker.display(),
+                stdin_capture.display()
+            ),
+        );
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", &bin);
+        let _path = EnvVarGuard::unset("AISW_SECURITY_KEYCHAIN");
+        upsert_go_password("gemini", "antigravity", b"synthetic's token").unwrap();
+        assert_eq!(fs::read_to_string(&marker).unwrap(), "-i");
+        assert_eq!(
+            fs::read_to_string(&stdin_capture).unwrap(),
+            "add-generic-password -U -s \"gemini\" -a \"antigravity\" -w \"synthetic's token\"\n"
+        );
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\ncat >/dev/null\necho synthetic-secret >&2\nexit 1\n",
+        );
+        let error = upsert_go_password("gemini", "antigravity", b"synthetic-secret").unwrap_err();
+        assert!(!error.to_string().contains("synthetic-secret"));
+        assert!(error.to_string().contains("could not update Go Keychain"));
+        write_mock_security(
+            &bin,
+            "#!/bin/sh\ncat >/dev/null\necho 'User canceled.' >&2\nexit 128\n",
+        );
+        assert!(upsert_go_password("gemini", "antigravity", b"secret")
+            .unwrap_err()
+            .to_string()
+            .contains("Keychain access was denied"));
+    }
+
+    #[test]
+    fn go_keychain_update_rejects_command_injection_before_spawn() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _security = EnvVarGuard::set("AISW_SECURITY_BIN", "/missing/security");
+        let _path = EnvVarGuard::unset("AISW_SECURITY_KEYCHAIN");
+        for value in [
+            b"secret\ndelete-generic-password".as_slice(),
+            b"secret\r",
+            b"secret\0",
+        ] {
+            assert!(upsert_go_password("gemini", "antigravity", value)
+                .unwrap_err()
+                .to_string()
+                .contains("control characters"));
+        }
+        assert!(upsert_go_password("gemini", "antigravity", &[0xff])
+            .unwrap_err()
+            .to_string()
+            .contains("UTF-8"));
+        assert!(
+            upsert_go_password("gemini", "antigravity", &vec![b'x'; 4096])
+                .unwrap_err()
+                .to_string()
+                .contains("4096-byte")
         );
     }
 

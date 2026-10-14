@@ -1,6 +1,6 @@
 # Auth Storage Matrix
 
-This document summarizes the default auth storage, profile/config locations, and other important local files for Claude Code, Codex CLI, and Gemini CLI across macOS, Linux/WSL, and Windows.
+This document summarizes the default auth storage, profile/config locations, and other important local files for Claude Code, Codex CLI, Gemini CLI, and Antigravity CLI across macOS, Linux/WSL, and Windows.
 
 It separates vendor-documented behavior from places where the storage model is still partly inferred from implementation details or directly observed in real installs.
 
@@ -28,7 +28,7 @@ It separates vendor-documented behavior from places where the storage model is s
 
 ### Codex CLI
 
-- All platforms: docs explicitly support `file`, `keyring`, and `auto`.
+- All platforms: docs explicitly support `file`, `keyring`, `auto`, and process-local `ephemeral` storage.
 - `auto` means OS credential store when available, otherwise `~/.codex/auth.json`.
 - This is the clearest documented cross-platform auth-storage model of the three.
 - Observed Linux installs can still be file-backed in practice, with auth stored in `~/.codex/auth.json`.
@@ -42,8 +42,8 @@ It separates vendor-documented behavior from places where the storage model is s
 ## Important Implications for `aisw`
 
 - Claude import reliability is strongest on macOS because Anthropic explicitly documents Keychain storage there.
-- Codex import should support both `~/.codex/auth.json` and OS credential-store-backed sessions on every platform, because OpenAI explicitly documents both.
-- Gemini import should treat `~/.gemini/` as the important state root, not just one file. That includes OAuth cache files, settings, session data, and MCP OAuth token files depending on feature usage.
+- Codex upstream supports both file and OS credential stores. aisw imports readable `auth.json` and applies supported profiles through upstream file storage; native keyring-only and ephemeral sessions are not imported.
+- Gemini file profiles capture Gemini-owned state under `~/.gemini/`, excluding Antigravity roots before traversal. Account verification uses primary credentials and the selected provider, not runtime snapshots. Encrypted OAuth storage is unsupported.
 
 ## `aisw` Support Status
 
@@ -55,14 +55,16 @@ This section is the product policy layer on top of the vendor storage facts abov
 | Claude Code | readable system-keyring-backed live credentials | Supported | Supported | fully supported |
 | Claude Code | local metadata only, no readable live auth | Not importable | Not applicable | reported explicitly, no guessing |
 | Codex CLI | file-backed `auth.json` | Supported | Supported | fully supported |
-| Codex CLI | readable system-keyring-backed live credentials | Supported | Supported if the live keyring account can be discovered | supported with account-discovery requirement |
-| Codex CLI | system-keyring-backed auth with no discoverable live account | Not importable today | Fail-closed | `aisw` will not guess a username-based keyring account |
+| Codex CLI | native keyring-only or ephemeral credentials | Not supported | Not imported | no readable durable `auth.json` |
+| Codex CLI | aisw-managed system-keyring profile | Not imported from native keyring | Supported | applies through upstream file storage |
 | Gemini CLI | file-managed auth and local state under `~/.gemini` | Supported | Supported | fully supported |
-| Gemini CLI | system keyring | Not supported | Not supported | Gemini remains file-managed in `aisw` |
+| Gemini CLI | encrypted OAuth storage | Not supported | Not supported | file OAuth operations reject encrypted-storage mode |
+| Antigravity CLI | live OS keyring OAuth | Supported | Supported | credentials and provider selection only; global config/runtime is preserved |
+| Antigravity CLI | Gemini API key | Supported | Supported with shell environment | selects `modelProvider: gemini` |
 
 Notes:
 - `fail-closed` means `aisw` refuses to fabricate a storage target that it cannot prove the upstream CLI will read.
-- for Codex, this matters because real keyring account names can be opaque `cli|...` identifiers rather than the OS username.
+- native Codex keyring support upstream does not imply aisw native-keyring import support.
 - for Claude on Linux and Windows, upstream docs still describe secure storage less explicitly than Codex, so support confidence is lower even where the implementation path is in place.
 
 ## Documentation Gaps
@@ -81,3 +83,15 @@ Notes:
 - Gemini settings: <https://geminicli.com/docs/cli/settings/>
 - Gemini sessions: <https://geminicli.com/docs/cli/session-management/>
 - Gemini MCP OAuth token storage: <https://geminicli.com/docs/tools/mcp-server/>
+
+## Current contract review
+
+The [authentication switching audit](docs/auth-switching-audit.md) records the
+2026-10-14 upstream versions, evidence, ownership boundaries, and regression
+results. Antigravity uses a shared native keyring session and a provider setting;
+its global configuration trees are not per-account snapshots.
+
+Live Antigravity macOS writes use Go's `security -i` transport, preserving the
+upstream CLI reader's Keychain access. Managed aisw entries retain native Rust
+storage. The hosted native canary checks status after activation without
+reauthorizing the live item between those operations. See ADR 0004.

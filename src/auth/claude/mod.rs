@@ -338,8 +338,8 @@ pub(crate) fn persist_stored_credentials(
 /// persist alike — rather than being carried forward into the Keychain item.
 pub(crate) fn normalize_credentials_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     let bytes = super::trim_credential_payload(bytes);
-    if has_object_json_shape(bytes) {
-        return Some(bytes.to_vec());
+    if let Some(normalized) = super::normalize_keychain_json(bytes) {
+        return Some(normalized);
     }
 
     let mut candidate = bytes.to_vec();
@@ -351,8 +351,8 @@ pub(crate) fn normalize_credentials_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
 
         let decoded = decode_hex_bytes(text)?;
         let trimmed = super::trim_credential_payload(&decoded);
-        if has_object_json_shape(trimmed) {
-            return Some(trimmed.to_vec());
+        if let Some(normalized) = super::normalize_keychain_json(trimmed) {
+            return Some(normalized);
         }
         candidate = decoded;
     }
@@ -363,13 +363,6 @@ pub(crate) fn normalize_credentials_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
 fn credentials_json_value(bytes: &[u8]) -> Result<serde_json::Value> {
     let normalized = normalize_credentials_bytes(bytes).unwrap_or_else(|| bytes.to_vec());
     serde_json::from_slice(&normalized).context("credential payload is not valid JSON")
-}
-
-fn has_object_json_shape(bytes: &[u8]) -> bool {
-    matches!(
-        serde_json::from_slice::<serde_json::Value>(bytes),
-        Ok(serde_json::Value::Object(_))
-    )
 }
 
 fn decode_hex_bytes(text: &str) -> Option<Vec<u8>> {
@@ -1185,6 +1178,45 @@ mod tests {
     }
 
     #[test]
+    fn sync_rejects_same_email_from_a_different_organization() {
+        let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = tempdir().unwrap();
+        let user_home = dir.path().join("user");
+        fs::create_dir_all(user_home.join(".claude")).unwrap();
+        fs::write(
+            user_home.join(".claude/.credentials.json"),
+            br#"{"oauthToken":"other","account":{"email":"work@example.com"}}"#,
+        )
+        .unwrap();
+        fs::write(user_home.join(".claude.json"), br#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"other-org"}}"#).unwrap();
+        let _storage = EnvVarGuard::set("AISW_CLAUDE_AUTH_STORAGE", "file");
+        let (ps, _) = stores(dir.path());
+        ps.create(Tool::Claude, "work").unwrap();
+        let stored = br#"{"oauthToken":"stored","account":{"email":"work@example.com"}}"#;
+        ps.write_file(Tool::Claude, "work", CREDENTIALS_FILE, stored)
+            .unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            OAUTH_ACCOUNT_FILE,
+            br#"{"emailAddress":"work@example.com","organizationUuid":"work-org"}"#,
+        )
+        .unwrap();
+        assert!(!sync_profile_from_live_if_same_identity(
+            &ps,
+            "work",
+            CredentialBackend::File,
+            &user_home
+        )
+        .unwrap());
+        assert_eq!(
+            ps.read_file(Tool::Claude, "work", CREDENTIALS_FILE)
+                .unwrap(),
+            stored
+        );
+    }
+
+    #[test]
     fn sync_profile_from_live_if_same_identity_updates_stored_credentials() {
         let _g = crate::SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = tempdir().unwrap();
@@ -1243,7 +1275,7 @@ mod tests {
         fs::create_dir_all(&user_home).unwrap();
         fs::write(
             user_home.join(".claude.json"),
-            r#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"org-live"}}"#,
+            r#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"shared-other-org"}}"#,
         )
         .unwrap();
 
@@ -1254,6 +1286,14 @@ mod tests {
 
         let (ps, _cs) = stores(dir.path());
         ps.create(Tool::Claude, "work").unwrap();
+        ps.write_file(Tool::Claude, "work", ACCOUNT_METADATA_FILE, br#"{"oauthAccount":{"emailAddress":"work@example.com","organizationUuid":"org-live"}}"#).unwrap();
+        ps.write_file(
+            Tool::Claude,
+            "work",
+            OAUTH_ACCOUNT_FILE,
+            br#"{"emailAddress":"work@example.com","organizationUuid":"org-live"}"#,
+        )
+        .unwrap();
         ps.write_file(
             Tool::Claude,
             "work",

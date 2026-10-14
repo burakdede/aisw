@@ -847,7 +847,7 @@ fn print_switch_summary(resolved: &ResolvedProfileSwitch, home: &Path, user_home
             );
         } else {
             output::print_effect(
-                "Antigravity switching restores the shared live OS keyring credential and the documented ~/.gemini config roots for this profile.",
+                "Antigravity switching restores the shared live OS keyring credential and selects the account provider for this profile; other configuration and runtime files stay shared.",
             );
             output::print_effect(
                 "Upstream does not currently document an isolated per-profile auth root or profile selector for Antigravity.",

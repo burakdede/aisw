@@ -505,7 +505,7 @@ fn use_codex_system_keyring_profile_applies_to_file_live_storage() {
 }
 
 #[test]
-fn use_antigravity_system_keyring_profile_applies_to_live_keyring_and_files() {
+fn use_antigravity_system_keyring_profile_preserves_global_files() {
     let env = TestEnv::new();
     env.add_fake_tool("agy", "agy 1.0.0");
 
@@ -514,6 +514,13 @@ fn use_antigravity_system_keyring_profile_applies_to_live_keyring_and_files() {
         "work",
         r#"{"email":"dev@example.com","token":"oauth-token"}"#,
     );
+
+    let settings = env.fake_home.join(".gemini/antigravity-cli/settings.json");
+    let project = env.fake_home.join(".gemini/config/projects/repo.json");
+    fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    fs::create_dir_all(project.parent().unwrap()).unwrap();
+    fs::write(&settings, br#"{"theme":"light"}"#).unwrap();
+    fs::write(&project, br#"{"mode":"chat"}"#).unwrap();
 
     secure_cmd_for_tool(&env, "antigravity")
         .args(["use", "antigravity", "work"])
@@ -532,7 +539,7 @@ fn use_antigravity_system_keyring_profile_applies_to_live_keyring_and_files() {
                 .join("settings.json")
         )
         .unwrap(),
-        br#"{"theme":"terminal"}"#
+        br#"{"theme":"light"}"#
     );
     assert_eq!(
         fs::read(
@@ -543,7 +550,7 @@ fn use_antigravity_system_keyring_profile_applies_to_live_keyring_and_files() {
                 .join("repo.json")
         )
         .unwrap(),
-        br#"{"mode":"plan"}"#
+        br#"{"mode":"chat"}"#
     );
 }
 

@@ -103,6 +103,7 @@ impl TestEnv {
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("PATH", &self.bin_dir)
             .env("HOME", &self.fake_home)
+            .env("AISW_TEST_USER_HOME", &self.fake_home)
             .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"))
             // Prevent ambient developer env from redirecting writes into real homes/config.
             .env_remove("CLAUDE_CONFIG_DIR")
@@ -112,7 +113,8 @@ impl TestEnv {
             .env_remove("AISW_SECURITY_BIN")
             .env_remove("AISW_SECURITY_KEYCHAIN")
             .env_remove("AISW_CLAUDE_AUTH_STORAGE")
-            .env_remove("AISW_CODEX_AUTH_STORAGE");
+            .env_remove("AISW_CODEX_AUTH_STORAGE")
+            .env_remove("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE");
         #[cfg(windows)]
         {
             let roaming = self.fake_home.join("AppData").join("Roaming");
@@ -154,6 +156,7 @@ impl TestEnv {
         cmd.env("AISW_HOME", &self.aisw_home);
         cmd.env("PATH", &self.bin_dir);
         cmd.env("HOME", &self.fake_home);
+        cmd.env("AISW_TEST_USER_HOME", &self.fake_home);
         cmd.env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"));
         cmd.env_remove("CLAUDE_CONFIG_DIR");
         cmd.env_remove("CODEX_HOME");
@@ -163,6 +166,7 @@ impl TestEnv {
         cmd.env_remove("AISW_SECURITY_KEYCHAIN");
         cmd.env_remove("AISW_CLAUDE_AUTH_STORAGE");
         cmd.env_remove("AISW_CODEX_AUTH_STORAGE");
+        cmd.env_remove("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE");
 
         let mut child = pair
             .slave
@@ -236,6 +240,7 @@ impl TestEnv {
 
         cmd.env("AISW_HOME", &self.aisw_home)
             .env("HOME", &self.fake_home)
+            .env("AISW_TEST_USER_HOME", &self.fake_home)
             .env("PATH", self.shell_path())
             .env("AISW_KEYRING_TEST_DIR", self.fake_home.join("keychain"))
             .env_remove("CLAUDE_CONFIG_DIR")
@@ -245,7 +250,8 @@ impl TestEnv {
             .env_remove("AISW_SECURITY_BIN")
             .env_remove("AISW_SECURITY_KEYCHAIN")
             .env_remove("AISW_CLAUDE_AUTH_STORAGE")
-            .env_remove("AISW_CODEX_AUTH_STORAGE");
+            .env_remove("AISW_CODEX_AUTH_STORAGE")
+            .env_remove("GEMINI_FORCE_ENCRYPTED_FILE_STORAGE");
 
         Some(cmd)
     }

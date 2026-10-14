@@ -9,6 +9,18 @@ use common::TestEnv;
 
 const KEYRING_SERVICE: &str = "aisw";
 
+#[cfg(target_os = "linux")]
+struct SecretServiceFixtureItem<'a>(dbus_secret_service::Item<'a>);
+
+#[cfg(target_os = "linux")]
+impl Drop for SecretServiceFixtureItem<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.delete() {
+            eprintln!("could not delete Secret Service fixture item: {error}");
+        }
+    }
+}
+
 struct CanaryCleanup {
     entries: Vec<CanaryEntry>,
 }
@@ -16,7 +28,8 @@ struct CanaryCleanup {
 struct CanaryEntry {
     service: String,
     account: String,
-    previous: Option<String>,
+    entry: keyring::Entry,
+    previous: Option<Vec<u8>>,
 }
 
 impl CanaryCleanup {
@@ -34,17 +47,29 @@ impl CanaryCleanup {
         &mut self,
         service: &str,
         account: impl Into<String>,
-    ) -> Result<Option<String>, keyring::Error> {
+    ) -> Result<Option<Vec<u8>>, keyring::Error> {
         let account = account.into();
         let entry = keyring::Entry::new(service, &account)?;
-        let previous = match entry.get_password() {
-            Ok(password) => Some(password),
+        self.track_native_entry(service, &account, entry)
+    }
+
+    fn track_native_entry(
+        &mut self,
+        service: &str,
+        account: &str,
+        entry: keyring::Entry,
+    ) -> Result<Option<Vec<u8>>, keyring::Error> {
+        eprintln!("canary: inspect native entry {service}/{account}");
+        let previous = match entry.get_secret() {
+            Ok(secret) => Some(secret),
             Err(keyring::Error::NoEntry) => None,
             Err(error) => return Err(error),
         };
+        eprintln!("canary: inspected native entry {service}/{account}");
         self.entries.push(CanaryEntry {
             service: service.to_owned(),
-            account,
+            account: account.to_owned(),
+            entry,
             previous: previous.clone(),
         });
         Ok(previous)
@@ -54,18 +79,13 @@ impl CanaryCleanup {
         let mut failures = Vec::new();
 
         for tracked in &self.entries {
-            let result = match keyring::Entry::new(&tracked.service, &tracked.account) {
-                Ok(entry) => {
-                    if let Some(previous) = &tracked.previous {
-                        entry.set_password(previous)
-                    } else {
-                        match entry.delete_credential() {
-                            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-                            Err(error) => Err(error),
-                        }
-                    }
+            let result = if let Some(previous) = &tracked.previous {
+                tracked.entry.set_secret(previous)
+            } else {
+                match tracked.entry.delete_credential() {
+                    Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                    Err(error) => Err(error),
                 }
-                Err(error) => Err(error),
             };
 
             if let Err(error) = result {
@@ -99,11 +119,16 @@ fn assert_entry_absent(service: &str, account: &str) {
 }
 
 #[cfg(target_os = "macos")]
+fn ci_keychain_path() -> String {
+    std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db"
+}
+
+#[cfg(target_os = "macos")]
 fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_none() {
         return;
     }
-    let output = std::process::Command::new("security")
+    let output = std::process::Command::new("/usr/bin/security")
         .args([
             "add-generic-password",
             "-A",
@@ -113,12 +138,63 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
             account,
             "-w",
             "aisw-canary-placeholder",
+            &ci_keychain_path(),
         ])
         .output()
         .expect("security should be available on macOS");
     assert!(
         output.status.success(),
         "could not preauthorize disposable keychain entry {service}/{account}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    authorize_ci_keychain_entry(service, account);
+}
+
+#[cfg(target_os = "macos")]
+fn authorize_ci_keychain_entry(service: &str, account: &str) {
+    if std::env::var_os("GITHUB_ACTIONS").is_none() {
+        return;
+    }
+    eprintln!("canary: authorize fixture actors {service}/{account}");
+    let mut partitions = vec!["apple-tool:".to_owned(), "apple:".to_owned()];
+    let test_binary = std::env::current_exe().unwrap();
+    let cli_binary = Command::cargo_bin("aisw").unwrap();
+    for path in [test_binary.as_os_str(), cli_binary.get_program()] {
+        let signature = std::process::Command::new("/usr/bin/codesign")
+            .args(["-dv", "--verbose=4"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(
+            signature.status.success(),
+            "canary executables must be signed"
+        );
+        let metadata = String::from_utf8_lossy(&signature.stderr);
+        let hash = metadata
+            .lines()
+            .find_map(|line| line.strip_prefix("CDHash="))
+            .expect("signed executable must have a CodeDirectory hash");
+        partitions.push(format!("cdhash:{hash}"));
+    }
+    // Native updates replace the partition list with the writer's identity.
+    let output = std::process::Command::new("/usr/bin/security")
+        .args([
+            "set-generic-password-partition-list",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-S",
+            &partitions.join(","),
+            "-k",
+            "",
+            &ci_keychain_path(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "could not authorize fixture partitions: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
@@ -150,6 +226,7 @@ fn write_fake_tool(bin_dir: &Path, name: &str, version: &str) {
 }
 
 fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Output {
+    eprintln!("canary: run aisw {}", args.join(" "));
     let mut cmd = Command::cargo_bin("aisw").expect("aisw binary not found");
     cmd.args(args)
         .env("AISW_HOME", &env.aisw_home)
@@ -163,10 +240,16 @@ fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Out
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME");
     #[cfg(target_os = "macos")]
-    cmd.env(
-        "HOME",
-        std::env::var("HOME").expect("macOS runner home should be set"),
-    );
+    {
+        cmd.env(
+            "HOME",
+            std::env::var("HOME").expect("macOS runner home should be set"),
+        );
+        cmd.env(
+            "PATH",
+            std::env::join_paths([bin_dir, Path::new("/usr/bin"), Path::new("/bin")]).unwrap(),
+        );
+    }
     #[cfg(windows)]
     {
         // `dirs::home_dir()` uses the Windows profile known folder, not HOME.
@@ -277,6 +360,12 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         return;
     }
 
+    #[cfg(target_os = "macos")]
+    let _interaction_lock = std::env::var_os("GITHUB_ACTIONS").map(|_| {
+        security_framework::os::macos::keychain::SecKeychain::disable_user_interaction()
+            .expect("hosted canary must fail instead of waiting for Keychain UI")
+    });
+
     let env = TestEnv::new();
     let bin_dir = env.dir.path().join("canary-bin");
     fs::create_dir_all(&bin_dir).unwrap();
@@ -375,7 +464,26 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     cleanup.track(codex_oauth_account.clone()).unwrap();
     cleanup.track(codex_api_account.clone()).unwrap();
     cleanup.track(antigravity_account.clone()).unwrap();
-    let previous_antigravity_live_secret = cleanup.track_entry("gemini", "antigravity").unwrap();
+    #[cfg(windows)]
+    let go_live_entry =
+        keyring::Entry::new_with_target("gemini:antigravity", "gemini", "antigravity").unwrap();
+    #[cfg(target_os = "linux")]
+    let go_live_entry = keyring::Entry::new_with_credential(Box::new(
+        keyring::secret_service::SsCredential::new_with_no_target("gemini", "antigravity").unwrap(),
+    ));
+    #[cfg(not(any(windows, target_os = "linux")))]
+    let go_live_entry = keyring::Entry::new("gemini", "antigravity").unwrap();
+    let previous_antigravity_live_secret = cleanup
+        .track_native_entry("gemini", "antigravity", go_live_entry)
+        .unwrap();
+
+    #[cfg(windows)]
+    {
+        let shadow = keyring::Entry::new("gemini", "antigravity").unwrap();
+        cleanup
+            .track_native_entry("Rust shadow", "antigravity", shadow)
+            .unwrap();
+    }
 
     #[cfg(target_os = "macos")]
     {
@@ -391,6 +499,7 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         preauthorize_ci_keychain_entry("gemini", "antigravity");
     }
 
+    eprintln!("canary: seed native credentials");
     keyring::Entry::new(KEYRING_SERVICE, &claude_oauth_account)
         .unwrap()
         .set_password(r#"{"claudeAiOauth":{"accessToken":"real-claude-oauth-token"}}"#)
@@ -412,6 +521,163 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .set_password(r#"{"email":"real-antigravity@example.com"}"#)
         .unwrap();
 
+    eprintln!("canary: native credentials seeded");
+    #[cfg(target_os = "macos")]
+    for tracked in &cleanup.entries[..5] {
+        authorize_ci_keychain_entry(&tracked.service, &tracked.account);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use dbus_secret_service::{EncryptionType, SecretService};
+        use std::collections::HashMap;
+        let ss = SecretService::connect(EncryptionType::Plain).unwrap();
+        let collection = ss
+            .get_all_collections()
+            .unwrap()
+            .into_iter()
+            .find(|collection| collection.path == "/org/freedesktop/secrets/collection/login")
+            .unwrap_or_else(|| ss.get_default_collection().unwrap());
+        collection.ensure_unlocked().unwrap();
+        let item = collection
+            .create_item(
+                "Go native fixture",
+                HashMap::from([("service", "gemini"), ("username", "antigravity")]),
+                br#"{"email":"go-live@example.com","access_token":"first"}"#,
+                true,
+                "text/plain; charset=utf-8",
+            )
+            .unwrap();
+        let session = ss.get_collection_by_alias("session").unwrap();
+        assert_ne!(session.path, collection.path);
+        session.ensure_unlocked().unwrap();
+        let shadow = SecretServiceFixtureItem(
+            session
+                .create_item(
+                    "Rust collection shadow",
+                    HashMap::from([
+                        ("service", "gemini"),
+                        ("username", "antigravity"),
+                        ("target", "default"),
+                    ]),
+                    br#"{"email":"session-shadow@example.com"}"#,
+                    true,
+                    "text/plain; charset=utf-8",
+                )
+                .unwrap(),
+        );
+        let imported = format!("go-import-{suffix}");
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &[
+                    "add",
+                    "antigravity",
+                    &imported,
+                    "--from-live",
+                    "--credential-backend",
+                    "file",
+                ],
+            ),
+            "capture Go Linux credential",
+        );
+        let captured: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                env.aisw_home
+                    .join("profiles/antigravity")
+                    .join(&imported)
+                    .join("keyring-secret.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(captured["email"], "go-live@example.com");
+        drop(shadow);
+        assert_success(
+            &canary_cmd(&env, &bin_dir, &["use", "antigravity", &imported]),
+            "activate Go Linux fixture",
+        );
+        item.set_secret(
+            br#"{"email":"go-live@example.com","access_token":"rotated"}"#,
+            "text/plain; charset=utf-8",
+        )
+        .unwrap();
+        assert_success(
+            &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
+            "switch after direct Go token rotation",
+        );
+        let captured: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                env.aisw_home
+                    .join("profiles/antigravity")
+                    .join(&imported)
+                    .join("keyring-secret.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(captured["access_token"], "rotated");
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &["remove", "antigravity", &imported, "--yes"],
+            ),
+            "remove Go Linux fixture",
+        );
+    }
+    #[cfg(windows)]
+    {
+        let shadow = keyring::Entry::new("gemini", "antigravity").unwrap();
+        shadow
+            .set_password(r#"{"email":"rust-shadow@example.com"}"#)
+            .unwrap();
+        let go_entry =
+            keyring::Entry::new_with_target("gemini:antigravity", "gemini", "antigravity").unwrap();
+        go_entry
+            .set_secret("{\"email\":\"go-live@example.com\",\"name\":\"Gödel 👋\"}".as_bytes())
+            .unwrap();
+        let imported = format!("go-import-{suffix}");
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &[
+                    "add",
+                    "antigravity",
+                    &imported,
+                    "--from-live",
+                    "--credential-backend",
+                    "file",
+                ],
+            ),
+            "capture Go Windows credential",
+        );
+        let captured: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                env.aisw_home
+                    .join("profiles/antigravity")
+                    .join(&imported)
+                    .join("keyring-secret.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(captured["email"], "go-live@example.com");
+        assert_eq!(captured["name"], "Gödel 👋");
+        assert_success(
+            &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
+            "switch away from captured Go fixture",
+        );
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &["remove", "antigravity", &imported, "--yes"],
+            ),
+            "remove imported Go fixture",
+        );
+    }
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "claude", &claude_oauth]),
         "claude oauth use",
@@ -432,6 +698,22 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
         "antigravity use",
     );
+    #[cfg(windows)]
+    {
+        let go_entry =
+            keyring::Entry::new_with_target("gemini:antigravity", "gemini", "antigravity").unwrap();
+        assert_eq!(
+            go_entry.get_secret().unwrap(),
+            br#"{"email":"real-antigravity@example.com"}"#
+        );
+        assert_eq!(
+            keyring::Entry::new("gemini", "antigravity")
+                .unwrap()
+                .get_password()
+                .unwrap(),
+            r#"{"email":"rust-shadow@example.com"}"#
+        );
+    }
 
     assert!(
         env.fake_home.join(".codex").join("auth.json").is_file(),
@@ -464,14 +746,14 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     assert_eq!(antigravity_row["active_profile"], antigravity);
     assert_eq!(antigravity_row["credential_backend"], "system_keyring");
     assert_eq!(antigravity_row["credentials_present"], true);
-    assert_eq!(
-        fs::read(env.fake_home.join(".gemini/antigravity-cli/settings.json")).unwrap(),
-        br#"{"modelProvider":"gemini"}"#
-    );
-    assert_eq!(
-        fs::read(env.fake_home.join(".gemini/config/projects/repo.json")).unwrap(),
-        br#"{"mode":"plan"}"#
-    );
+    assert!(!env
+        .fake_home
+        .join(".gemini/antigravity-cli/settings.json")
+        .exists());
+    assert!(!env
+        .fake_home
+        .join(".gemini/config/projects/repo.json")
+        .exists());
 
     let list = json_output(&env, &bin_dir, &["list", "--json"]);
     assert_eq!(list["claude"]["active"], claude_api);
@@ -519,13 +801,13 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         assert_entry_absent(&tracked.service, &tracked.account);
     }
 
+    #[cfg(target_os = "macos")]
+    authorize_ci_keychain_entry("gemini", "antigravity");
+
     cleanup
         .restore()
         .unwrap_or_else(|error| panic!("credential-store canary cleanup failed: {error}"));
-    let restored_live_secret = match keyring::Entry::new("gemini", "antigravity")
-        .unwrap()
-        .get_password()
-    {
+    let restored_live_secret = match cleanup.entries[5].entry.get_secret() {
         Ok(secret) => Some(secret),
         Err(keyring::Error::NoEntry) => None,
         Err(error) => panic!("could not verify restored canary entry: {error}"),
