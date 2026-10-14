@@ -101,7 +101,7 @@ fn assert_entry_absent(service: &str, account: &str) {
 }
 
 #[cfg(target_os = "macos")]
-fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
+fn authorize_ci_keychain_entry(service: &str, account: &str, secret: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_none() {
         return;
     }
@@ -128,11 +128,19 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
         partitions.push(format!("cdhash:{hash}"));
     }
     let output = std::process::Command::new("security")
-        .args(["add-generic-password", "-s", service, "-a", account, "-T"])
+        .args([
+            "add-generic-password",
+            "-U",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-T",
+        ])
         .arg(&test_binary)
         .arg("-T")
         .arg(cli_path)
-        .args(["-w", "aisw-canary-placeholder"])
+        .args(["-w", secret])
         .output()
         .expect("security should be available on macOS");
     assert!(
@@ -440,9 +448,9 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
             &codex_api_account,
             &antigravity_account,
         ] {
-            preauthorize_ci_keychain_entry(KEYRING_SERVICE, account);
+            authorize_ci_keychain_entry(KEYRING_SERVICE, account, "aisw-canary-placeholder");
         }
-        preauthorize_ci_keychain_entry("gemini", "antigravity");
+        authorize_ci_keychain_entry("gemini", "antigravity", "aisw-canary-placeholder");
     }
 
     eprintln!("canary: seed native credentials");
@@ -468,6 +476,22 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .unwrap();
 
     eprintln!("canary: native credentials seeded");
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+        for account in [
+            &claude_oauth_account,
+            &claude_api_account,
+            &codex_oauth_account,
+            &codex_api_account,
+            &antigravity_account,
+        ] {
+            let secret = keyring::Entry::new(KEYRING_SERVICE, account)
+                .unwrap()
+                .get_password()
+                .unwrap();
+            authorize_ci_keychain_entry(KEYRING_SERVICE, account, &secret);
+        }
+    }
     assert_success(
         &canary_cmd(&env, &bin_dir, &["use", "claude", &claude_oauth]),
         "claude oauth use",
