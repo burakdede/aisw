@@ -475,9 +475,7 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
             .get_all_collections()
             .unwrap()
             .into_iter()
-            .find(|collection| {
-                collection.path.to_string() == "/org/freedesktop/secrets/collection/login"
-            })
+            .find(|collection| collection.path == "/org/freedesktop/secrets/collection/login")
             .unwrap_or_else(|| ss.get_default_collection().unwrap());
         collection.ensure_unlocked().unwrap();
         let item = collection
@@ -607,6 +605,10 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .unwrap();
         assert_eq!(captured["email"], "go-live@example.com");
         assert_eq!(captured["name"], "Gödel 👋");
+        assert_success(
+            &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
+            "switch away from captured Go fixture",
+        );
         assert_success(
             &canary_cmd(
                 &env,

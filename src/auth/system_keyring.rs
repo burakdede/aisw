@@ -137,9 +137,11 @@ fn go_windows_entry(service: &str, account: &str) -> Result<keyring::Entry> {
 fn go_collection(
     ss: &dbus_secret_service::SecretService,
 ) -> Result<dbus_secret_service::Collection<'_>> {
-    if let Some(collection) = ss.get_all_collections()?.into_iter().find(|collection| {
-        collection.path.to_string() == "/org/freedesktop/secrets/collection/login"
-    }) {
+    if let Some(collection) = ss
+        .get_all_collections()?
+        .into_iter()
+        .find(|collection| collection.path == "/org/freedesktop/secrets/collection/login")
+    {
         return Ok(collection);
     }
     ss.get_default_collection()

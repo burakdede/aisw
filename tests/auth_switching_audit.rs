@@ -357,7 +357,7 @@ fn antigravity_switch_rejects_malformed_envelopes_without_changing_live_state() 
     )
     .unwrap();
     // A different live account must not synchronize over the broken managed capture.
-    let other = agy_secret("other@example.com", "other");
+    let other = expected_live_secret(&agy_secret("other@example.com", "other"));
     fs::write(agy_live_secret(&env), &other).unwrap();
     env.cmd()
         .args(["use", "antigravity", "first"])
