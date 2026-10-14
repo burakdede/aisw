@@ -399,7 +399,11 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
     #[cfg(windows)]
     let go_live_entry =
         keyring::Entry::new_with_target("gemini:antigravity", "gemini", "antigravity").unwrap();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    let go_live_entry = keyring::Entry::new_with_credential(Box::new(
+        keyring::secret_service::SsCredential::new_with_no_target("gemini", "antigravity").unwrap(),
+    ));
+    #[cfg(not(any(windows, target_os = "linux")))]
     let go_live_entry = keyring::Entry::new("gemini", "antigravity").unwrap();
     let previous_antigravity_live_secret = cleanup
         .track_native_entry("gemini", "antigravity", go_live_entry)
@@ -450,6 +454,78 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .unwrap();
 
     eprintln!("canary: native credentials seeded");
+    #[cfg(target_os = "linux")]
+    {
+        use dbus_secret_service::{EncryptionType, SecretService};
+        use std::collections::HashMap;
+        let ss = SecretService::connect(EncryptionType::Plain).unwrap();
+        let collection = ss
+            .get_all_collections()
+            .unwrap()
+            .into_iter()
+            .find(|collection| {
+                collection.path.to_string() == "/org/freedesktop/secrets/collection/login"
+            })
+            .unwrap_or_else(|| ss.get_default_collection().unwrap());
+        collection.ensure_unlocked().unwrap();
+        let item = collection
+            .create_item(
+                "Go native fixture",
+                HashMap::from([("service", "gemini"), ("username", "antigravity")]),
+                br#"{"email":"go-live@example.com","access_token":"first"}"#,
+                true,
+                "text/plain; charset=utf-8",
+            )
+            .unwrap();
+        let imported = format!("go-import-{suffix}");
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &[
+                    "add",
+                    "antigravity",
+                    &imported,
+                    "--from-live",
+                    "--credential-backend",
+                    "file",
+                ],
+            ),
+            "capture Go Linux credential",
+        );
+        assert_success(
+            &canary_cmd(&env, &bin_dir, &["use", "antigravity", &imported]),
+            "activate Go Linux fixture",
+        );
+        item.set_secret(
+            br#"{"email":"go-live@example.com","access_token":"rotated"}"#,
+            "text/plain; charset=utf-8",
+        )
+        .unwrap();
+        assert_success(
+            &canary_cmd(&env, &bin_dir, &["use", "antigravity", &antigravity]),
+            "switch after direct Go token rotation",
+        );
+        let captured: serde_json::Value = serde_json::from_slice(
+            &fs::read(
+                env.aisw_home
+                    .join("profiles/antigravity")
+                    .join(&imported)
+                    .join("keyring-secret.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(captured["access_token"], "rotated");
+        assert_success(
+            &canary_cmd(
+                &env,
+                &bin_dir,
+                &["remove", "antigravity", &imported, "--yes"],
+            ),
+            "remove Go Linux fixture",
+        );
+    }
     #[cfg(windows)]
     {
         let shadow = keyring::Entry::new("gemini", "antigravity").unwrap();
