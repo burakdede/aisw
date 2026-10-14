@@ -96,6 +96,8 @@ aisw status
 Antigravity switches its keyring credential and authentication provider while
 preserving preferences, global integrations, and runtime files. Gemini switching
 preserves Antigravity's directories under their shared `~/.gemini` parent.
+Live Antigravity credentials use Go's platform storage contract, including the
+macOS `security` transport; managed secure profiles retain Rust's native storage.
 
 Start a new agent session after switching; a running process keeps the account it
 started with. The [quickstart](https://aiswitcher.dev/docs/quickstart/) walks

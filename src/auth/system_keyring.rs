@@ -196,7 +196,7 @@ pub(crate) fn write_go_secret(service: &str, account: &str, secret: &[u8]) -> Re
     }
     #[cfg(target_os = "macos")]
     {
-        upsert_generic_password(service, account, secret)
+        macos_keychain::upsert_go_password(service, account, secret)
     }
     #[cfg(target_os = "windows")]
     {

@@ -38,11 +38,11 @@ Directories under `~/.aisw/` are created with `0700`.
 
 ### OS keyring integration
 
-`aisw` uses the platform-native keyring API through the `keyring` crate:
+`aisw` stores managed secure profiles through the native `keyring` crate:
 
 | Platform | Backend |
 |---|---|
-| macOS | macOS Keychain via `security-framework`, with app-path ACL limiting access to the `claude` binary |
+| macOS | macOS Keychain via `security-framework` |
 | Linux | Secret Service protocol (GNOME Keyring, KWallet) with vendored libdbus  -  no system dbus development package required |
 | Windows | Windows Credential Manager via WinCred API |
 
@@ -53,7 +53,12 @@ touches. The canary runs weekly or can be started manually from GitHub Actions;
 it has a ten-minute per-platform timeout, and it is intentionally fail-closed
 when a runner cannot initialize its native credential store.
 
-On macOS, when writing Claude Code credentials to the Keychain, `aisw` sets a trusted-application ACL so the entry is bound to the `claude` binary path. This prevents other applications from reading the credential without a Keychain access prompt.
+Live Antigravity credentials follow Go's upstream storage contract: macOS
+writes through `/usr/bin/security -i`, Linux selects Go's Secret Service
+collection, and Windows uses Go's target and raw UTF-8 bytes. macOS secrets are
+sent through validated, quoted stdin rather than command arguments. Subprocess
+error text is suppressed because it may include credentials. Native Keychain
+access remains subject to the operating system's authorization policy.
 
 On Linux, if the Secret Service daemon is not running (common on headless servers), `aisw` detects this at runtime, emits a diagnostic, and falls back to `0600` file storage rather than silently using a less-secure path.
 

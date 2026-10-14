@@ -19,6 +19,7 @@ independent of reproduction cases. Release publication is outside this PR.
 | Shared macOS reader → Claude/Antigravity | Released captures include the `security -w` output newline; restoring it changes subsequent output into hex. The already merged #252 strips that transport newline. Internal newlines in Claude JSON still survive that fix. | Keep the transport framing fix; normalize recognized credential JSON to one ASCII line and repair known legacy wrapping. The real disposable-keychain test fails before the additional normalization and passes after it, including multiline/Unicode Claude JSON and clean/damaged Antigravity envelopes. |
 | Antigravity credential envelopes | JSON-only identity parsing misses `go-keyring-base64:`/`go-keyring-encoded:` credentials; refreshed tokens are discarded and duplicates accepted. | Decode envelopes for identity separately from storage. Both managed backends pass refresh round trips, duplicate rejection, and legacy hex-capture repair. Malformed recognized envelopes fail before live mutation. |
 | Antigravity native platform interoperability | Windows Rust targets/UTF-16 blobs differ from Go's service:account/UTF-8 contract; Linux's Rust-target search can select another collection instead of Go's login session. | Use Go's native target/blob/collection contract only for live credentials. Native canaries failed before the repair with a Rust shadow identity instead of the Go identity. Managed aisw entries retain their existing format. |
+| Antigravity macOS live writer → Go reader | After fixing fixture authorization, native activation succeeded but status hung reading the live credential: native writes replaced the reader's partition with the writer's code hash (#285). | Use upstream Go's `security -i` write transport with validated, safely quoted stdin. The hosted native lifecycle at `97501fa` fails in Antigravity status before this repair; final results are recorded on the PR. Managed native entries are unchanged. |
 | Antigravity cross-platform transport | A macOS Go envelope restored literally on Linux/Windows is not decoded by those Go backends. | Decode recognized envelopes at the live write boundary and compare equal decoded payloads across wire formats, including payloads without identity labels. |
 | Antigravity activation and verification | Entire configuration/runtime trees are treated as account state; updater timestamp changes produce verification failure and activation overwrites preferences/integrations. | Activate only the shared keyring credential and provider selector. Verify account/provider state, allowing same-account token rotation. Legacy config snapshots are retained but ignored on activation. Regression tests preserve timestamps, preferences and global MCP settings. |
 | Antigravity provider transitions | A cached keyring session can be captured as OAuth while the active provider is an API key; old provider settings can also prevent an OAuth switch from selecting account auth. | Reject that OAuth capture and detection claim; OAuth removes `modelProvider`, API key sets `gemini`. Round-trip tests preserve unrelated settings. |
@@ -53,6 +54,8 @@ newer releases were inspected.
 
 [ADR 0002](adr/0002-account-state-ownership.md) records the account-state boundary;
 [ADR 0003](adr/0003-upstream-keyring-transports.md) records the native transport boundary.
+[ADR 0004](adr/0004-macos-go-keychain-writes.md) supersedes its macOS transport
+clause after the native lifecycle exposed the writer/reader access mismatch.
 New Antigravity profiles store credentials and keyring metadata without copying
 the configuration trees. Existing profile/backup `app/` and `shared/` content is
 retained for review but is not restored during activation. Gemini likewise
@@ -61,7 +64,8 @@ ignores Antigravity content in older snapshots.
 `use` normalizes recognizable legacy newline/hex captures before native writes.
 Windows applies to `gemini:antigravity` as raw UTF-8, leaving the old unintended
 Rust `antigravity.gemini` shadow entry untouched. Linux uses Go's login/default
-collection lookup, without Rust target attributes. macOS envelopes are decoded
+collection lookup, without Rust target attributes. macOS writes through Go's
+`security -i` transport, preserving the CLI reader's access and envelope bytes. macOS envelopes are decoded
 when restoring onto the other platforms.
 Opaque unrecognized values are not blindly hex-decoded; malformed recognized
 envelopes are rejected. Expired or revoked credentials need a new upstream login

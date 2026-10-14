@@ -90,3 +90,8 @@ The [authentication switching audit](docs/auth-switching-audit.md) records the
 2026-10-14 upstream versions, evidence, ownership boundaries, and regression
 results. Antigravity uses a shared native keyring session and a provider setting;
 its global configuration trees are not per-account snapshots.
+
+Live Antigravity macOS writes use Go's `security -i` transport, preserving the
+upstream CLI reader's Keychain access. Managed aisw entries retain native Rust
+storage. The hosted native canary checks status after activation without
+reauthorizing the live item between those operations. See ADR 0004.

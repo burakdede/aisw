@@ -26,6 +26,10 @@
 
 ### Fixed
 
+- Use Antigravity's Go macOS Keychain write transport so subsequent status
+  and upstream credential reads retain access after switching. Secrets travel
+  through safely quoted stdin, with command-input validation.
+
 - Match Antigravity's native Windows target and UTF-8 bytes, and Linux login
   collection lookup. Decode macOS envelopes when restoring across platforms;
   native Go-shaped fixtures detect conflicting Rust records.
