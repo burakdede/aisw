@@ -105,22 +105,60 @@ fn preauthorize_ci_keychain_entry(service: &str, account: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_none() {
         return;
     }
+    let test_binary = std::env::current_exe().unwrap();
+    let cli_binary = Command::cargo_bin("aisw").unwrap();
+    let cli_path = cli_binary.get_program();
+    let mut partitions = vec!["apple-tool:".to_owned(), "apple:".to_owned()];
+    for path in [test_binary.as_os_str(), cli_path] {
+        let signature = std::process::Command::new("codesign")
+            .args(["-dv", "--verbose=4"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(
+            signature.status.success(),
+            "canary executable must be signed"
+        );
+        let metadata = String::from_utf8_lossy(&signature.stderr);
+        let hash = metadata
+            .lines()
+            .find_map(|line| line.strip_prefix("CDHash="))
+            .expect("signed executable must have a CodeDirectory hash");
+        partitions.push(format!("cdhash:{hash}"));
+    }
     let output = std::process::Command::new("security")
-        .args([
-            "add-generic-password",
-            "-A",
-            "-s",
-            service,
-            "-a",
-            account,
-            "-w",
-            "aisw-canary-placeholder",
-        ])
+        .args(["add-generic-password", "-s", service, "-a", account, "-T"])
+        .arg(&test_binary)
+        .arg("-T")
+        .arg(cli_path)
+        .args(["-w", "aisw-canary-placeholder"])
         .output()
         .expect("security should be available on macOS");
     assert!(
         output.status.success(),
-        "could not preauthorize disposable keychain entry {service}/{account}: {}",
+        "could not preauthorize disposable entry: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let keychain_path =
+        std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
+    let output = std::process::Command::new("security")
+        .args([
+            "set-generic-password-partition-list",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-S",
+            &partitions.join(","),
+            "-k",
+            "aisw-ci-canary",
+            &keychain_path,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "could not authorize canary code identities: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
@@ -166,10 +204,16 @@ fn canary_cmd(env: &TestEnv, bin_dir: &Path, args: &[&str]) -> std::process::Out
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME");
     #[cfg(target_os = "macos")]
-    cmd.env(
-        "HOME",
-        std::env::var("HOME").expect("macOS runner home should be set"),
-    );
+    {
+        cmd.env(
+            "HOME",
+            std::env::var("HOME").expect("macOS runner home should be set"),
+        );
+        cmd.env(
+            "PATH",
+            std::env::join_paths([bin_dir, Path::new("/usr/bin"), Path::new("/bin")]).unwrap(),
+        );
+    }
     #[cfg(windows)]
     {
         // `dirs::home_dir()` uses the Windows profile known folder, not HOME.
