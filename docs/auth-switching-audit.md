@@ -103,9 +103,14 @@ credentials or real Google-account sessions were used.
   the linked pull request checks for the result at the current commit.
 - Required Linux/macOS/Windows CI, Linux coverage gates and extension
   compatibility passed. Linux and Windows native-store canaries also passed.
-  The hosted macOS native-store canary remains blocked by cross-process
-  Keychain authorization in its fixture ([#282](https://github.com/burakdede/aisw/issues/282)).
-  Bounded diagnostics report the failure; they do not convert it to success.
+  The initial hosted macOS fixture failure (#282) was traced to native writes
+  replacing the shared code partitions. Fixing fixture authorization exposed
+  a production Go-reader failure after activation (#285), repaired by the Go
+  macOS write transport. The [native canary at `5ed7c1b`](https://github.com/burakdede/aisw/actions/runs/38542853840)
+  passes macOS, Linux and Windows lifecycle assertions, including Antigravity
+  status after activation without intervening fixture reauthorization.
+  Required CI, coverage and extension checks also pass at that source revision.
+  Two real Google-account sessions have not yet been tested.
 
 ## Limits
 
