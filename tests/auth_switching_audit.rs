@@ -11,6 +11,19 @@ fn agy_secret(email: &str, token: &str) -> String {
     format!("go-keyring-base64:{}", STANDARD.encode(payload.to_string()))
 }
 
+fn expected_live_secret(secret: &str) -> String {
+    if cfg!(target_os = "macos") {
+        secret.to_owned()
+    } else {
+        String::from_utf8(
+            STANDARD
+                .decode(secret.strip_prefix("go-keyring-base64:").unwrap())
+                .unwrap(),
+        )
+        .unwrap()
+    }
+}
+
 fn keyring_secret(env: &TestEnv, service: &str, account: &str) -> PathBuf {
     let account = if cfg!(windows) {
         format!(
@@ -91,7 +104,7 @@ fn antigravity_encoded_refresh_survives_switching_for_both_backends() {
             .success();
         assert_eq!(
             fs::read_to_string(agy_live_secret(&env)).unwrap(),
-            refreshed
+            expected_live_secret(&refreshed)
         );
         assert_eq!(agy_status(&env)["active_profile_applied"], true);
     }
@@ -226,7 +239,10 @@ fn antigravity_switch_repairs_hex_wrapped_legacy_credentials() {
             .args(["use", "antigravity", "first"])
             .assert()
             .success();
-        assert_eq!(fs::read_to_string(agy_live_secret(&env)).unwrap(), clean);
+        assert_eq!(
+            fs::read_to_string(agy_live_secret(&env)).unwrap(),
+            expected_live_secret(&clean)
+        );
         assert_eq!(agy_status(&env)["active_profile_applied"], true);
     }
 }
@@ -382,7 +398,10 @@ fn antigravity_provider_round_trip_preserves_preferences() {
         serde_json::from_slice(&fs::read(&settings_path).unwrap()).unwrap();
     assert!(settings.get("modelProvider").is_none());
     assert_eq!(settings["theme"], "dark");
-    assert_eq!(fs::read_to_string(agy_live_secret(&env)).unwrap(), secret);
+    assert_eq!(
+        fs::read_to_string(agy_live_secret(&env)).unwrap(),
+        expected_live_secret(&secret)
+    );
 }
 
 #[test]
@@ -623,4 +642,21 @@ fn gemini_env_capture_preserves_the_source_symlink_guard() {
         fs::read(source).unwrap(),
         b"GEMINI_API_KEY=AIza-synthetic-key\n"
     );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn antigravity_restores_mac_envelopes_as_plain_go_credentials_without_identity() {
+    let env = TestEnv::new();
+    let payload = serde_json::json!({"access_token":"opaque-token", "name":"Gödel 👋"});
+    let envelope = format!("go-keyring-base64:{}", STANDARD.encode(payload.to_string()));
+    add_agy(&env, "portable", &envelope, "file");
+    env.cmd()
+        .args(["use", "antigravity", "portable"])
+        .assert()
+        .success();
+    let live: serde_json::Value =
+        serde_json::from_slice(&fs::read(agy_live_secret(&env)).unwrap()).unwrap();
+    assert_eq!(live, payload);
+    assert_eq!(agy_status(&env)["active_profile_applied"], true);
 }

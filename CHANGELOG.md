@@ -26,6 +26,10 @@
 
 ### Fixed
 
+- Match Antigravity's native Windows target and UTF-8 bytes, and Linux login
+  collection lookup. Decode macOS envelopes when restoring across platforms;
+  native Go-shaped fixtures detect conflicting Rust records.
+
 - Repair Antigravity's encoded OAuth captures, including recognizable legacy
   hex wrapping, and preserve refreshed tokens before switching accounts.
 - Keep Antigravity preferences, global integrations, caches and updater locks

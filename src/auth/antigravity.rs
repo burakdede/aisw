@@ -228,9 +228,9 @@ pub fn live_credentials_snapshot_for_import(user_home: &Path) -> Result<Option<L
 pub fn capture_live_snapshot(user_home: &Path) -> Result<LiveSnapshot> {
     let keyring_ref = default_live_keyring_ref();
     Ok(LiveSnapshot {
-        keyring_secret: super::system_keyring::read_generic_password(
+        keyring_secret: super::system_keyring::read_go_secret(
             &keyring_ref.service,
-            Some(&keyring_ref.account),
+            &keyring_ref.account,
         )?
         .map(|bytes| normalize_secret(&bytes))
         .transpose()?,
@@ -281,6 +281,16 @@ fn normalize_secret(bytes: &[u8]) -> Result<Vec<u8>> {
         candidate = super::trim_credential_payload(&decoded).to_vec();
     }
     Ok(super::trim_credential_payload(bytes).to_vec())
+}
+
+fn live_secret_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
+    let normalized = normalize_secret(bytes)?;
+    if cfg!(target_os = "macos") || !normalized.starts_with(b"go-keyring-") {
+        return Ok(normalized);
+    }
+    let value = decode_secret_value(&normalized)?
+        .context("Go keyring envelope must contain credential JSON")?;
+    serde_json::to_vec(&value).context("could not serialize Go credential JSON")
 }
 
 fn decode_hex(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -433,10 +443,10 @@ pub fn apply_live_credentials(
     };
 
     apply_provider_settings(user_home, None)?;
-    super::system_keyring::upsert_generic_password(
+    super::system_keyring::write_go_secret(
         &keyring_ref.service,
         &keyring_ref.account,
-        &secret,
+        &live_secret_bytes(&secret)?,
     )
 }
 
@@ -492,17 +502,22 @@ pub fn live_state_matches(
     }
     let keyring_ref = read_profile_keyring_ref(profile_store, profile_name)?;
     let managed_secret = read_managed_secret(profile_store, profile_name, backend)?;
-    let live_secret = super::system_keyring::read_generic_password(
-        &keyring_ref.service,
-        Some(&keyring_ref.account),
-    )?;
+    let live_secret =
+        super::system_keyring::read_go_secret(&keyring_ref.service, &keyring_ref.account)?;
     let live_secret = live_secret
         .map(|bytes| normalize_secret(&bytes))
         .transpose()?;
     let secrets_match = match (managed_secret.as_deref(), live_secret.as_deref()) {
         (Some(managed), Some(live)) if managed == live => true,
         (Some(managed), Some(live)) => {
-            identity::oauth_identity_matches(Tool::Antigravity, managed, live)?
+            let same_payload = match (
+                credential_json_value(managed)?,
+                credential_json_value(live)?,
+            ) {
+                (Some(managed), Some(live)) => managed == live,
+                _ => false,
+            };
+            same_payload || identity::oauth_identity_matches(Tool::Antigravity, managed, live)?
         }
         _ => false,
     };
@@ -604,12 +619,12 @@ pub fn restore_snapshot_to_live(snapshot: &LiveSnapshot, user_home: &Path) -> Re
     };
     crate::live_apply::apply_transaction(user_home, vec![change])?;
     match snapshot.keyring_secret.as_deref() {
-        Some(secret) => super::system_keyring::upsert_generic_password(
+        Some(secret) => super::system_keyring::write_go_secret(
             &snapshot.keyring_ref.service,
             &snapshot.keyring_ref.account,
-            secret,
+            &live_secret_bytes(secret)?,
         ),
-        None => super::system_keyring::delete_generic_password(
+        None => super::system_keyring::delete_go_secret(
             &snapshot.keyring_ref.service,
             &snapshot.keyring_ref.account,
         ),
@@ -769,12 +784,8 @@ mod tests {
             br#"{"mode":"plan"}"#,
         )
         .unwrap();
-        super::super::system_keyring::upsert_generic_password(
-            KEYRING_SERVICE,
-            KEYRING_ACCOUNT,
-            secret,
-        )
-        .unwrap();
+        super::super::system_keyring::write_go_secret(KEYRING_SERVICE, KEYRING_ACCOUNT, secret)
+            .unwrap();
     }
 
     #[test]
@@ -808,7 +819,7 @@ mod tests {
             br#"{"theme":"light"}"#,
         )
         .unwrap();
-        super::super::system_keyring::upsert_generic_password(
+        super::super::system_keyring::write_go_secret(
             KEYRING_SERVICE,
             KEYRING_ACCOUNT,
             br#"{"email":"other@example.com"}"#,
@@ -972,7 +983,7 @@ mod tests {
             br#"{"theme":"light"}"#,
         )
         .unwrap();
-        super::super::system_keyring::upsert_generic_password(
+        super::super::system_keyring::write_go_secret(
             KEYRING_SERVICE,
             KEYRING_ACCOUNT,
             br#"{"email":"work@example.com","token":"new-live"}"#,
@@ -1063,7 +1074,7 @@ mod tests {
         )
         .unwrap();
 
-        super::super::system_keyring::upsert_generic_password(
+        super::super::system_keyring::write_go_secret(
             KEYRING_SERVICE,
             KEYRING_ACCOUNT,
             br#"{"email":"other@example.com"}"#,

@@ -126,6 +126,7 @@ API key profiles store a `.env` file containing `GEMINI_API_KEY=<key>`. Switchin
 ### Antigravity CLI
 
 - Live auth: OS-native keyring entry (`service=gemini`, `account=antigravity`) as observed in upstream issue reports and docs-aligned behavior.
+- Native transport: macOS Go envelopes, Windows `gemini:antigravity` with raw UTF-8, and Linux login/default Secret Service collection with service/username attributes. aisw-managed keyring entries use a separate storage contract.
 - Provider selection: `modelProvider` in `~/.gemini/antigravity-cli/settings.json`; other config/runtime files remain shared.
 - `--from-live`: captures the current live keyring-backed session without copying global configuration or runtime files.
 - Interactive OAuth: launches `agy`, captures the resulting live keyring session, and restores the prior live state unless `--set-active` is requested.

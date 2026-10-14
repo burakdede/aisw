@@ -115,6 +115,166 @@ pub fn delete_generic_password(service: &str, account: &str) -> Result<()> {
     }
 }
 
+fn validate_go_keyring_ref(service: &str, account: &str) -> Result<()> {
+    if service.is_empty()
+        || account.is_empty()
+        || service.chars().chain(account.chars()).any(char::is_control)
+    {
+        anyhow::bail!(
+            "Go keyring service and account must be non-empty and contain no control characters"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn go_windows_entry(service: &str, account: &str) -> Result<keyring::Entry> {
+    keyring::Entry::new_with_target(&format!("{service}:{account}"), service, account)
+        .context("could not open Go-compatible Windows credential")
+}
+
+#[cfg(target_os = "linux")]
+fn go_collection(
+    ss: &dbus_secret_service::SecretService,
+) -> Result<dbus_secret_service::Collection<'_>> {
+    if let Some(collection) = ss.get_all_collections()?.into_iter().find(|collection| {
+        collection.path.to_string() == "/org/freedesktop/secrets/collection/login"
+    }) {
+        return Ok(collection);
+    }
+    ss.get_default_collection()
+        .context("could not find Go keyring's default collection")
+}
+
+pub(crate) fn read_go_secret(service: &str, account: &str) -> Result<Option<Vec<u8>>> {
+    validate_go_keyring_ref(service, account)?;
+    if let Some(root) = fake_root() {
+        return read_fake_password(&root, service, Some(account));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_keychain::read_generic_password(service, Some(account))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        match go_windows_entry(service, account)?.get_secret() {
+            Ok(secret) => Ok(Some(secret)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error).context("could not read Go Windows credential"),
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use dbus_secret_service::{EncryptionType, SecretService};
+        let ss = SecretService::connect(EncryptionType::Dh)?;
+        let collection = go_collection(&ss)?;
+        collection.ensure_unlocked()?;
+        let items = collection.search_items(std::collections::HashMap::from([
+            ("service", service),
+            ("username", account),
+        ]))?;
+        match items.into_iter().next() {
+            Some(item) => {
+                item.ensure_unlocked()?;
+                Ok(Some(item.get_secret()?))
+            }
+            None => Ok(None),
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        anyhow::bail!("Go keyring is unsupported on this platform")
+    }
+}
+
+pub(crate) fn write_go_secret(service: &str, account: &str, secret: &[u8]) -> Result<()> {
+    validate_go_keyring_ref(service, account)?;
+    if let Some(root) = fake_root() {
+        return write_fake_password(&root, service, account, secret);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        upsert_generic_password(service, account, secret)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        go_windows_entry(service, account)?
+            .set_secret(secret)
+            .context("could not write Go Windows credential")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use dbus_secret_service::{EncryptionType, SecretService};
+        let ss = SecretService::connect(EncryptionType::Dh)?;
+        let collection = go_collection(&ss)?;
+        collection.ensure_unlocked()?;
+        let attributes =
+            std::collections::HashMap::from([("service", service), ("username", account)]);
+        let items = collection.search_items(attributes.clone())?;
+        match items.into_iter().next() {
+            Some(item) => {
+                item.ensure_unlocked()?;
+                item.set_secret(secret, "text/plain; charset=utf-8")?;
+            }
+            None => {
+                collection.create_item(
+                    &format!("Password for '{account}' on '{service}'"),
+                    attributes,
+                    secret,
+                    true,
+                    "text/plain; charset=utf-8",
+                )?;
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        anyhow::bail!("Go keyring is unsupported on this platform")
+    }
+}
+
+pub(crate) fn delete_go_secret(service: &str, account: &str) -> Result<()> {
+    validate_go_keyring_ref(service, account)?;
+    if let Some(root) = fake_root() {
+        return delete_fake_password(&root, service, account);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        delete_generic_password(service, account)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        match go_windows_entry(service, account)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(error).context("could not delete Go Windows credential"),
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use dbus_secret_service::{EncryptionType, SecretService};
+        let ss = SecretService::connect(EncryptionType::Dh)?;
+        let collection = go_collection(&ss)?;
+        collection.ensure_unlocked()?;
+        if let Some(item) = collection
+            .search_items(std::collections::HashMap::from([
+                ("service", service),
+                ("username", account),
+            ]))?
+            .into_iter()
+            .next()
+        {
+            item.ensure_unlocked()?;
+            item.delete()?;
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        anyhow::bail!("Go keyring is unsupported on this platform")
+    }
+}
+
 pub fn find_generic_password_account(service: &str) -> Result<Option<String>> {
     find_generic_password_account_with_candidates(service, &[])
 }

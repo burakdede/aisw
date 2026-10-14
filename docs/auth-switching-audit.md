@@ -18,6 +18,8 @@ independent of reproduction cases. Release publication is outside this PR.
 |---|---|---|
 | Shared macOS reader → Claude/Antigravity | Released captures include the `security -w` output newline; restoring it changes subsequent output into hex. The already merged #252 strips that transport newline. Internal newlines in Claude JSON still survive that fix. | Keep the transport framing fix; normalize recognized credential JSON to one ASCII line and repair known legacy wrapping. The real disposable-keychain test fails before the additional normalization and passes after it, including multiline/Unicode Claude JSON and clean/damaged Antigravity envelopes. |
 | Antigravity credential envelopes | JSON-only identity parsing misses `go-keyring-base64:`/`go-keyring-encoded:` credentials; refreshed tokens are discarded and duplicates accepted. | Decode envelopes for identity separately from storage. Both managed backends pass refresh round trips, duplicate rejection, and legacy hex-capture repair. Malformed recognized envelopes fail before live mutation. |
+| Antigravity native platform interoperability | Windows Rust targets/UTF-16 blobs differ from Go's service:account/UTF-8 contract; Linux's Rust-target search can select another collection instead of Go's login session. | Use Go's native target/blob/collection contract only for live credentials. Native canaries failed before the repair with a Rust shadow identity instead of the Go identity. Managed aisw entries retain their existing format. |
+| Antigravity cross-platform transport | A macOS Go envelope restored literally on Linux/Windows is not decoded by those Go backends. | Decode recognized envelopes at the live write boundary and compare equal decoded payloads across wire formats, including payloads without identity labels. |
 | Antigravity activation and verification | Entire configuration/runtime trees are treated as account state; updater timestamp changes produce verification failure and activation overwrites preferences/integrations. | Activate only the shared keyring credential and provider selector. Verify account/provider state, allowing same-account token rotation. Legacy config snapshots are retained but ignored on activation. Regression tests preserve timestamps, preferences and global MCP settings. |
 | Antigravity provider transitions | A cached keyring session can be captured as OAuth while the active provider is an API key; old provider settings can also prevent an OAuth switch from selecting account auth. | Reject that OAuth capture and detection claim; OAuth removes `modelProvider`, API key sets `gemini`. Round-trip tests preserve unrelated settings. |
 | Gemini → Antigravity | Gemini copies, compares, restores and deletes Antigravity files under their common `.gemini` parent, including old copies in stored profiles. Arbitrary files can also look like OAuth state. | Exclude Antigravity-owned roots before traversal in every Gemini state operation. Require a primary OAuth credential file for capture. Recursive rollback uses the same boundary. Cross-tool capture/switch/status tests fail before the exclusion and pass afterward. |
@@ -41,7 +43,7 @@ macOS newline bug.
 | Claude Code | [Authentication](https://code.claude.com/docs/en/authentication), latest release `v2.1.296`: macOS Keychain, file fallback, configured directory scoping, organization restrictions. | Preserve file/native-Keychain JSON semantics and structured organization identity. Keep existing scoped/legacy mode restrictions. |
 | Codex CLI | [Authentication](https://learn.chatgpt.com/docs/auth), [storage implementation at `rust-v0.162.1`](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/login/src/auth/storage.rs): `CODEX_HOME`, file/keyring/auto/ephemeral stores and workspace constraints. | Import readable `auth.json`; managed secure profiles still apply upstream file storage. Native keyring-only/ephemeral import and shared ChatGPT refresh-token switching remain unsupported. Workspace IDs remain part of refresh identity. |
 | Gemini CLI | [Authentication](https://geminicli.com/docs/get-started/authentication/), [storage](https://github.com/google-gemini/gemini-cli/blob/v0.64.0/packages/core/src/config/storage.ts), [OAuth implementation](https://github.com/google-gemini/gemini-cli/blob/v0.64.0/packages/core/src/code_assist/oauth2.ts): file OAuth and optional encrypted storage, global config/runtime under `.gemini`. | Manage file OAuth and API-key profiles; preserve Antigravity roots. Unsupported encrypted OAuth is rejected rather than reported as switched. |
-| Antigravity CLI | [Installation/auth](https://antigravity.google/docs/cli/install), [settings](https://antigravity.google/docs/settings/), [MCP](https://antigravity.google/docs/mcp/), [updater/Keychain troubleshooting](https://antigravity.google/docs/cli/troubleshooting/), official `1.3.4` macOS artifact and [go-keyring implementation](https://github.com/zalando/go-keyring/blob/master/keyring_darwin.go). | Shared keyring auth with a provider setting. Global preferences, integrations and runtime files are shared, not account snapshots. Exact service/account and envelope details are implementation evidence, not a promised public configuration API. |
+| Antigravity CLI | [Installation/auth](https://antigravity.google/docs/cli/install), [settings](https://antigravity.google/docs/settings/), [MCP](https://antigravity.google/docs/mcp/), [updater/Keychain troubleshooting](https://antigravity.google/docs/cli/troubleshooting/), official `1.3.4` macOS artifact and [macOS](https://github.com/zalando/go-keyring/blob/master/keyring_darwin.go), [Windows](https://github.com/zalando/go-keyring/blob/master/keyring_windows.go) and [Linux](https://github.com/zalando/go-keyring/blob/master/keyring_unix.go) keyring implementations. | Shared keyring auth with a provider setting. Global preferences, integrations and runtime files are shared, not account snapshots. Exact service/account and envelope details are implementation evidence, not a promised public configuration API. |
 
 These are reviewed contracts, not newly claimed end-to-end compatibility
 baselines. The existing compatibility baseline is not bumped merely because
@@ -49,13 +51,18 @@ newer releases were inspected.
 
 ## Ownership and migration
 
-[ADR 0002](adr/0002-account-state-ownership.md) records the account-state boundary.
+[ADR 0002](adr/0002-account-state-ownership.md) records the account-state boundary;
+[ADR 0003](adr/0003-upstream-keyring-transports.md) records the native transport boundary.
 New Antigravity profiles store credentials and keyring metadata without copying
 the configuration trees. Existing profile/backup `app/` and `shared/` content is
 retained for review but is not restored during activation. Gemini likewise
 ignores Antigravity content in older snapshots.
 
 `use` normalizes recognizable legacy newline/hex captures before native writes.
+Windows applies to `gemini:antigravity` as raw UTF-8, leaving the old unintended
+Rust `antigravity.gemini` shadow entry untouched. Linux uses Go's login/default
+collection lookup, without Rust target attributes. macOS envelopes are decoded
+when restoring onto the other platforms.
 Opaque unrecognized values are not blindly hex-decoded; malformed recognized
 envelopes are rejected. Expired or revoked credentials need a new upstream login
 and capture. Serialization repair cannot obtain a new provider token.
@@ -108,3 +115,9 @@ native-store lifecycle separately on disposable CI hosts.
 The reporter's literal `Status: fail` corresponds to `aisw verify`; the inspected
 `status` command prints a descriptive `State`. The independently failing
 regressions establish the defects regardless of that wording discrepancy.
+
+The initial suspected Linux kernel-cache defect was not reproduced. The native
+rotation test passed before the adapter change, and inspection showed keyring
+3.6.3's selected builder creates Secret Service credentials directly despite
+the module's cache documentation. The confirmed Linux defect is collection
+selection; the conflicting-collection test failed with the shadow identity.
