@@ -127,6 +127,50 @@ fn authorize_ci_keychain_entry(service: &str, account: &str, secret: &str) {
             .expect("signed executable must have a CodeDirectory hash");
         partitions.push(format!("cdhash:{hash}"));
     }
+    let keychain_path =
+        std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
+    let authorize_partitions = || {
+        let output = std::process::Command::new("security")
+            .args([
+                "set-generic-password-partition-list",
+                "-s",
+                service,
+                "-a",
+                account,
+                "-S",
+                &partitions.join(","),
+                "-k",
+                "aisw-ci-canary",
+                &keychain_path,
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "could not authorize canary code identities: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    let existing = std::process::Command::new("security")
+        .args([
+            "find-generic-password",
+            "-s",
+            service,
+            "-a",
+            account,
+            &keychain_path,
+        ])
+        .output()
+        .unwrap();
+    if existing.status.success() {
+        authorize_partitions();
+    } else {
+        assert_eq!(
+            existing.status.code(),
+            Some(44),
+            "could not inspect fixture entry"
+        );
+    }
     let output = std::process::Command::new("security")
         .args([
             "add-generic-password",
@@ -141,6 +185,7 @@ fn authorize_ci_keychain_entry(service: &str, account: &str, secret: &str) {
         .arg("-T")
         .arg(cli_path)
         .args(["-w", secret])
+        .arg(&keychain_path)
         .output()
         .expect("security should be available on macOS");
     assert!(
@@ -148,28 +193,7 @@ fn authorize_ci_keychain_entry(service: &str, account: &str, secret: &str) {
         "could not preauthorize disposable entry: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let keychain_path =
-        std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
-    let output = std::process::Command::new("security")
-        .args([
-            "set-generic-password-partition-list",
-            "-s",
-            service,
-            "-a",
-            account,
-            "-S",
-            &partitions.join(","),
-            "-k",
-            "aisw-ci-canary",
-            &keychain_path,
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "could not authorize canary code identities: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    authorize_partitions();
 }
 
 fn canary_suffix() -> String {
