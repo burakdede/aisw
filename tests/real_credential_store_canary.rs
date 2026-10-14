@@ -509,6 +509,20 @@ fn real_credential_store_canary_covers_secure_auth_modes() {
         .unwrap();
 
     eprintln!("canary: native credentials seeded");
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+        let keychain_path =
+            std::env::var("HOME").unwrap() + "/Library/Keychains/aisw-canary.keychain-db";
+        let output = std::process::Command::new("/usr/bin/security")
+            .args(["dump-keychain", "-a", &keychain_path])
+            .output()
+            .unwrap();
+        eprintln!(
+            "canary: fixture ACLs after native writes\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     #[cfg(target_os = "linux")]
     {
         use dbus_secret_service::{EncryptionType, SecretService};
