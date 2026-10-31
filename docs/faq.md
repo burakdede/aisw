@@ -48,16 +48,18 @@ aisw use codex client-a
 
 ## How do I switch between Gemini CLI accounts?
 
-Create one named profile per Gemini account and activate the profile before launching Gemini CLI:
+Use profiles for eligible enterprise Gemini sign-ins, API keys, or Vertex AI. Google ended Gemini CLI access for free, Google AI Pro, and Google AI Ultra individual sign-ins on June 18, 2026; use [Antigravity CLI](supported-tools.md#antigravity-cli) for those accounts. See the [official announcement](https://github.com/google-gemini/gemini-cli/discussions/28017).
+
+For two eligible enterprise accounts, save each login separately and activate the profile before launching Gemini CLI:
 
 ```sh
 aisw add gemini work
-aisw add gemini personal
+aisw add gemini client-acme
 aisw use gemini work
 gemini
 ```
 
-For API-key profiles, pass the key during `aisw add`. For an account already active in Gemini CLI, use `aisw add gemini <name> --from-live`. Start a new Gemini process after switching; see [Adding profiles](adding-profiles.md) and [Gemini CLI details](supported-tools.md#gemini-cli).
+For an API-key profile, set `GEMINI_API_KEY` and run `aisw add gemini work --from-env`. To capture an eligible account already active in Gemini CLI, use `aisw add gemini <name> --from-live`. Start a new Gemini process after switching; see [Adding profiles](adding-profiles.md) and [Gemini CLI details](supported-tools.md#gemini-cli).
 
 ## How do I use different Claude, Codex, and Gemini accounts for one client?
 
